@@ -840,7 +840,91 @@ window.__ModuleLoader__.load({
 .dd-toast.err{border-color:var(--danger);color:var(--danger)}
 .dd-toast.ok{border-color:var(--ok);color:var(--ok)}
 
-/* ── narrow panel: 容器查询（宿主宽度不由本插件决定）─────────────────── */
+/* ── 首页 / 作品卡 ───────────────────────────────────────────────────── */
+.dd-home{padding:26px 22px 40px;max-width:1280px;margin:0 auto}
+.dd-home-hero{
+  display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;
+  padding:22px 24px;border:.5px solid var(--line);border-radius:var(--r-xl);
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb,var(--accent) 14%,transparent), transparent 62%),
+    color-mix(in srgb,var(--card) 70%,transparent);
+  box-shadow:var(--elev-panel);
+}
+.dd-home-hero .h1{font-family:var(--serif);font-size:26px;font-weight:600;letter-spacing:.01em}
+.dd-home-hero .h2{font-size:13px;color:var(--ink2);line-height:1.75;margin-top:8px;max-width:640px}
+.dd-home-hero .h3{font-size:11.5px;color:var(--ink4);margin-top:10px;line-height:1.7}
+.dd-home-sec{margin-top:22px}
+.dd-home-sec h4{
+  margin:0 0 10px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink4);
+  font-family:var(--dsw-font-family-brand,"Montserrat",system-ui,sans-serif);font-weight:500;
+}
+.dd-works{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:12px}
+.dd-work-card{
+  position:relative;text-align:left;padding:13px 15px;border:.5px solid var(--line);border-radius:var(--r-lg);
+  background:var(--card);box-shadow:var(--elev-panel);cursor:pointer;
+  transition:transform .2s var(--pop),box-shadow .2s var(--ease),border-color .2s var(--ease);
+}
+.dd-work-card:hover{transform:translateY(-3px);box-shadow:var(--elev-prominent);border-color:var(--accent)}
+.dd-work-card.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.dd-work-card .wt{font-family:var(--serif);font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-work-card .wi{font-family:var(--latin-serif);font-size:10.5px;color:var(--ink4);margin-top:3px}
+.dd-work-card .wm{display:flex;gap:9px;margin-top:9px;font-size:11px;color:var(--ink3);font-family:var(--latin-serif)}
+.dd-work-card.new{
+  display:flex;align-items:center;justify-content:center;gap:8px;min-height:96px;
+  border-style:dashed;color:var(--ink3);background:transparent;
+}
+.dd-work-card.new:hover{color:var(--accent)}
+
+/* ── 构思会话（右栏） ─────────────────────────────────────────────────── */
+.dd-chat{
+  width:clamp(340px,34%,460px);flex:0 0 auto;border-left:.5px solid var(--line);
+  background:color-mix(in srgb,var(--bg) 90%,transparent);
+  display:flex;flex-direction:column;min-height:0;
+}
+.dd-chat-head{
+  display:flex;align-items:center;gap:9px;padding:10px 13px;border-bottom:.5px solid var(--line);flex:none;
+}
+.dd-chat-head .ch-t{font-size:12.5px;font-weight:600}
+.dd-chat-head .ch-sub{font-size:10.5px;color:var(--ink4);font-family:var(--latin-serif)}
+.dd-chat-flow{flex:1 1 auto;overflow:auto;padding:13px;display:flex;flex-direction:column;gap:11px;min-height:0}
+.dd-chat-flow>*{flex:0 0 auto}
+.dd-msg{display:flex;flex-direction:column;gap:4px;max-width:100%}
+.dd-msg .who{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4)}
+.dd-msg .body{
+  font-size:12.5px;line-height:1.72;white-space:pre-wrap;word-break:break-word;
+  padding:9px 12px;border-radius:var(--r-md);border:.5px solid var(--line);background:var(--card);color:var(--ink);
+}
+.dd-msg.user{align-items:flex-end}
+.dd-msg.user .body{background:color-mix(in srgb,var(--accent) 16%,var(--card));border-color:color-mix(in srgb,var(--accent) 34%,transparent)}
+.dd-msg.tool .body{
+  font-family:var(--latin-serif);font-size:11px;color:var(--ink3);background:transparent;
+  border-style:dashed;padding:5px 9px;
+}
+.dd-msg.err .body{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 9%,transparent)}
+.dd-chat-empty{
+  margin:auto;text-align:center;color:var(--ink3);font-size:12px;line-height:1.8;padding:20px 12px;max-width:300px;
+}
+.dd-chat-composer{
+  flex:none;border-top:.5px solid var(--line);padding:10px 11px 11px;display:flex;flex-direction:column;gap:7px;
+}
+.dd-chat-composer textarea{
+  width:100%;min-height:64px;max-height:170px;resize:vertical;padding:9px 11px;
+  border-radius:var(--r-md);border:.5px solid var(--line);background:var(--card);color:var(--ink);
+  font-size:12.5px;line-height:1.65;outline:none;
+}
+.dd-chat-composer textarea:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--ink)}
+.dd-chat-composer .row{display:flex;gap:7px;align-items:center}
+.dd-chat-composer .hint{font-size:10.5px;color:var(--ink4);line-height:1.5}
+
+/* ── narrow panel ─────────────────────────────────────────────────────── */
+@container dd-root (max-width: 1080px){
+  .dd-home{padding:18px 16px 30px}
+  .dd-home-hero{padding:16px 18px;gap:14px}
+  .dd-home-hero .h1{font-size:21px}
+  .dd-home-hero .h2{font-size:12.5px}
+  .dd-works{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+  .dd-chat{width:clamp(320px,40%,420px)}
+}
 @container dd-root (max-width: 900px){
   .dd-detail{width:clamp(320px,46%,460px)}
   .dd-outline-row{grid-template-columns:112px minmax(0,1fr)}
@@ -2297,6 +2381,346 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // ── 宿主客户端服务的接线 ───────────────────────────────────────────────
+    //
+    // Client 半边拿不到 `ctx`，只有 `apply(ctx)` 拿得到。把 ctx 记在这里，
+    // 组件才用得上 `sessions` / `uiWorkspace` / `layout` 这些宿主服务。
+    let CTX = null
+
+    /** 订阅一个 ObservableSnapshot（宿主自己的增量机制），返回它当前的值。 */
+    function useStore(source) {
+      const subscribe = useCallback(handler => {
+        if (source === undefined || source === null || typeof source.subscribe !== 'function') return () => {}
+        return source.subscribe(handler)
+      }, [source])
+      const read = useCallback(() => {
+        if (source === undefined || source === null || typeof source.getSnapshot !== 'function') return undefined
+        try {
+          return source.getSnapshot()
+        } catch {
+          return undefined
+        }
+      }, [source])
+      if (typeof React.useSyncExternalStore === 'function') {
+        return React.useSyncExternalStore(subscribe, read, read)
+      }
+      const [value, setValue] = useState(read)
+      useEffect(() => {
+        setValue(read())
+        return subscribe(() => setValue(read()))
+      }, [subscribe, read])
+      return value
+    }
+
+    /** 一条消息里所有 text 块的纯文本。 */
+    function textOf(message) {
+      if (message === undefined || message === null) return ''
+      const content = message.content
+      if (!Array.isArray(content)) return typeof message.text === 'string' ? message.text : ''
+      const parts = []
+      for (const block of content) {
+        if (block !== null && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') {
+          parts.push(block.text)
+        }
+      }
+      return parts.join('')
+    }
+
+    /** 一条消息里调用了哪些工具（assistant 消息的工具调用藏在 content 块里）。 */
+    function toolsOf(message) {
+      const content = message === undefined || message === null ? undefined : message.content
+      if (!Array.isArray(content)) return []
+      const names = []
+      for (const block of content) {
+        if (block !== null && typeof block === 'object' && block.type === 'tool-call' && typeof block.name === 'string') {
+          names.push(block.name)
+        }
+      }
+      return names
+    }
+
+    /**
+     * 抹掉宿主注入的上下文块。
+     *
+     * DSH 会把 `[system-reminder]`、记忆检索结果这类东西拼进**用户消息**里，
+     * 宿主的对话面板会把它们折叠成「上下文」节点；我们这扇小窗没有那套节点，
+     * 所以直接抹掉——导演想看的是自己说的话，不是系统提示。
+     */
+    function stripInjected(text) {
+      return String(text ?? '')
+        .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+        .replace(/\[system-reminder\][\s\S]*$/m, '')
+        .trim()
+    }
+
+    /** 一条对话行。太长的（比如宿主注入的上下文）折起来，别把输入框顶走。 */
+    function MsgRow(props) {
+      const { kind, text } = props
+      const [open, setOpen] = useState(false)
+      const long = kind !== 'tool' && typeof text === 'string' && text.length > 420
+      const shown = long && !open ? text.slice(0, 420) + '…' : text
+      return h('div', { className: 'dd-msg ' + kind },
+        h('div', { className: 'who' },
+          kind === 'user' ? '我' : kind === 'assistant' ? 'AI' : kind === 'tool' ? '工具' : '出错'),
+        h('div', { className: 'body' }, shown),
+        long
+          ? h('button', {
+            className: 'dd-btn sm ghost',
+            style: { alignSelf: 'flex-start' },
+            onClick: () => setOpen(!open),
+          }, open ? '收起' : '展开全文')
+          : null,
+      )
+    }
+
+    /**
+     * 构思会话面板。
+     *
+     * **它不画一个仿造的聊天界面。** 会话是真的（真模型、真工具、
+     * `drama-conceive` 技能、工作目录就是这个作品目录），这里只把
+     * 宿主已经折叠好的会话窗口按「谁说的」摊开，并把输入框接到
+     * `session.prompt()` 上。要看完整对话（工具卡片、推理、审批），
+     * 一个按钮跳回宿主自己的对话面板。
+     */
+    function ConceiveChat(props) {
+      const { sessionId, seed, onClose, busy } = props
+      const [reference, setReference] = useState(null)
+      const [error, setError] = useState(null)
+      const [draft, setDraft] = useState('')
+      const seeded = useRef(false)
+      const flowRef = useRef(null)
+
+      useEffect(() => {
+        if (!sessionId) return undefined
+        const sessions = CTX ? CTX.get('sessions') : undefined
+        if (sessions === undefined || sessions === null || typeof sessions.retain !== 'function') {
+          setError('这个宿主没有 sessions 服务：构思会话需要 DSH 桌面版或 dsh web。')
+          return undefined
+        }
+        let current
+        try {
+          current = sessions.retain(sessionId, { source: 'controllerOperation' })
+        } catch (problem) {
+          setError(problem instanceof Error ? problem.message : String(problem))
+          return undefined
+        }
+        seeded.current = false
+        setReference(current)
+        setError(null)
+        return () => {
+          try {
+            current.release()
+          } catch {
+            // 引用已经释放过：忽略。
+          }
+          setReference(null)
+        }
+      }, [sessionId])
+
+      const binding = reference === null ? undefined : reference.binding
+      const snapshot = useStore(binding === undefined ? undefined : binding.session)
+      const window_ = useStore(binding === undefined ? undefined : binding.eventSource)
+
+      // 第一次打开且这段会话还是空白 → 把开场白发出去（只发一次）。
+      useEffect(() => {
+        if (binding === undefined || seeded.current) return
+        if (snapshot === undefined || snapshot.blank !== true) return
+        if (typeof seed !== 'string' || seed === '') return
+        seeded.current = true
+        const session = binding.session
+        if (session === undefined || typeof session.prompt !== 'function') return
+        Promise.resolve(session.prompt([{ type: 'text', text: seed }], 'queue')).catch(() => {
+          seeded.current = false
+        })
+      }, [binding, snapshot, seed])
+
+      const rows = useMemo(() => {
+        const entries = window_ !== undefined && Array.isArray(window_.entries) ? window_.entries : []
+        const out = []
+        let streaming = ''
+        for (const entry of entries) {
+          if (entry === null || typeof entry !== 'object') continue
+          if (entry.type === 'transient') {
+            const chunk = entry.event && entry.event.data ? entry.event.data.chunk : undefined
+            if (chunk !== undefined && chunk !== null && chunk.type === 'text-delta' && typeof chunk.text === 'string') {
+              streaming += chunk.text
+            }
+            continue
+          }
+          const event = entry.event
+          if (event === undefined || event === null) continue
+          if (event.type === 'user/message') {
+            const text = stripInjected(textOf(event.data))
+            if (text !== '') out.push({ kind: 'user', text, key: 'u' + event.seq })
+          } else if (event.type === 'assistant/message') {
+            const message = event.data ? event.data.message : undefined
+            const text = textOf(message)
+            const calls = toolsOf(message)
+            // 只带工具调用的步骤也要露一行：否则导演看到的是「AI 一句话没说就停了」。
+            if (text !== '') out.push({ kind: 'assistant', text, key: 'a' + event.seq })
+            else if (calls.length > 0) out.push({ kind: 'tool', text: '调用 ' + calls.join(' · '), key: 'a' + event.seq })
+          } else if (event.type === 'tool/call') {
+            const name = event.data ? event.data.name : undefined
+            if (typeof name === 'string' && name !== '') out.push({ kind: 'tool', text: name, key: 't' + event.seq })
+          } else if (event.type === 'turn/end') {
+            const reason = event.data ? event.data.reason : undefined
+            if (reason !== undefined && reason !== null && reason.kind === 'error') {
+              const why = reason.error && typeof reason.error.message === 'string' ? reason.error.message : '这一轮失败了'
+              out.push({ kind: 'err', text: why, key: 'e' + event.seq })
+            }
+          }
+        }
+        if (streaming !== '') out.push({ kind: 'assistant', text: streaming, key: 'live' })
+        return out
+      }, [window_])
+
+      const running = snapshot !== undefined && snapshot.running === true
+      const openState = snapshot === undefined ? undefined : snapshot.openState
+
+      // 新消息进来 → 滚到底。不这么做的话，AI 说完话你还停在几句之前。
+      useEffect(() => {
+        const element = flowRef.current
+        if (element === null) return
+        element.scrollTop = element.scrollHeight
+      }, [rows])
+
+      const send = useCallback(async () => {
+        const text = draft.trim()
+        if (text === '' || binding === undefined) return
+        setDraft('')
+        setError(null)
+        try {
+          const result = await binding.session.prompt([{ type: 'text', text }], 'queue')
+          if (result !== undefined && result !== null && result.ok === false) {
+            setError(result.error && result.error.message ? result.error.message : '发送失败')
+          }
+        } catch (problem) {
+          setError(problem instanceof Error ? problem.message : String(problem))
+        }
+      }, [draft, binding])
+
+      const stop = useCallback(() => {
+        if (binding === undefined) return
+        Promise.resolve(binding.session.cancel()).catch(() => {})
+      }, [binding])
+
+      const openInPanel = useCallback(() => {
+        const helper = CTX ? CTX.get('uiWorkspace') : undefined
+        const layout = CTX ? CTX.get('layout') : undefined
+        try {
+          if (helper !== undefined && helper !== null && typeof helper.openSession === 'function') helper.openSession(sessionId)
+          if (layout !== undefined && layout !== null && typeof layout.selectPanel === 'function') layout.selectPanel('conversation')
+        } catch {
+          // 打不开就算了：面板里这段对话照常能聊。
+        }
+      }, [sessionId])
+
+      const head = h('div', { className: 'dd-chat-head' },
+        h(Icon, { name: 'note', size: 14 }),
+        h('div', { style: { minWidth: '0' } },
+          h('div', { className: 'ch-t' }, '构思会话'),
+          h('div', { className: 'ch-sub' },
+            openState === 'open' ? (running ? '正在想…' : '等你说话')
+              : openState === 'loading' ? '正在打开…'
+                : openState === 'error' ? '打不开这段会话'
+                  : '准备中…'),
+        ),
+        h('span', { className: 'dd-spacer' }),
+        h('button', { className: 'dd-btn sm', onClick: openInPanel, title: '在宿主的对话面板里打开完整聊天' }, '完整对话'),
+        h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起' }, h(Icon, { name: 'close', size: 13 })),
+      )
+
+      const flow = h('div', { className: 'dd-chat-flow', ref: flowRef },
+        rows.length === 0
+          ? h('div', { className: 'dd-chat-empty' },
+            h('div', null, '这里接的是**真的** DSH 会话：'),
+            h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
+            h('div', { style: { marginTop: '8px', color: 'var(--ink4)' } }, '它会把创意写进 creative/brief.md，你改一句它就改一句。'))
+          : rows.map(row => h(MsgRow, { key: row.key, kind: row.kind, text: row.text })),
+        error !== null
+          ? h('div', { className: 'dd-msg err' }, h('div', { className: 'body' }, error))
+          : null,
+      )
+
+      const composer = h('div', { className: 'dd-chat-composer' },
+        h('textarea', {
+          value: draft, placeholder: '跟它说你想拍什么…（Enter 发送，Shift+Enter 换行）',
+          disabled: busy || binding === undefined,
+          onChange: event => setDraft(event.target.value),
+          onKeyDown: event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              send()
+            }
+          },
+        }),
+        h('div', { className: 'row' },
+          running
+            ? h('button', { className: 'dd-btn sm danger', onClick: stop }, '停止')
+            : h('button', { className: 'dd-btn sm primary', onClick: send, disabled: draft.trim() === '' }, '发送'),
+          h('span', { className: 'dd-spacer' }),
+          h('span', { className: 'hint' }, sessionId === undefined ? '' : sessionId.slice(0, 8)),
+        ),
+      )
+
+      return h('div', { className: 'dd-chat' }, head, flow, composer)
+    }
+
+    // ── 首页 ───────────────────────────────────────────────────────────────
+
+    function HomeView(props) {
+      const { works, current, onPick, onCreate, onEnter, busy } = props
+      const cards = works.map(work => h('button', {
+        key: work.id,
+        className: 'dd-work-card' + (work.id === current ? ' on' : ''),
+        onClick: () => onPick(work.id),
+      },
+        h('div', { className: 'wt' }, work.title || work.id),
+        h('div', { className: 'wi' }, work.id + ' · ' + (work.stage || '—')),
+        h('div', { className: 'wm' },
+          h('span', null, (work.scenes ?? 0) + ' 场'),
+          h('span', null, (work.shots ?? 0) + ' 镜'),
+        ),
+      ))
+      return h('div', { className: 'dd-main' },
+        h('div', { className: 'dd-scroll' },
+          h('div', { className: 'dd-home' },
+            h('div', { className: 'dd-home-hero' },
+              h('div', { style: { minWidth: '0', flex: '1 1 380px' } },
+                h('div', { className: 'h1' }, '从一个想法开始'),
+                h('div', { className: 'h2' },
+                  '导演工作台把 AI 短剧的九个阶段摊开：创意、大纲、角色、剧本、分镜、生成、验收、装配、交付。'
+                  + '每个阶段有自己的产物与体检线，你随时能改，随时能退回去重做一镜。'),
+                h('div', { className: 'h3' },
+                  '右边那扇窗是一个**真的** AI 会话——加载了 conceive 阶段的技能，'
+                  + '它会把创意写进 creative/brief.md。你可以一直跟它聊，这一阶段是持续的过程。'),
+              ),
+              h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', flex: '0 0 auto' } },
+                current !== undefined
+                  ? h('button', { className: 'dd-btn primary', disabled: busy, onClick: onEnter }, '进入工作台')
+                  : null,
+                h('button', { className: 'dd-btn', disabled: busy, onClick: onCreate }, '新建作品'),
+              ),
+            ),
+            h('div', { className: 'dd-home-sec' },
+              h('h4', null, '作品' + (works.length > 0 ? '（' + works.length + '）' : '')),
+              works.length === 0
+                ? h('div', { className: 'dd-note' },
+                  '项目根下还没有作品。点「新建作品」建一个空骨架，或者先把右边的构思会话开起来——'
+                  + '它会在你写简报时帮你把故事想清楚。')
+                : h('div', { className: 'dd-works' },
+                  cards,
+                  h('button', { className: 'dd-work-card new', onClick: onCreate },
+                    h(Icon, { name: 'plus', size: 14 }),
+                    h('span', null, '新建作品'),
+                  ),
+                ),
+            ),
+          ),
+        ),
+      )
+    }
+
     // ── spec view ──────────────────────────────────────────────────────────
     function SpecView(props) {
       const { spec, tab, onTab, stage, onStage } = props
@@ -2937,6 +3361,10 @@ window.__ModuleLoader__.load({
       const [drawer, setDrawer] = useState(false)
       const [fullSettings, setFullSettings] = useState(null)
       const [browseTarget, setBrowseTarget] = useState(null)
+      /** null = 自动（作品还是空的就显示首页）；true / false = 用户自己定的。 */
+      const [homeMode, setHomeMode] = useState(null)
+      const [chatOpen, setChatOpen] = useState(false)
+      const [conceive, setConceive] = useState(null)
       const [workMenu, setWorkMenu] = useState(false)
       const [newWork, setNewWork] = useState(null)
       const searchRef = useRef(null)
@@ -3236,6 +3664,40 @@ window.__ModuleLoader__.load({
           .catch(problem => say(problem instanceof Error ? problem.message : String(problem), 'err'))
       }, [workspaceId, say])
 
+      /**
+       * 打开（必要时开设）这个作品的**构思会话**。
+       *
+       * 会话由 Host 用 `agents.create()` 开成真的 agent 会话（真模型、真工具、
+       * `drama-conceive` 技能），id 记在 `state.json` 上——所以换天回来、
+       * 换一台机器，还是同一段构思对话。
+       */
+      const openConceive = useCallback(async () => {
+        setChatOpen(true)
+        if (!workspaceId) {
+          say('先选一个作品，或者新建一个——构思会话是挂在作品上的', 'err')
+          return
+        }
+        try {
+          const result = await apiPost('conceive-session', { workspaceId })
+          setConceive(result)
+        } catch (problem) {
+          say(problem instanceof Error ? problem.message : String(problem), 'err')
+        }
+      }, [workspaceId, say])
+
+      // 换了作品 → 重新问一次这个作品的构思会话还在不在（不创建）。
+      useEffect(() => {
+        if (!workspaceId) {
+          setConceive(null)
+          return undefined
+        }
+        let cancelled = false
+        apiGet('conceive-session', { workspace: workspaceId })
+          .then(value => { if (!cancelled) setConceive(value) })
+          .catch(() => { if (!cancelled) setConceive(null) })
+        return () => { cancelled = true }
+      }, [workspaceId])
+
       const createWork = useCallback(async () => {
         const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
         const id = 'work-' + stamp
@@ -3283,7 +3745,8 @@ window.__ModuleLoader__.load({
 
       const counts = pipeline ? (pipeline.counts || { fail: 0, warn: 0, generated: 0, pass: 0, none: 0 }) : { fail: 0, warn: 0, generated: 0, pass: 0, none: 0 }
       const nav = [
-        { id: 'stage', glyph: 'grid', label: '工作台', badge: counts.fail },
+        { id: 'home', glyph: 'grid', label: '首页' },
+        { id: 'stage', glyph: 'film', label: '工作台', badge: counts.fail },
         { id: 'spec', glyph: 'spec', label: '规范' },
         { id: 'assets', glyph: 'asset', label: '资产' },
         { id: 'ledger', glyph: 'ledger', label: '台账' },
@@ -3294,6 +3757,12 @@ window.__ModuleLoader__.load({
       const currentWork = overview && overview.workspaces
         ? overview.workspaces.find(work => work.id === workspaceId)
         : undefined
+
+      // 首页出现在两种时候：没有作品，或者这个作品**还没开始设计**。
+      const freshWork = currentWork === undefined
+        || ((currentWork.shots ?? 0) === 0 && (currentWork.scenes ?? 0) === 0)
+      const showHome = view === 'stage' && (homeMode === null ? freshWork : homeMode)
+      const chatVisible = chatOpen && (showHome || (view === 'stage' && viewStage === 'conceive'))
 
       const stageData = stagePayload ? stagePayload.data : undefined
       // 用**载荷自己的阶段**来选组件：这样即使 viewStage 刚变、请求还在路上，
@@ -3307,7 +3776,12 @@ window.__ModuleLoader__.load({
         // ── top bar ───────────────────────────────────────────────────────
         h('div', { className: 'dd-top' },
           h('div', { className: 'dd-mark' },
-            h('div', { className: 'dd-mark-glyph' }, h(Icon, { name: 'grid', size: 15 })),
+            h('button', {
+              className: 'dd-mark-glyph',
+              onClick: () => { setHomeMode(true); setView('stage') },
+              title: '回到首页',
+              'aria-label': '回到首页',
+            }, h(Icon, { name: 'grid', size: 15 })),
             h('div', null,
               h('div', { className: 'dd-mark-title' }, t('brand.title', '导演工作台')),
               h('div', { className: 'dd-mark-sub' }, t('brand.subtitle', 'AI 短剧生产线')),
@@ -3334,6 +3808,7 @@ window.__ModuleLoader__.load({
                 onPick: id => {
                   setWorkspaceId(id)
                   setSelectedShot(null); setDetail(null); setAssets(null); setLedger(null)
+                  setHomeMode(null)
                   stageRevision.current = null
                 },
                 onCreate: createWork,
@@ -3364,6 +3839,11 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'num', style: { color: 'var(--ink4)' } }, '剩 ' + formatBytes(overview.disk.free)),
               )
               : null,
+            h('button', {
+              className: 'dd-icon-btn' + (chatVisible ? ' on' : ''),
+              onClick: () => { if (chatOpen) setChatOpen(false); else openConceive() },
+              title: chatOpen ? '收起构思会话' : '构思会话（真的 AI，加载 conceive 技能）',
+            }, h(Icon, { name: 'note', size: 14 })),
             h('button', { className: 'dd-icon-btn', onClick: reload, title: t('action.refresh', '刷新') }, h(Icon, { name: 'refresh', size: 14 })),
             h('button', { className: 'dd-icon-btn', onClick: openDrawer, title: t('action.settings', '设置') }, h(Icon, { name: 'settings', size: 14 })),
           ),
@@ -3378,6 +3858,7 @@ window.__ModuleLoader__.load({
             // **点节点 = 切视图。** 不确认、不改状态。
             setViewStage(stage)
             setView('stage')
+            setHomeMode(false)
             setStagePayload(null)
             stageRevision.current = null
           },
@@ -3395,8 +3876,16 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dd-nav' },
             nav.map(item => h('button', {
               key: item.id,
-              className: 'dd-nav-btn' + (view === item.id ? ' on' : ''),
-              onClick: () => setView(item.id),
+              className: 'dd-nav-btn' + (
+                item.id === 'home'
+                  ? (showHome ? ' on' : '')
+                  : (!showHome && view === item.id ? ' on' : '')
+              ),
+              onClick: () => {
+                if (item.id === 'home') { setView('stage'); setHomeMode(true); return }
+                if (item.id === 'stage') setHomeMode(false)
+                setView(item.id)
+              },
               title: item.label,
             },
               h(Icon, { name: item.glyph, size: 17 }),
@@ -3414,7 +3903,22 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { style: { flex: '1 1 auto', minWidth: '0', display: 'flex', flexDirection: 'column', overflow: 'hidden' } },
-            view === 'stage'
+            view === 'stage' && showHome
+              ? h(HomeView, {
+                works: overview ? overview.workspaces : [],
+                current: workspaceId,
+                busy,
+                onPick: id => {
+                  setWorkspaceId(id)
+                  setHomeMode(null)
+                  setSelectedShot(null); setDetail(null); setAssets(null); setLedger(null)
+                  stageRevision.current = null
+                },
+                onCreate: createWork,
+                onEnter: () => setHomeMode(false),
+              })
+              : null,
+            view === 'stage' && !showHome
               ? stageLoading && !stagePayload
                 ? h('div', { className: 'dd-empty' }, '正在读取 ' + (STAGE_LABEL[viewStage] || viewStage) + ' 阶段…')
                 : stageData === undefined
@@ -3431,7 +3935,7 @@ window.__ModuleLoader__.load({
                     ? h('div', { className: 'dd-empty' }, '正在切换到 ' + (STAGE_LABEL[viewStage] || viewStage) + '…')
                     : null
               : null,
-              view === 'stage' && stageData !== undefined && !switching
+              view === 'stage' && !showHome && stageData !== undefined && !switching
                 ? (shownStage === 'conceive'
                   ? h(ConceiveView, { data: stageData, busy, actions })
                   : shownStage === 'outline'
@@ -3467,6 +3971,17 @@ window.__ModuleLoader__.load({
               workspaceId,
               onClose: () => { setSelectedShot(null); setDetail(null) },
               onOpenImage: asset => setViewer(asset),
+            })
+            : null,
+          // ── 构思会话（右栏）────────────────────────────────────────────
+          // 首页和 conceive 阶段都在，因为「想创意」不是一次性动作，
+          // 是一个持续的过程：想 → 写简报 → 改简报，都在同一段对话里。
+          chatVisible
+            ? h(ConceiveChat, {
+              sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
+              seed: conceive && conceive.seed ? conceive.seed : undefined,
+              busy,
+              onClose: () => setChatOpen(false),
             })
             : null,
         ),
@@ -3535,6 +4050,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
+        CTX = ctx
         try {
           ctx.effect(() => ctx.locale.register(LOCALE_NS, DICT), 'drama-desk: dictionaries')
           const translate = ctx.locale.bind(LOCALE_NS)

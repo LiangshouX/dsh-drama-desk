@@ -22,6 +22,7 @@ import { judgeRule } from './applicability.js'
 import { resolveConfig, SPEC_DIR } from './paths.js'
 import { resolveOutputRoot, resolveProjectRoot } from './locations.js'
 import { describeStages, decideMove, stageOrder } from './stages.js'
+import { deskSessionState, ensureDeskSession, seedMessage } from './conceive.js'
 import { buildStageView, readStagePrompt, shotSummary, STAGE_VIEWS } from './stageviews.js'
 import { resolvePoster, resolvePosterSource } from './posters.js'
 import {
@@ -1418,6 +1419,32 @@ export class DramaDeskService {
   async makeDirectory(options = {}) {
     const path = await createDirectory(this, options.path, options.name)
     return { path }
+  }
+
+  // ── 构思会话 ──────────────────────────────────────────────────────────────
+
+  /**
+   * 这个作品的「构思会话」。
+   *
+   * 构思不是一次性的动作，是一个**持续的过程**：第一阶段的节点、写简报、
+   * 改简报，都在同一段对话里继续。所以这里只做两件事——
+   *   `create: false`（默认）→ 报当前状态，不建会话；
+   *   `create: true`         → 拿到一个**活的**会话（必要时开一段新的）。
+   *
+   * 会话是真 agent：真模型、真工具、`drama-conceive` 技能由 `skills.js` 提供，
+   * 工作目录就是这个作品的目录，所以它能直接写 `creative/brief.md`。
+   */
+  async conceiveSession(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const locations = await this.locations()
+    const projectRoot = locations.project.path
+    const seed = seedMessage(workspace, projectRoot)
+    if (options.create !== true) {
+      const state = await deskSessionState(this, workspace)
+      return { ...state, workspacePath: projectRoot, seed }
+    }
+    const result = await ensureDeskSession(this, workspace)
+    return { ...result, seed }
   }
 
   // ── compile / check ──────────────────────────────────────────────────────

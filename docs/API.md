@@ -610,6 +610,51 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 
 ---
 
+## 7.5 构思会话：`/conceive-session`
+
+> 「构思」不是一次性动作，是一个**持续的过程**：首页、conceive 阶段、写简报、
+> 改简报，都在同一段对话里继续。所以这里给的是**一段真实 DSH 会话**，
+> 不是插件自己画的聊天框。
+
+### 读：`GET /conceive-session?workspace=<id>`
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "sessionId": "b70fd3e4-…",      // 还没有会话时缺省
+    "live": true,                   // Host 上有活的 agent 才接得住消息
+    "cwd": "D:/Default/Videos/drama-desk-demo",
+    "workspacePath": "D:/Default/Videos/drama-desk-demo",
+    "seed": "用 `drama-conceive` 技能开始…"   // 开场白，客户端在会话空白时发一次
+  }
+}
+```
+
+### 建：`POST /conceive-session` `{ "workspaceId": "…" }`
+
+同上形状，外加 `created: true|false`。**幂等**：已有会话就恢复它（`agents.resume`），
+活的就直接返回。
+
+### 硬规则
+
+1. **会话必须挂在 DSH 工作区下。** 只给 `meta.cwd` 而工作区不存在时，
+   这段对话在侧栏里找不到、在工作区的会话列表里也没有——
+   用户只能从工作台的小窗看它。所以开会话之前先
+   `workspaceRegistry.resolveByPath(projectRoot)`，没有就 `create()`。
+2. **cwd = 短剧项目根**（不是作品目录），会话的 path 参数因此写成
+   `workspaces/<work-id>/creative/brief.md`。一个短剧项目 = 一个 DSH 工作区。
+3. **模型必须显式带上**：`agents.create()` 不接受「没有模型」，会直接拒
+   `AgentOptions.provider and AgentOptions.model or record a model selection`。
+   取 `agentDefaultModel.currentSelection()`。
+4. **会话 id 记在作品的 `state.json`** 的 `desk_session_id` 上——关掉 DSH、
+   换天回来还是同一段对话。
+5. **技能由插件自己提供**：`ctx.skills.registerProvider()` 把
+   `build/skills/*/SKILL.md` 注册进宿主技能目录（否则 `drama-conceive`
+   这些名字对任何 agent 都不可达）。
+
+---
+
 ## 8. 编辑端点
 
 全部是 `POST`，统一请求形状：

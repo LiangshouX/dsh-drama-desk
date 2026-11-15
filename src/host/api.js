@@ -212,6 +212,8 @@ async function readResource(service, resource, query) {
       return await service.workspaces({ workspaceId: query.workspace })
     case 'browse':
       return await service.browse({ path: query.path })
+    case 'conceive-session':
+      return await service.conceiveSession({ workspaceId: query.workspace })
     default:
       throw new Error(`未知接口 ${resource}`)
   }
@@ -293,6 +295,8 @@ async function runAction(service, action, body) {
       })
     case 'pick-folder':
       return await service.pickFolder({ target: body.target })
+    case 'conceive-session':
+      return await service.conceiveSession({ workspaceId: body.workspaceId, create: true })
     case 'create-directory':
       return await service.makeDirectory({ path: body.path, name: body.name })
     case 'workspace':

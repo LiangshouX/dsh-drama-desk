@@ -478,3 +478,55 @@ src/tools/
 
 界面与 Host 的契约写在 `docs/API.md`——**那是接口的唯一真源**。
 改接口先改它。
+
+---
+
+## 15. 构思会话 = 真会话，且必须有工作区（2026-11-16）
+
+### ① 不要自己画聊天
+
+`dsh-doc` 的 `practices.md` 说得很清楚：插件**不许**把宿主的 Client 包
+当模块加载，**不许**自己折叠会话事件去仿造聊天，也**不许**用 iframe。
+所以「构思」用的是**真的 DSH 会话**：
+
+```
+Host:  agents.create({ sessionId, meta:{ cwd }, agentOptions })
+Client: ctx.sessions.retain(id, {source:'controllerOperation'})
+        → binding.session（running / blank / prompt / cancel）
+        → binding.eventSource（已经折叠好的会话窗口）
+```
+
+小窗只做三件事：把窗口按「谁说的」摊开、把输入框接到 `session.prompt()`、
+给一个「完整对话」按钮跳回宿主自己的面板（工具卡片、推理、审批都在那边）。
+
+### ② 会话**必须**挂在 DSH 工作区下
+
+只给 `meta.cwd` 而不注册工作区时，会话会变成一段**没有归处**的对话：
+侧栏找不到、所属工作区的会话列表里没有，用户只能从工作台小窗看它。
+
+> 规则：**开会话之前先 `workspaceRegistry.resolveByPath()`，没有就 `create()`。**
+> cwd = 短剧项目根；一个短剧项目 = 一个 DSH 工作区。
+> 新开与恢复走**同一条路**（`ensureDshWorkspace()`），不要一边有一边没有。
+
+### ③ `agents.create()` 不接受「没有模型」
+
+它会直接拒：`AgentOptions.provider and AgentOptions.model or record a model selection`。
+所以显式带上 `agentDefaultModel.currentSelection()`。
+
+### ④ 随包技能必须注册，否则等于没打包
+
+`build/skills/` 里躺着 8 份 SKILL.md，但宿主的技能发现只扫
+`<root>/.dsh/skills` / `<root>/.agents/skills`——**`package.json` 里没有
+`bundledSkillDir`、`index.js` 也没注册 provider，这些技能从来没被加载过**。
+现在由 `src/host/skills.js` 用 `ctx.skills.registerProvider()` 注册进全局层。
+验证方式：看本会话的技能目录里有没有 `drama-conceive`。
+
+### ⑤ 一行代码的教训：**不要用 PowerShell 改作品 JSON**
+
+PowerShell 5.1 的 `Get-Content -Raw` 把**无 BOM 的 UTF-8** 当 ANSI 读，
+中文在内存里就变成乱码；再 `Set-Content -Encoding UTF8` 写回去，
+乱码就**落到盘上**了（`演示作品` → `婕旂ず浣滃搧`），而且会带上 BOM 让
+`JSON.parse` 直接失败。
+
+> 改 `state.json` / `scenes.json` 这类文件，**用 Node**（`readFileSync(p,'utf8')`），
+> 或者干脆走插件自己的 service 方法。写坏了就用 `scripts/make_demo_work.py --force` 重建。
