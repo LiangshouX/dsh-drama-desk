@@ -130,6 +130,32 @@ export function parseSectionTree(markdown) {
 }
 
 /**
+ * Parse the contract's **prerequisite table** (§11.2 前置条件).
+ *
+ * The table is the contract's own wording for "what must exist before the
+ * pipeline may advance". The plugin shows that wording verbatim and pairs it
+ * with a checker — the checker lives in `stages.js`, the wording here.
+ * Neither copies the other: change the contract, the UI's wording follows.
+ *
+ * @param {string} markdown the data contract
+ * @returns {{stage: string, requirement: string}[]}
+ */
+export function parsePrerequisites(markdown) {
+  const lines = markdown.split(/\r?\n/)
+  const rows = []
+  let inTable = false
+  for (const line of lines) {
+    if (/^###\s+11\.2/.test(line)) { inTable = true; continue }
+    if (inTable && /^#{1,3}\s+/.test(line)) { inTable = false; continue }
+    if (!inTable) continue
+    const row = /^\|\s*`([a-z]+)`\s*\|\s*(.+?)\s*\|\s*$/.exec(line)
+    if (row === null) continue
+    rows.push({ stage: row[1], requirement: row[2] })
+  }
+  return rows
+}
+
+/**
  * Load the whole spec for one model.
  *
  * Reads the **release state** (`build/spec`), never `src/spec`: the release
@@ -155,6 +181,7 @@ export async function loadSpec(modelId) {
     constitution: constitutionText === undefined ? [] : parseSectionTree(constitutionText),
     contract: contractText === undefined ? [] : parseSectionTree(contractText),
     checklist: checklistText === undefined ? [] : parseSectionTree(checklistText),
+    prerequisites: contractText === undefined ? [] : parsePrerequisites(contractText),
     sources: {
       rules: rulesText === undefined ? undefined : `build/spec/models/${modelId}/rules.md`,
       constitution: constitutionText === undefined ? undefined : 'build/spec/core/constitution.md',

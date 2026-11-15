@@ -154,6 +154,38 @@ export function registerTools(ctx, service) {
       async args => await service.ledger({ workspaceId: args.workspace }),
     ),
     tool(
+      'drama_desk_stage',
+      '读或推进流水线阶段：当前阶段、每个阶段的前置条件（来自数据契约）与缺口。给 stage 即推进/回退；前置条件不满足会被拒绝并列出缺口，回退总是允许。',
+      {
+        workspace: workspaceProperty,
+        stage: { type: 'string', description: '目标阶段（conceive/outline/characters/script/storyboard/generate/verify/assemble/deliver）。省略则只读。' },
+      },
+      async args => {
+        if (args.stage === undefined) return await service.stageState({ workspaceId: args.workspace })
+        return await service.setStage({ workspaceId: args.workspace, stage: args.stage })
+      },
+    ),
+    tool(
+      'drama_desk_settings',
+      '读插件设置：项目根、产物位置（及其解析理由）、规范模型适配、宿主当前模型；给 projectRoot/outputRoot/model 则写入设置。',
+      {
+        workspace: workspaceProperty,
+        projectRoot: { type: 'string', description: '新项目根（作品所在目录）。' },
+        outputRoot: { type: 'string', description: '新产物位置。' },
+        model: { type: 'string', description: '规范分层里的模型适配 id。' },
+      },
+      async args => {
+        if (args.projectRoot === undefined && args.outputRoot === undefined && args.model === undefined) {
+          return await service.settings({ workspaceId: args.workspace })
+        }
+        return await service.updateSettings({
+          projectRoot: args.projectRoot,
+          outputRoot: args.outputRoot,
+          model: args.model,
+        })
+      },
+    ),
+    tool(
       'drama_desk_edit_beat',
       '改一个 beat（表演层真源）：动作行 / 台词 / 语气 / delivery。改完立刻能重跑体检。',
       {
@@ -217,6 +249,20 @@ export function registerTools(ctx, service) {
         shot: { type: 'string', description: '镜头 id。', required: true },
       },
       async args => await service.check({ workspaceId: args.workspace, shotId: args.shot }),
+    ),
+    tool(
+      'drama_desk_annotate',
+      '写导演对某一镜的批注（落在该镜的 notes 字段，是真源）。',
+      {
+        workspace: workspaceProperty,
+        shot: { type: 'string', description: '镜头 id。', required: true },
+        note: { type: 'string', description: '批注正文；空字符串表示清空。', required: true },
+      },
+      async args => await service.annotateShot({
+        workspaceId: args.workspace,
+        shotId: args.shot,
+        note: args.note,
+      }),
     ),
   ]
 

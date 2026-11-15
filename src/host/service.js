@@ -13,14 +13,15 @@
  */
 import { stat, statfs } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
-import { readJsonIfExists, readTextIfExists, isFile, resolveWithin } from './fsx.js'
+import { readJsonIfExists, readTextIfExists, isFile, resolveWithin, writeJsonAtomic, listDirIfExists } from './fsx.js'
 import { discoverWorkspaces, loadWorkspace, writeSceneBeats, writeShotFields, DERIVED_SHOT_FIELDS } from './workspace.js'
 import { loadSpec, STAGES } from './spec.js'
 import { runBeatQc, runMotionQc, runImageQc } from './qc.js'
 import { runCompile } from './compile.js'
 import { judgeRule } from './applicability.js'
-import { resolveConfig } from './paths.js'
+import { resolveConfig, SPEC_DIR } from './paths.js'
 import { resolveOutputRoot, resolveProjectRoot } from './locations.js'
+import { describeStages, decideMove, stageOrder } from './stages.js'
 
 /** The five QC colours, in the order the PRD defines them. */
 export const STATUS_ORDER = ['none', 'generated', 'warn', 'fail', 'pass']
@@ -731,6 +732,146 @@ export class DramaDeskService {
     }
   }
 
+  // ── stage machine ────────────────────────────────────────────────────────
+
+  /**
+   * The stage machine for one work: where it is, what each stage needs.
+   *
+   * The stage list and the prerequisite wording come from the data contract;
+   * the "satisfied / gaps" answers come from `stages.js`.
+   */
+  async stageState(options = {}) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) return { workspace: undefined, stages: [], current: undefined }
+    const data = await this.loadWork(workspace.dir)
+    const spec = await this.getSpec()
+    const current = typeof data.state?.stage === 'string' ? data.state.stage : undefined
+    return {
+      workspace: { id: workspace.id, title: workspace.title, dir: workspace.dir },
+      current,
+      stages: describeStages(data, spec, current),
+      order: stageOrder(spec),
+      updatedAt: data.state?.updated_at,
+    }
+  }
+
+  /**
+   * Move the work to another stage.
+   *
+   * Forward moves are checked against the contract's prerequisites and refused
+   * with the concrete gaps; rollbacks are always allowed (the contract says so
+   * out loud). `state.json` is the state layer — the CLI owns it, so the
+   * plugin writes it the same way the CLI would, and nothing else.
+   */
+  async setStage(options) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) throw new Error('没有可用的作品')
+    const data = await this.loadWork(workspace.dir)
+    const spec = await this.getSpec()
+    const from = typeof data.state?.stage === 'string' ? data.state.stage : 'conceive'
+    const to = options.stage
+    const decision = decideMove(from, to, data, spec)
+    if (!decision.allowed) {
+      const error = new Error(decision.reason)
+      error.gaps = decision.gaps
+      throw error
+    }
+    const state = data.state ?? { version: '1.0', work_id: workspace.id }
+    const next = {
+      ...state,
+      stage: to,
+      updated_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    }
+    await writeJsonAtomic(join(workspace.dir, 'state.json'), next)
+    this.invalidateWork(workspace.dir)
+    return { ok: true, from, to, reason: decision.reason, gaps: decision.gaps }
+  }
+
+  // ── settings ─────────────────────────────────────────────────────────────
+
+  /**
+   * The plugin's own settings, plus what the host contributes.
+   *
+   * The host's model selection comes from `agentDefaultModel` (the same
+   * service the composer uses), so the panel shows the model the agent is
+   * actually running — not a copy the plugin maintains.
+   */
+  async settings(options = {}) {
+    const locations = await this.locations()
+    const spec = await this.getSpec()
+    const host = this.ctx?.get?.('agentDefaultModel')
+    let model = undefined
+    try {
+      model = host?.currentSelection?.()
+    } catch {
+      model = undefined
+    }
+    const editor = this.ctx?.get?.('configEditor')
+    const entry = this.ctx?.fiber?.entry
+    const adapters = await this.listModelAdapters()
+    return {
+      projectRoot: locations.project.path,
+      projectRootReason: locations.project.reason,
+      outputRoot: locations.output.path,
+      outputRootReason: locations.output.reason,
+      onSystemDrive: {
+        project: locations.project.onSystemDrive,
+        output: locations.output.onSystemDrive,
+      },
+      specModel: this.config.model,
+      specModels: adapters,
+      hostModel: model === undefined ? undefined : {
+        provider: model.provider,
+        model: model.model,
+        reasoningEffort: model.reasoningEffort,
+      },
+      specAvailable: spec.available,
+      editable: editor !== undefined && entry !== undefined,
+      patchPath: this.ctx?.get?.('profileContext')?.patchPath,
+      warnings: buildLocationWarnings(locations),
+    }
+  }
+
+  /** The model adapters shipped in `build/spec/models/`. */
+  async listModelAdapters() {
+    const dir = join(SPEC_DIR, 'models')
+    const names = await listDirIfExists(dir)
+    const rows = []
+    for (const name of names.sort()) {
+      const rules = await readTextIfExists(join(dir, name, 'rules.md'))
+      const title = rules === undefined ? undefined : (/^#\s+(.+)$/m.exec(rules)?.[1])
+      rows.push({ id: name, title: title ?? name, rules: rules !== undefined })
+    }
+    return rows
+  }
+
+  /**
+   * Change the plugin's settings.
+   *
+   * The write goes through the Host's **config editor** when the profile has
+   * one: it validates against the plugin's schema, writes the profile's own
+   * patch layer (so a plugin upgrade never overwrites it) and reloads the
+   * plugin. Without an editor the panel shows the snippet to paste instead of
+   * pretending it saved.
+   */
+  async updateSettings(options) {
+    const editor = this.ctx?.get?.('configEditor')
+    const entry = this.ctx?.fiber?.entry
+    if (editor === undefined || entry === undefined) {
+      throw new Error('这个 profile 没有配置编辑器（configEditor）：请手动改 profile 的 cordis.patch.yml 里 drama-desk 那一行')
+    }
+    const patch = {}
+    if (options.projectRoot !== undefined) patch.projectRoot = String(options.projectRoot)
+    if (options.outputRoot !== undefined) patch.outputRoot = String(options.outputRoot)
+    if (options.model !== undefined) patch.model = String(options.model)
+    if (Object.keys(patch).length === 0) throw new Error('没有要改的项')
+    await editor.edit(entry, current => ({ ...current, ...patch }))
+    // The editor restarts the plugin, which rebuilds the service with the new
+    // config. The in-memory location cache is therefore stale on purpose.
+    this.locationCache = undefined
+    return { ok: true, patch }
+  }
+
   // ── edits ────────────────────────────────────────────────────────────────
 
   /**
@@ -771,6 +912,22 @@ export class DramaDeskService {
     await writeShotFields(workspace.dir, options.shotId, patch)
     this.invalidateWork(workspace.dir)
     return { ok: true, shotId: options.shotId, patch }
+  }
+
+  /**
+   * The director's own note on one shot.
+   *
+   * It lives in the shot's `notes` field — the data contract's own place for
+   * a shot's remarks, already read by the pipeline grid. No new file, no new
+   * schema: the annotation is真源 like everything else in `shots.json`.
+   */
+  async annotateShot(options) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) throw new Error('没有可用的作品')
+    const note = typeof options.note === 'string' ? options.note : ''
+    await writeShotFields(workspace.dir, options.shotId, { notes: note })
+    this.invalidateWork(workspace.dir)
+    return { ok: true, shotId: options.shotId, notes: note }
   }
 
   // ── compile / check ──────────────────────────────────────────────────────

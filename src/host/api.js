@@ -120,6 +120,10 @@ export function registerApi(ctx, service) {
           await serveImage(service, url, res)
           return
         }
+        if (path.startsWith(`${API_PREFIX}/video`)) {
+          await serveVideo(service, url, req, res)
+          return
+        }
         if (!path.startsWith(`${API_PREFIX}/api/`)) {
           sendJson(res, 404, { ok: false, error: '未知接口' })
           return
@@ -161,6 +165,10 @@ async function readResource(service, resource, query) {
       return await service.assets({ workspaceId: query.workspace })
     case 'ledger':
       return await service.ledger({ workspaceId: query.workspace })
+    case 'stages':
+      return await service.stageState({ workspaceId: query.workspace })
+    case 'settings':
+      return await service.settings({ workspaceId: query.workspace })
     case 'check':
       if (query.shot === undefined) throw new Error('缺少 shot 参数')
       return await service.check({ workspaceId: query.workspace, shotId: query.shot })
@@ -184,6 +192,23 @@ async function runAction(service, action, body) {
         workspaceId: body.workspaceId,
         shotId: body.shotId,
         patch: body.patch,
+      })
+    case 'annotate-shot':
+      return await service.annotateShot({
+        workspaceId: body.workspaceId,
+        shotId: body.shotId,
+        note: body.note,
+      })
+    case 'set-stage':
+      return await service.setStage({
+        workspaceId: body.workspaceId,
+        stage: body.stage,
+      })
+    case 'update-settings':
+      return await service.updateSettings({
+        projectRoot: body.projectRoot,
+        outputRoot: body.outputRoot,
+        model: body.model,
       })
     case 'compile':
       return await service.compile({
@@ -272,6 +297,107 @@ function contentTypeOf(path) {
   if (lower.endsWith('.webp')) return 'image/webp'
   if (lower.endsWith('.gif')) return 'image/gif'
   return 'image/jpeg'
+}
+
+/** Video content type by extension. */
+function videoTypeOf(path) {
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.webm')) return 'video/webm'
+  if (lower.endsWith('.mov') || lower.endsWith('.qt')) return 'video/quicktime'
+  if (lower.endsWith('.mkv')) return 'video/x-matroska'
+  if (lower.endsWith('.m4v')) return 'video/mp4'
+  return 'video/mp4'
+}
+
+/**
+ * Serve one video asset, with HTTP Range so the browser can scrub.
+ *
+ * The same fence as the image route: the asset is addressed by **id**, never by
+ * path, and the resolved path must stay inside the work directory.
+ */
+async function serveVideo(service, url, req, res) {
+  const assetId = url.searchParams.get('asset')
+  const workspaceId = url.searchParams.get('workspace') ?? undefined
+  if (assetId === null) {
+    sendJson(res, 400, { ok: false, error: '缺少 asset 参数' })
+    return
+  }
+  const listing = await service.assets({ workspaceId })
+  const asset = listing.assets.find(row => row.id === assetId)
+  if (asset === undefined) {
+    sendJson(res, 404, { ok: false, error: `资产 ${assetId} 不存在` })
+    return
+  }
+  if (typeof asset.path !== 'string' || asset.path === '') {
+    sendJson(res, 404, { ok: false, error: `资产 ${assetId} 没有文件路径` })
+    return
+  }
+  const absolute = resolveWithin(listing.workspace.dir, asset.path)
+  let info
+  try {
+    info = await stat(absolute)
+  } catch {
+    sendJson(res, 404, { ok: false, error: `资产 ${assetId} 的文件不存在：${asset.path}` })
+    return
+  }
+  const type = videoTypeOf(absolute)
+  const range = parseRange(header(req.headers, 'range'), info.size)
+  if (range?.unsatisfiable) {
+    res.writeHead(416, { ...VIDEO_HEADERS, 'content-range': `bytes */${info.size}` })
+    res.end()
+    return
+  }
+  if (range === null) {
+    const body = await readFile(absolute)
+    res.writeHead(200, { ...VIDEO_HEADERS, 'content-length': String(body.length) })
+    res.end(body)
+    return
+  }
+  const start = range.start
+  const end = range.end
+  const body = await readFile(absolute)
+  const slice = body.subarray(start, end + 1)
+  res.writeHead(206, {
+    ...VIDEO_HEADERS,
+    'content-range': `bytes ${start}-${end}/${info.size}`,
+    'content-length': String(slice.length),
+  })
+  res.end(slice)
+}
+
+/** Headers every video response carries. */
+const VIDEO_HEADERS = {
+  'content-type': 'video/mp4',
+  'accept-ranges': 'bytes',
+  'cache-control': 'no-store',
+}
+
+/**
+ * Parse a single `Range: bytes=…` header against a known size.
+ *
+ * @param {string|undefined} raw
+ * @param {number} size
+ * @returns {{start: number, end: number}|{unsatisfiable: true}|null}
+ */
+function parseRange(raw, size) {
+  if (raw === undefined) return null
+  const match = /^bytes=(.+)$/i.exec(raw.trim())
+  if (match === null) return null
+  const spec = match[1].split(',')[0].trim()
+  if (spec === '') return null
+  if (spec.startsWith('-')) {
+    const suffix = Number(spec.slice(1))
+    if (!Number.isFinite(suffix) || suffix <= 0) return null
+    if (suffix >= size) return { start: 0, end: size - 1 }
+    return { start: size - suffix, end: size - 1 }
+  }
+  const dash = spec.indexOf('-')
+  if (dash === -1) return null
+  const start = spec.slice(0, dash) === '' ? 0 : Number(spec.slice(0, dash))
+  const end = spec.slice(dash + 1) === '' ? size - 1 : Number(spec.slice(dash + 1))
+  if (!Number.isInteger(start) || start < 0 || !Number.isInteger(end)) return null
+  if (start >= size) return { unsatisfiable: true }
+  return { start, end: Math.min(end, size - 1) }
 }
 
 /**
