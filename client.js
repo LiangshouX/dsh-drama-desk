@@ -2483,7 +2483,7 @@ window.__ModuleLoader__.load({
      * 一个按钮跳回宿主自己的对话面板。
      */
     function ConceiveChat(props) {
-      const { sessionId, seed, onClose, busy } = props
+      const { sessionId, seed, onClose, onFresh, busy } = props
       const [reference, setReference] = useState(null)
       const [error, setError] = useState(null)
       const [draft, setDraft] = useState('')
@@ -2626,6 +2626,7 @@ window.__ModuleLoader__.load({
                   : '准备中…'),
         ),
         h('span', { className: 'dd-spacer' }),
+        h('button', { className: 'dd-btn sm', onClick: onFresh, title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）' }, '新对话'),
         h('button', { className: 'dd-btn sm', onClick: openInPanel, title: '在宿主的对话面板里打开完整聊天' }, '完整对话'),
         h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起' }, h(Icon, { name: 'close', size: 13 })),
       )
@@ -3671,15 +3672,16 @@ window.__ModuleLoader__.load({
        * `drama-conceive` 技能），id 记在 `state.json` 上——所以换天回来、
        * 换一台机器，还是同一段构思对话。
        */
-      const openConceive = useCallback(async () => {
+      const openConceive = useCallback(async fresh => {
         setChatOpen(true)
         if (!workspaceId) {
           say('先选一个作品，或者新建一个——构思会话是挂在作品上的', 'err')
           return
         }
         try {
-          const result = await apiPost('conceive-session', { workspaceId })
+          const result = await apiPost('conceive-session', { workspaceId, fresh: fresh === true })
           setConceive(result)
+          if (fresh === true) say('新对话已开始（旧的那段还在 DSH 的会话列表里）', 'ok')
         } catch (problem) {
           say(problem instanceof Error ? problem.message : String(problem), 'err')
         }
@@ -3962,7 +3964,7 @@ window.__ModuleLoader__.load({
             view === 'assets' ? h(AssetsView, { assets, workspaceId, onOpenImage: asset => setViewer(asset) }) : null,
             view === 'ledger' ? h(LedgerView, { ledger }) : null,
           ),
-          (view === 'stage' && (viewStage === 'generate' || viewStage === 'storyboard' || viewStage === 'script'))
+          (view === 'stage' && !showHome && (viewStage === 'generate' || viewStage === 'storyboard'))
             ? h(ShotDetail, {
               detail,
               loading: detailLoading,
@@ -3982,6 +3984,7 @@ window.__ModuleLoader__.load({
               seed: conceive && conceive.seed ? conceive.seed : undefined,
               busy,
               onClose: () => setChatOpen(false),
+              onFresh: () => openConceive(true),
             })
             : null,
         ),

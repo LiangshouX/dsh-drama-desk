@@ -31,21 +31,32 @@ export const SESSION_FIELD = 'desk_session_id'
 /**
  * 一条新会话的开场白。
  *
- * 短是刻意的：这段话会出现在小窗的对话流里，导演看的是 AI 的回答，
- * 不是自己那一段长指令。技能怎么用写在技能里，不必在这儿复述。
+ * 开头那行 `@workspaces/<id>/` 是**锚**，不是装饰：
  *
- * 路径用**相对工作区根**的写法：会话的 cwd 是短剧项目根，不是作品目录。
+ *   一个工作台只有一个总根（`「视频」/DSH-DRAMA-DESK`），所有短剧项目都是它下面的
+ *   子目录，共用同一个 DSH 工作区。共用一个工作区意味着 agent 能看见**别人的**
+ *   项目——所以每一段构思对话开头都先把「这次只谈哪个项目」钉死，并明说
+ *   不要动别的目录。这就是「防止串台」。
+ *
+ * 短也刻意：这段话会出现在小窗的对话流里，导演看的是 AI 的回答。
  */
-export function seedMessage(workspace, projectRoot) {
+export function seedMessage(workspace, projectRoot, options = {}) {
   const name = workspace.title !== undefined && workspace.title !== '' ? workspace.title : workspace.id
   const workPath = typeof projectRoot === 'string' && projectRoot !== ''
     ? relative(projectRoot, workspace.dir).split('\\').join('/')
     : workspace.dir
+  const fresh = options.isNew === true
   return [
-    `用 \`drama-conceive\` 技能开始「${name}」的构思。`,
-    `这个作品在 \`${workPath}/\`（简报写进 \`${workPath}/creative/brief.md\`）。`,
-    `先问我三到五个真正影响故事的问题，聊清楚之后写进简报，再告诉我你写了什么。`,
-  ].join('\n\n')
+    `@${workPath}/`,
+    '',
+    fresh
+      ? `这是一个**刚建的新项目**，目录 \`${workPath}/\` 还是空的。用 \`drama-conceive\` 技能跟我一起把它的创意想出来。`
+      : `用 \`drama-conceive\` 技能继续「${name}」的构思（目录 \`${workPath}/\`）。`,
+    '',
+    `先问我三到五个真正影响故事的问题，聊清楚之后写进 \`${workPath}/creative/brief.md\`，再告诉我你写了什么。`,
+    '',
+    `⚠️ 这个工作区里还有别的短剧项目：**只读写 \`${workPath}/\` 下的文件**，不要碰别的目录，也不要混用别的项目的角色与数据。`,
+  ].join('\n')
 }
 
 /**
@@ -129,7 +140,7 @@ async function ensureDshWorkspace(service, projectRoot, title) {
  * @param {{id: string, dir: string, title?: string}} workspace
  * @returns {Promise<{sessionId: string, live: boolean, created: boolean, cwd: string, workspacePath: string}>}
  */
-export async function ensureDeskSession(service, workspace) {
+export async function ensureDeskSession(service, workspace, options = {}) {
   const agents = service.ctx?.get?.('agents')
   if (agents === undefined || typeof agents.create !== 'function') {
     throw new Error('这个宿主没有 agents 服务：开设不了构思会话（需要用 DSH 桌面版或 dsh web）')
@@ -150,7 +161,24 @@ export async function ensureDeskSession(service, workspace) {
   const cwd = typeof dshWorkspace.path === 'string' && dshWorkspace.path !== '' ? dshWorkspace.path : projectRoot
 
   const state = (await readJsonIfExists(join(workspace.dir, 'state.json'))) ?? {}
-  const remembered = typeof state[SESSION_FIELD] === 'string' ? state[SESSION_FIELD] : undefined
+  let remembered = typeof state[SESSION_FIELD] === 'string' ? state[SESSION_FIELD] : undefined
+
+  // 「新对话」：把这一段收掉，重新开。旧会话仍留在 DSH 的会话列表里，不会被删。
+  if (options.fresh === true && remembered !== undefined) {
+    const held = service.deskAgents.get(remembered)
+    if (held !== undefined) {
+      try {
+        await held.dispose()
+      } catch {
+        // 收不掉就算了。
+      }
+      service.deskAgents.delete(remembered)
+    }
+    remembered = undefined
+    delete state[SESSION_FIELD]
+    await writeJsonAtomic(join(workspace.dir, 'state.json'), state)
+    service.invalidateWork(workspace.dir)
+  }
 
   // ① 已经活着 → 直接用
   if (remembered !== undefined) {

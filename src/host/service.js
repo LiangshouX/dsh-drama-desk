@@ -112,7 +112,10 @@ export class DramaDeskService {
       process.cwd(),
       outputParent,
     ]
-    const project = await resolveProjectRoot(this.config.projectRoot, candidates)
+    const project = await resolveProjectRoot(this.config.projectRoot, candidates, {
+      // 一个工作台只有一个总根：「视频」目录下的 DSH-DRAMA-DESK。
+      defaultRoot: join(output.path, 'DSH-DRAMA-DESK'),
+    })
     this.locationCache = { project, output }
     return this.locationCache
   }
@@ -1438,13 +1441,21 @@ export class DramaDeskService {
     const workspace = await this.requireWorkspace(options)
     const locations = await this.locations()
     const projectRoot = locations.project.path
-    const seed = seedMessage(workspace, projectRoot)
     if (options.create !== true) {
       const state = await deskSessionState(this, workspace)
-      return { ...state, workspacePath: projectRoot, seed }
+      return { ...state, workspacePath: projectRoot, seed: seedMessage(workspace, projectRoot, { isNew: await this.isFreshWork(workspace) }) }
     }
-    const result = await ensureDeskSession(this, workspace)
-    return { ...result, seed }
+    const result = await ensureDeskSession(this, workspace, { fresh: options.fresh === true })
+    const isNew = await this.isFreshWork(workspace)
+    return { ...result, workspacePath: projectRoot, seed: seedMessage(workspace, projectRoot, { isNew }) }
+  }
+
+  /** 这个作品是不是「刚建、还没开始设计」。开场白要据此说不同的话。 */
+  async isFreshWork(workspace) {
+    const data = await this.loadWork(workspace.dir)
+    if (data.scenes.length > 0 || data.shots.length > 0) return false
+    const brief = await readTextIfExists(join(workspace.dir, 'creative', 'brief.md'))
+    return brief === undefined || brief.replace(/^#\s*/, '').trim().length < 8
   }
 
   // ── compile / check ──────────────────────────────────────────────────────

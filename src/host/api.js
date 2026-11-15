@@ -296,7 +296,7 @@ async function runAction(service, action, body) {
     case 'pick-folder':
       return await service.pickFolder({ target: body.target })
     case 'conceive-session':
-      return await service.conceiveSession({ workspaceId: body.workspaceId, create: true })
+      return await service.conceiveSession({ workspaceId: body.workspaceId, create: true, fresh: body.fresh === true })
     case 'create-directory':
       return await service.makeDirectory({ path: body.path, name: body.name })
     case 'workspace':

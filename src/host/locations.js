@@ -19,7 +19,7 @@
  * 每次解析都返回**理由**，界面上要能回答「为什么是这个目录」。
  */
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, parse, resolve } from 'node:path'
 
@@ -172,7 +172,7 @@ export async function resolveOutputRoot(configured) {
  * @param {string[]} roots candidate roots to probe, in order
  * @returns {Promise<Location>}
  */
-export async function resolveProjectRoot(configured, roots = []) {
+export async function resolveProjectRoot(configured, roots = [], options = {}) {
   if (typeof configured === 'string' && configured.trim() !== '') {
     const path = resolve(configured)
     return {
@@ -192,6 +192,29 @@ export async function resolveProjectRoot(configured, roots = []) {
         path,
         source: 'cwd',
         reason: '当前会话工作目录里有作品',
+        exists: true,
+        onSystemDrive: isOnSystemDrive(path),
+      }
+    }
+  }
+  // **一个工作台只有一个总根。**
+  //
+  // 作品散落在各个目录里是治理灾难：侧栏碎成一堆工作区、谁也说不清哪份是
+  // 最新的。所以默认落在 `「视频」/DSH-DRAMA-DESK/` —— 一个稳定的、有名字的根，
+  // 以后每个短剧项目都是它下面的 `workspaces/<work-id>/`。
+  // 第一次解析时顺手把它建出来（两个空目录，没有副作用）。
+  if (typeof options.defaultRoot === 'string' && options.defaultRoot !== '') {
+    const path = resolve(options.defaultRoot)
+    try {
+      mkdirSync(join(path, 'workspaces'), { recursive: true })
+    } catch {
+      // 建不出来就退回下面的老逻辑，界面上会如实说明路径不可用。
+    }
+    if (existsSync(path)) {
+      return {
+        path,
+        source: 'default-root',
+        reason: '短剧工作台的总根（「视频」目录下，自动创建）',
         exists: true,
         onSystemDrive: isOnSystemDrive(path),
       }

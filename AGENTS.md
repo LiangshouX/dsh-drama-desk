@@ -172,10 +172,10 @@ dsh-drama-desk/
 
 ```bash
 # 小作品（4 场 / 7 镜）：功能冒烟用
-python scripts/make_demo_work.py --out "D:/Default/Videos/drama-desk-demo" --scale small
+python scripts/make_demo_work.py --out "D:/Default/Videos/DSH-DRAMA-DESK" --scale small
 
 # 大作品（12 场 / 72 镜 / 569 秒）：分页、性能、规模用
-python scripts/make_demo_work.py --out "D:/Default/Videos/drama-desk-demo" --scale large --force
+python scripts/make_demo_work.py --out "D:/Default/Videos/DSH-DRAMA-DESK" --scale large --force
 ```
 
 生成带**真实参考图**（含一张 2048px，用来验证 ≤1200px 的显示约束）与
@@ -530,3 +530,32 @@ PowerShell 5.1 的 `Get-Content -Raw` 把**无 BOM 的 UTF-8** 当 ANSI 读，
 
 > 改 `state.json` / `scenes.json` 这类文件，**用 Node**（`readFileSync(p,'utf8')`），
 > 或者干脆走插件自己的 service 方法。写坏了就用 `scripts/make_demo_work.py --force` 重建。
+
+### ⑥ 一个工作台只有一个总根（不许碎）
+
+> 用户的原话：「工作区太碎了太散了绝对不行……集中是最好的。」
+
+所以默认项目根 = **`「视频」/DSH-DRAMA-DESK`**（`locations.js` 的 `defaultRoot`，
+第一次解析时自动建出来）。所有短剧项目都是它下面的 `workspaces/<work-id>/`：
+
+```
+D:\Default\Videos\DSH-DRAMA-DESK\          ← 唯一的总根 = 唯一的 DSH 工作区
+└── workspaces\
+    ├── name-pawnshop-20261108\            名字典当行
+    ├── demo-epic\                          潮信
+    └── demo-pawnshop\                      当铺的旧契（demo）
+```
+
+**不要给每个项目开一个 DSH 工作区。** 侧栏碎成一堆工作区是治理灾难：
+用户说不清哪份是最新的，会话也散落各处。
+
+### ⑦ 共用一个工作区 → 每段对话都要 `@` 锚定项目
+
+共用一个工作区意味着 agent 能看见**别的**项目。所以每段构思对话的开场白
+第一行就是 `@workspaces/<id>/`，并明说「只读写这个目录、不要混用别的项目」——
+这就是「防止串台」。新项目还会有额外一句「这是一个刚建的新项目，目录还是空的」。
+
+### ⑧ 「新对话」
+
+`POST /conceive-session {fresh:true}`：收掉当前 agent、清掉 `state.json` 里的
+`desk_session_id`、开一段新的。**旧会话不删**，它还留在 DSH 的会话列表里。

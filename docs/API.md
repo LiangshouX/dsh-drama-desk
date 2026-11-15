@@ -631,10 +631,26 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 }
 ```
 
-### 建：`POST /conceive-session` `{ "workspaceId": "…" }`
+### 建：`POST /conceive-session` `{ "workspaceId": "…", "fresh"?: true }`
 
 同上形状，外加 `created: true|false`。**幂等**：已有会话就恢复它（`agents.resume`），
 活的就直接返回。
+
+`fresh: true` = 开一段新对话：收掉当前 agent、清掉 `desk_session_id`、重开。
+**旧会话不删**（它还留在 DSH 的会话列表里）。
+
+### 开场白（`seed`）的第一行是锚
+
+```
+@workspaces/<work-id>/
+
+用 `drama-conceive` 技能继续「…」的构思（目录 `workspaces/<work-id>/`）。
+…
+⚠️ 这个工作区里还有别的短剧项目：只读写 `workspaces/<work-id>/` 下的文件…
+```
+
+一个总根 = 一个 DSH 工作区，所有项目共用它，所以每段对话都要先用 `@路径`
+把「这次只谈哪个项目」钉死——否则会串台。
 
 ### 硬规则
 
