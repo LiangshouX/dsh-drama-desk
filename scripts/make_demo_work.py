@@ -40,6 +40,8 @@ import random
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 
 try:
     from PIL import Image, ImageDraw
@@ -151,8 +153,7 @@ def build_small(work: pathlib.Path, work_id: str) -> None:
 
     # ── 一条真的视频（4 秒，带真实位移 → 运动层体检能测到）──────────────
     video_path = work / "videos" / "SC01-SH01_v01.mp4"
-    frames_dir = work / ".frames"
-    frames_dir.mkdir(parents=True, exist_ok=True)
+    frames_dir = pathlib.Path(tempfile.mkdtemp(prefix="dd-frames-"))
     total = 48
     for i in range(total):
         frame = draw_frame(640, 360, PALETTE[0], i / total, f"SC01-SH01 f{i:03d}")
@@ -162,7 +163,7 @@ def build_small(work: pathlib.Path, work_id: str) -> None:
          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(video_path)],
         check=True,
     )
-    shutil.rmtree(frames_dir, ignore_errors=True)
+    _rmtree_quiet(frames_dir)
 
     # ── 场次 / 镜头 ──────────────────────────────────────────────────────
     scenes = [
@@ -523,9 +524,9 @@ LARGE_SCENES = [
         "id": "SC01", "act": 1, "function": "建置", "title": "台风前的信号站",
         "summary": "台风逼近，沈昭独自在海岸信号站值班，无线里浮出一段不属于今天的呼号。",
         "turn": "呼号里那个声音，像是她十七年前就听过的人。",
-        "characters": ["shen_zhao"], "loc": "loc_signal_station_day",
+        "characters": ["shen_zhao"], "loc": "loc_signal_station_night",
         "cameras": ["Static Shot", "Push In", "Tracking Shot", "Arc Shot", "Pull Out", "Tilt Down"],
-        "lights": ["day_interior", "day_paper", "day_face", "night_interior", "night_interior", "day_face"],
+        "lights": ["night_interior", "night_face", "night_interior", "night_memory", "night_interior", "night_fire"],
         "titles": ["风把记录纸掀翻", "纸角压在桌沿", "旋钮拧到最左格", "耳朵贴上喇叭", "半句问话", "频率一格格往上推"],
         "beats": [
             B("沈昭推开铁门，风把桌上的记录纸掀到地上，她跨一步把纸压回桌面",
@@ -547,9 +548,9 @@ LARGE_SCENES = [
         "id": "SC02", "act": 1, "function": "建置", "title": "频率里的旧声音",
         "summary": "沈昭把频率推到十七年前的呼号上，一个陌生又熟悉的男声从喇叭里说了一句话。",
         "turn": "呼号属于「鲎浦三号」——一座十七年前就停用的信号塔。",
-        "characters": ["shen_zhao", "shen_du"], "loc": "loc_signal_station_day",
+        "characters": ["shen_zhao", "shen_du"], "loc": "loc_signal_station_night",
         "cameras": ["Push In", "Static Shot", "Zoom In", "Pan Right", "Truck Left", "Pull Out"],
-        "lights": ["night_interior", "night_face", "day_paper", "night_memory", "night_interior", "day_face"],
+        "lights": ["night_interior", "night_face", "night_memory", "night_interior", "night_face", "night_interior"],
         "titles": ["指针滑到最后一格", "音量退半圈", "男声突然清晰", "写下呼号", "合上记录簿", "窗外的雨线"],
         "beats": [
             B("刻度盘上的指针滑到最后一格，沈昭把音量旋钮往回拧了半圈",
@@ -571,7 +572,7 @@ LARGE_SCENES = [
         "turn": "顾迟说，那晚之后，沈渡再没回过鲎浦。",
         "characters": ["shen_zhao", "gu_chi"], "loc": "loc_town_street",
         "cameras": ["Static Shot", "Truck Left", "Push In", "Arc Shot", "Pan Left", "Tilt Up"],
-        "lights": ["alley_day", "day_interior", "night_face", "day_face", "alley_day", "day_paper"],
+        "lights": ["alley_day", "day_interior", "day_face", "alley_day", "day_paper", "day_interior"],
         "titles": ["雨里拧亮手电", "工具箱搁上门槛", "耳机递过去", "搓着缺口听完", "门槛上的旧水痕", "雨中的天线"],
         "beats": [
             B("铁门被拍响，沈昭起身去开，顾迟站在雨里拧亮手电",
@@ -709,7 +710,7 @@ LARGE_SCENES = [
         "turn": "那人转过身来——是沈渡，可他手里那只保温杯不是他的东西。",
         "characters": ["shen_zhao", "shen_du"], "loc": "loc_pier_dawn",
         "cameras": ["Tracking Shot", "Tilt Up", "Static Shot", "Push In", "Arc Shot", "Pull Out"],
-        "lights": ["alley_day", "night_face", "day_face", "night_face", "night_interior", "night_fire"],
+        "lights": ["alley_day", "day_face", "night_face", "day_face", "alley_day", "night_fire"],
         "titles": ["跑上防波堤", "抓住栏杆", "堤顶转过身", "雨里的一句玩笑", "手握成拳", "浪打上石阶"],
         "beats": [
             B("沈昭踩着湿滑的防波堤往上跑，风把她的外套掀到肩后",
@@ -733,7 +734,7 @@ LARGE_SCENES = [
         "turn": "沈渡说，十七年里每一晚他都在这个频率上等她接班。",
         "characters": ["shen_zhao", "shen_du", "gu_chi"], "loc": "loc_pier_dawn",
         "cameras": ["Static Shot", "Pan Right", "Push In", "Tracking Shot", "Zoom In", "Pull Out"],
-        "lights": ["night_face", "night_interior", "day_face", "night_face", "alley_day", "night_interior"],
+        "lights": ["day_face", "day_interior", "day_face", "alley_day", "night_face", "night_interior"],
         "titles": ["保温杯搁在堤上", "翻上防波堤", "摊开手掌", "顶下事故的人", "拿走号码牌", "兄妹并肩"],
         "beats": [
             B("沈渡把保温杯搁在堤面石上，杯口冒出一线白汽",
@@ -779,8 +780,8 @@ LARGE_SCENES = [
         "lights": ["day_interior", "day_face", "alley_day", "day_interior", "day_face", "day_paper"],
         "titles": ["协议收回公文包", "新号牌挂上横梁", "戴好旧耳机", "号码牌搁在频率表旁", "新任守塔人报到", "塔顶灯亮"],
         "beats": [
-            B("韩秉把协议收进公文包，扣上搭扣，朝沈昭点了点头",
-              "Han Bing slides the agreement into his briefcase, snaps the clasp and nods.",
+            B("韩秉把协议卷起来塞进公文包，扣上搭扣，朝沈昭点了点头",
+              "Han Bing rolls the agreement up, pushes it into his briefcase and nods.",
               "han_bing", "塔不拆了。公司认。", "dialogue",
               "第十三声，公事公办，却比第一次松了半口气",
               "a thirteenth, still businesslike but half a breath looser than before"),
@@ -1011,55 +1012,85 @@ def _abstract_image(path: pathlib.Path, width: int, height: int, palette, rng) -
 
 
 def _video_frame(width: int, height: int, t: float, palette):
-    """视频的一帧：横向流动的渐变 + 一条横向扫过的光带 + 一枚漂移的圆斑。"""
+    """视频的一帧：横向流动的渐变场 + 一团静态暖光 + 静态硬边（桌沿与立柱）。
+
+    设计要点（都是被运动体检逼出来的）：
+    · **动的东西是软渐变**——横向流动的正弦波，帧间差大、方向一致；
+    · **硬边全部静止**——桌沿与立柱给边缘密度一个恒定基准，否则缩放代理
+      指标会把这段片误判成「拉远」；
+    · 动的东西不含任何硬边 → 边缘密度不随时间漂移。
+    """
     numpy = _numpy()
     bg, light, accent = palette
     xs = numpy.linspace(0.0, 1.0, width, dtype=numpy.float32)[None, :]
     ys = numpy.linspace(0.0, 1.0, height, dtype=numpy.float32)[:, None]
 
-    wave = 0.5 + 0.5 * numpy.sin(2 * math.pi * (xs * 1.5 + t * 1.7))
+    # 静态纵向渐变底
     field = numpy.zeros((height, width, 3), dtype=numpy.float32)
     for i in range(3):
-        field[:, :, i] = bg[i] + (accent[i] - bg[i]) * wave
-        field[:, :, i] = field[:, :, i] * (1.0 - 0.35 * ys)
+        field[:, :, i] = bg[i] * (1.0 - 0.35 * ys) + accent[i] * 0.35 * ys
 
-    # 横向扫过的光带（真实位移 → 运动体检能测到）
-    centre = (t * 0.75) % 1.0
-    band = numpy.clip(1.0 - numpy.abs(xs - centre) / 0.14, 0.0, 1.0) ** 2
+    # 横向流动的渐变波（唯一的运动源：软、同向、位移真实）
+    wave = 0.5 + 0.5 * numpy.sin(2 * math.pi * (xs * 1.5 + t * 1.7))
     for i in range(3):
-        field[:, :, i] += (light[i] - field[:, :, i]) * band * 0.85
+        field[:, :, i] = field[:, :, i] * (1.0 - 0.55 * wave)
 
-    # 漂移的圆斑
-    dx = 0.5 + 0.32 * math.sin(t * 2 * math.pi * 0.5)
-    dy = 0.45 + 0.18 * math.cos(t * 2 * math.pi * 0.35)
-    disc = numpy.clip(1.0 - (((xs - dx) ** 2 + (ys - dy) ** 2) / 0.045), 0.0, 1.0) ** 1.5
+    # 一团静态暖光（软边，不进边缘密度）
+    lx, ly = 0.74, 0.26
+    radius = 0.55
+    dist = numpy.sqrt(((xs - lx) * 1.15) ** 2 + ((ys - ly) * 0.95) ** 2)
+    glow = numpy.clip(1.0 - dist / radius, 0.0, 1.0) ** 2
     for i in range(3):
-        field[:, :, i] += (light[i] * 0.6 - field[:, :, i]) * disc * 0.7
+        field[:, :, i] += (light[i] - field[:, :, i]) * glow * 0.6
+
+    # 静态硬边结构：桌沿（横）与两根立柱（竖）——边缘密度恒定
+    edge_y = int(height * 0.74)
+    field[edge_y:, :, :] *= 0.5
+    for fx in (0.18, 0.63):
+        x = int(fx * width)
+        field[int(height * 0.30):edge_y, x:x + max(2, int(width * 0.012)), :] = light
 
     return Image.fromarray(numpy.clip(field, 0, 255).astype(numpy.uint8), "RGB")
 
 
+def _rmtree_quiet(path: pathlib.Path, attempts: int = 5) -> None:
+    """删目录。Windows 上文件可能被索引器/杀软短暂锁住，重试几次。"""
+    for attempt in range(attempts):
+        if not path.exists():
+            return
+        shutil.rmtree(path, ignore_errors=True)
+        if not path.exists():
+            return
+        time.sleep(0.2 * (attempt + 1))
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def _make_video(path: pathlib.Path, width: int, height: int, seconds: int, fps: int, palette, rng, work: pathlib.Path) -> None:
-    """用 ffmpeg 生成一条真 MP4（带真实位移）。帧先落盘再编码，保证确定性。"""
-    frames_dir = work / ".frames"
-    if frames_dir.exists():
-        shutil.rmtree(frames_dir, ignore_errors=True)
-    frames_dir.mkdir(parents=True, exist_ok=True)
-    total = seconds * fps
-    for index in range(total):
-        t = index / total
-        frame = _video_frame(width, height, t, palette)
-        frame.save(frames_dir / f"f{index:03d}.jpg", quality=92)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps),
-         "-i", str(frames_dir / "f%03d.jpg"),
-         "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-pix_fmt", "yuv420p",
-         "-movflags", "+faststart", "-fflags", "+bitexact", "-flags:v", "+bitexact",
-         str(path)],
-        check=True,
-    )
-    shutil.rmtree(frames_dir, ignore_errors=True)
+    """用 ffmpeg 生成一条真 MP4（带真实位移）。帧先落盘再编码，保证确定性。
+
+    帧落在**系统临时目录**里（不落作品目录）——ffmpeg 结束后立刻清掉，
+    作品目录里只剩成片。
+    """
+    frames_dir = pathlib.Path(tempfile.mkdtemp(prefix="dd-frames-"))
+    try:
+        total = seconds * fps
+        for index in range(total):
+            t = index / total
+            frame = _video_frame(width, height, t, palette)
+            # PNG（无损）：JPEG/H.264 的振铃会在硬边周围制造忽多忽少的梯度，
+            # 边缘密度代理指标就会把它读成「忽推近忽拉远」
+            frame.save(frames_dir / f"f{index:03d}.png", format="PNG", optimize=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps),
+             "-i", str(frames_dir / "f%03d.png"),
+             "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p",
+             "-movflags", "+faststart", "-fflags", "+bitexact", "-flags:v", "+bitexact",
+             str(path)],
+            check=True,
+        )
+    finally:
+        _rmtree_quiet(frames_dir)
 
 
 def _covers_for(beat_count: int) -> list[list[int]]:
@@ -1074,9 +1105,21 @@ def _covers_for(beat_count: int) -> list[list[int]]:
 
 
 def _join_actions(beats) -> str:
-    """与 compile_prompts.py 的派生规则一致：覆盖到的动作行拼成一段英文动作描述。"""
-    parts = [(b.get("action") or "").strip() for b in beats]
-    parts = [p for p in parts if p]
+    """与 compile_prompts.py 的派生规则一致：覆盖到的动作行拼成一段**英文**动作描述。
+
+    编译器（2026-11-16 版）优先取 `action_en`；只有中文 `action` 且是纯 ASCII 时才回退，
+    否则丢弃——`description_en` 是英文派生字段，中文动作行不该混进去（R17）。
+    """
+    parts = []
+    for beat in beats or []:
+        if not isinstance(beat, dict):
+            continue
+        text = (beat.get("action_en") or "").strip()
+        if not text:
+            fallback = (beat.get("action") or "").strip()
+            text = fallback if fallback.isascii() else ""
+        if text:
+            parts.append(text)
     if not parts:
         return ""
     out = " ".join(parts)
@@ -1550,6 +1593,10 @@ def build_large(work: pathlib.Path, work_id: str, seed: int) -> dict:
         },
         "notes": "大规模演示作品：72 镜全量分镜已出，生成阶段进行中。",
     })
+
+    # ── 收尾：作品目录里不留任何临时产物 ──────────────────────────────
+    for leftover in work.glob(".frames*"):
+        _rmtree_quiet(leftover)
 
     return {
         "scenes": len(scenes),

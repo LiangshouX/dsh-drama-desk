@@ -561,7 +561,12 @@ async function downscale(absolute) {
       execFile(
         python.command,
         [...python.prefix, join(TOOLS_DIR, 'safe_image.py'), '--in', absolute, '--out', target, '--max', String(MAX_IMAGE_EDGE)],
-        { timeout: 60000, windowsHide: true },
+        {
+          timeout: 60000,
+          windowsHide: true,
+          // 中文 Windows 的 Python 默认用 GBK 写 stdout，中文会变成乱码。
+          env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+        },
         (error, stdout) => resolve({ error, stdout: String(stdout ?? '') }),
       )
     })

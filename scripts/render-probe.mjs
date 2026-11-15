@@ -138,13 +138,23 @@ if ($null -eq $win) { Write-Output "RESULT|no-window"; exit 1 }
 $rpid = Get-RendererPid
 
 # 面板自己的标志元素：它出现 = 工作台在前台；它消失 = 已经退回会话。
-$script:DeskMark = "搜索镜头"
+#
+# 这个字符串是**插件独占**的一行字（顶栏的副标题）。不要用输入框的
+# placeholder —— 改一次文案探针就瞎了，而探针瞎了会**假装通过**。
+$script:DeskMark = "AI 短剧生产线"
+$script:DeskMarkFallback = "生成台"
 $script:SessionMark = "DSH-DRAMA-DESK-ROOT"
+
+function Find-DeskMark {
+  $e = Find-Contains $win $script:DeskMark
+  if ($null -ne $e) { return $e }
+  return (Find-Contains $win $script:DeskMarkFallback)
+}
 
 function Wait-Desk([int]$timeoutMs, [bool]$wantVisible) {
   $deadline = (Get-Date).AddMilliseconds($timeoutMs)
   while ((Get-Date) -lt $deadline) {
-    $e = Find-Contains $win $script:DeskMark
+    $e = Find-DeskMark
     # 宿主可能把面板留在 DOM 里只是不显示——所以「可见」看的是几何，
     # 不是「元素还在不在」。
     $visible = $false
@@ -211,7 +221,7 @@ Click-Element $win $script:Elsewhere | Out-Null
 [void](Wait-Desk 8000 $false)
 Start-Sleep -Seconds 2
 $stillVisible = $false
-$markEl = Find-Contains $win $script:DeskMark
+$markEl = Find-DeskMark
 if ($null -ne $markEl) {
   $mr = $markEl.Current.BoundingRectangle
   $stillVisible = ([int]$mr.Width -gt 0 -and [int]$mr.Height -gt 0)
@@ -276,6 +286,11 @@ async function main() {
   console.log('')
 
   const problems = []
+  // **测不到 ≠ 通过。** 探针瞎了却报「通过」是最坏的一种失败：
+  // 它把「没测」说成「没问题」。所以测不到就是失败。
+  if (switchAvg < 0) problems.push('探针测不到切换延迟：标志元素没找到（插件改了文案？），这次没测成')
+  if (netCpu <= 0 && fields.cpuOff === '0') problems.push('探针测不到渲染 CPU：渲染进程没找到')
+  if (hiddenPolls < 0) problems.push('探针测不到隐藏后的轮询次数：Host 统计接口没响应')
   if (switchAvg > budgetSwitch) problems.push(`打开工作台的切换延迟 ${switchAvg} ms > 预算 ${budgetSwitch} ms`)
   if (netCpu > budgetCpu) problems.push(`工作台净开销 ${netCpu} % > 预算 ${budgetCpu} %`)
   if (mounted) problems.push('切回会话后工作台仍可见：面板没隐藏')

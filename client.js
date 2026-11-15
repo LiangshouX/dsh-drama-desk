@@ -462,7 +462,7 @@ window.__ModuleLoader__.load({
 .dd-spacer{flex:1}
 
 /* ── scene strip (film perforations) ─────────────────────────────────── */
-.dd-strip{display:flex;align-items:center;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0}
+.dd-strip{display:flex;align-items:center;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0;max-width:100%}
 .dd-strip::-webkit-scrollbar{display:none}
 .dd-strip-chip{
   display:flex;align-items:center;gap:7px;padding:4px 10px;border-radius:var(--r-xs);flex:none;cursor:pointer;
@@ -484,11 +484,15 @@ window.__ModuleLoader__.load({
 .dd-stagehead{
   display:flex;align-items:flex-start;gap:16px;padding:16px 20px 14px;border-bottom:.5px solid var(--line);
   background:linear-gradient(180deg,color-mix(in srgb,var(--card) 55%,transparent),transparent);
+  /* 标题这一侧**不许被挤成竖排**：中文的最小内容宽度是 1 个字，
+     一旦被压窄，整段话会一个字一行。给它一个下限，挤不下就换行。 */
+  flex-wrap:wrap;
 }
+.dd-stagehead > div:first-child{flex:1 1 auto;min-width:300px}
 .dd-stagehead .sn3{font-family:var(--latin-serif);font-size:11px;letter-spacing:.16em;color:var(--ink4);text-transform:uppercase}
 .dd-stagehead .st3{font-family:var(--serif);font-size:21px;font-weight:600;letter-spacing:.01em;margin-top:2px}
 .dd-stagehead .sd3{font-size:12px;color:var(--ink3);margin-top:4px;max-width:760px;line-height:1.65}
-.dd-stagehead .sr3{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.dd-stagehead .sr3{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;min-width:0;max-width:100%}
 .dd-outline-list{display:flex;flex-direction:column;gap:10px}
 .dd-outline-row{
   display:grid;grid-template-columns:132px minmax(0,1fr) 190px;gap:16px;align-items:start;
@@ -1334,8 +1338,10 @@ window.__ModuleLoader__.load({
                       asset.state ? h('span', { className: 'dd-badge' }, asset.state) : null,
                     ),
                     asset.type === 'reference_image'
-                      ? h('div', {
-                        style: { cursor: 'pointer' },
+                      ? h('button', {
+                        style: { display: 'block', width: '100%', padding: '0', border: 'none', cursor: 'pointer' },
+                        'aria-label': '打开参考图 ' + asset.id,
+                        title: '打开 ' + asset.id,
                         onClick: () => onOpenImage(asset),
                       }, h('img', {
                         src: assetImageUrl(props.workspaceId, asset.id),
@@ -1398,31 +1404,36 @@ window.__ModuleLoader__.load({
         if (!scenes.some(scene => scene.id === activeId)) setActiveId(scenes[0].id)
       }, [scenes.map(scene => scene.id).join(',')])
       const scene = scenes.find(entry => entry.id === activeId)
+      const sceneStrip = h('div', { className: 'dd-strip' },
+        scenes.map(entry => h('div', {
+          key: entry.id,
+          className: 'dd-strip-chip' + (entry.id === activeId ? ' on' : ''),
+          onClick: () => setActiveId(entry.id),
+        },
+          h('span', { className: 'sid' }, entry.id),
+          h('span', { className: 'sn2' }, (entry.beats || []).length + '拍'),
+          entry.qc && entry.qc.verdict === 'FAIL'
+            ? h('span', { className: 'dot fail' })
+            : entry.qc && entry.qc.verdict === 'WARN'
+              ? h('span', { className: 'dot warn' })
+              : entry.qc
+                ? h('span', { className: 'dot ok' })
+                : null,
+        )),
+      )
       return h('div', { className: 'dd-main' },
         h(StageHeader, {
           stage: 'script',
           title: '表演层',
           desc: 'script 阶段的出口是 scenes.json 的 beats[]：动作行、台词、语气。铁律 R18 管的就是这一层。',
           right: [
-            h('div', { className: 'dd-strip' },
-              scenes.map(entry => h('div', {
-                key: entry.id,
-                className: 'dd-strip-chip' + (entry.id === activeId ? ' on' : ''),
-                onClick: () => setActiveId(entry.id),
-              },
-                h('span', { className: 'sid' }, entry.id),
-                h('span', { className: 'sn2' }, (entry.beats || []).length + '拍'),
-                entry.qc && entry.qc.verdict === 'FAIL'
-                  ? h('span', { className: 'dot fail' })
-                  : entry.qc && entry.qc.verdict === 'WARN'
-                    ? h('span', { className: 'dot warn' })
-                    : entry.qc
-                      ? h('span', { className: 'dot ok' })
-                      : null,
-              )),
-            ),
+            h('span', { className: 'dd-chip' }, h('b', { className: 'num' }, String(scenes.length)), ' 场'),
+            scene ? h('span', { className: 'dd-chip' }, scene.id, ' · ', h('b', { className: 'num' }, String((scene.beats || []).length)), ' 拍') : null,
           ],
         }),
+        h('div', { className: 'dd-toolbar', style: { paddingTop: '7px', paddingBottom: '7px' } },
+          sceneStrip,
+        ),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
             !scene
@@ -1971,11 +1982,21 @@ window.__ModuleLoader__.load({
             onChange: event => save({ title: event.target.value }),
           })),
         h('div', { style: { gridColumn: '1 / -1' } },
-          h(Field, { label: '这一镜要表达什么（摘要）' },
+          h(Field, { label: '这一镜要表达什么（派生摘要）' },
+            h('div', {
+              style: {
+                minHeight: '30px', padding: '6px 10px', borderRadius: 'var(--r-sm)',
+                background: 'var(--card)', color: 'var(--ink2)', fontSize: '12.5px',
+                lineHeight: '1.55', whiteSpace: 'pre-wrap',
+                opacity: shot.summary ? '1' : '.55',
+              },
+            }, shot.summary || '（没有摘要）'))),
+        h('div', { style: { gridColumn: '1 / -1' } },
+          h(Field, { label: '这一镜的动作（motion_action · 真源）' },
             h('textarea', {
-              value: shot.summary ?? '', disabled: busy,
-              placeholder: '一句话：这一镜里发生了什么',
-              onChange: event => save({ summary: event.target.value }),
+              value: shot.motion_action ?? '', disabled: busy,
+              placeholder: '这一镜里主体做了什么',
+              onChange: event => save({ motion_action: event.target.value }),
             }))),
         h('div', { style: { gridColumn: '1 / -1' } },
           h(Field, { label: '备注 / 导演批注' },
@@ -2121,6 +2142,9 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'dd-thumb-wrap' },
         h('div', {
           className: 'dd-thumb' + (asset.status === 'deprecated' ? ' dep' : '') + (asset.missing ? ' missing' : ''),
+          role: 'button',
+          tabIndex: 0,
+          'aria-label': '打开 ' + asset.id,
           onClick: () => { if (isImage && !asset.missing && !failed) onOpen(asset) },
           title: asset.path || asset.id,
         },
@@ -2651,6 +2675,7 @@ window.__ModuleLoader__.load({
         h('option', { value: entry.id, key: entry.id }, entry.name || entry.id))
       const modelOptions = models.map(entry =>
         h('option', { value: entry.id, key: entry.id }, entry.name || entry.id))
+      const listId = 'dd-models-' + (providerId || 'none')
       return h('div', null,
         h('div', { className: 'dd-field' },
           h('label', null, label),
@@ -2659,11 +2684,17 @@ window.__ModuleLoader__.load({
               className: 'dd-input', value: providerId || '', disabled,
               onChange: event => onProvider(event.target.value),
             }, h('option', { value: '' }, '（未选）'), providerOptions),
-            h('select', {
-              className: 'dd-input', value: modelId || '',
-              disabled: disabled || models.length === 0,
-              onChange: event => onModel(event.target.value),
-            }, h('option', { value: '' }, models.length === 0 ? '（没有可用模型）' : '（未选）'), modelOptions),
+            // 模型用「可输入的组合框」：宿主不一定公布模型目录，
+            // 公布了就给预置，没公布也**能手填**——不然这里就是死路。
+            h('div', null,
+              h('input', {
+                className: 'dd-input', value: modelId || '', disabled,
+                list: listId,
+                placeholder: models.length === 0 ? '模型 id（可手填）' : '模型 id',
+                onChange: event => onModel(event.target.value),
+              }),
+              h('datalist', { id: listId }, modelOptions),
+            ),
           ),
         ),
         note ? h('div', { className: 'dd-note' }, note) : null,

@@ -171,12 +171,17 @@ dsh-drama-desk/
 ### 演示作品
 
 ```bash
-python scripts/make_demo_work.py --out "D:/Default/Videos/drama-desk-demo"
+# 小作品（4 场 / 7 镜）：功能冒烟用
+python scripts/make_demo_work.py --out "D:/Default/Videos/drama-desk-demo" --scale small
+
+# 大作品（12 场 / 72 镜 / 569 秒）：分页、性能、规模用
+python scripts/make_demo_work.py --out "D:/Default/Videos/drama-desk-demo" --scale large --force
 ```
 
-生成一个带**真实参考图**（含一张 2048px，用来验证 ≤1200px 的显示约束）与
-**真实视频**（用来验证播放器与运动层体检）的最小作品，落在「视频」目录下
+生成带**真实参考图**（含一张 2048px，用来验证 ≤1200px 的显示约束）与
+**真实视频**（用来验证播放器与运动层体检）的作品，落在「视频」目录下
 ——**不在插件仓库里**。没有真实素材时，预览与视频体检都无从检验。
+大作品用来证明「按场次渲染」在真实规模下不卡。
 
 ---
 
@@ -197,8 +202,9 @@ git status --short                # 不该出现 build/ release/ node_modules/ _
 | 废弃路径残留 | `.drama/`、`docs/数据契约.md` 这类旧路径 |
 | 具体作品名 | 把某一个作品当通用规则写进来 |
 | 插件半边完整性 | manifest 字段、`cordis.patch.yml`、`locale/*.json`、`icon.svg`、client 入口形态 |
+| **随包工具自成一体** | `src/tools/` 缺 `compile_prompts.py` / `slim_prompt.py` / `lighting.py` / `desk_qc.py`（编译器 import 了一个没被打包的生成器，界面上的「重新编译」会直接报错） |
 | **语法** | 每个 JS 文件 `node --check` 不过 |
-| **运行时** | Host 半边 import 之后调 `overview()` / `rules()` / `pipeline()`，形状不对或运行时报错 |
+| **运行时** | Host 半边 import 之后调 `overview()` / `rules()` / `pipeline()` / 九个 `stageView()`，形状不对或运行时报错 |
 
 > 最后两条是**血的教训**：曾经一次编辑把两行 `import` 粘成了一行，
 > 一次把 `dirname` 从 import 里删掉了。`node --check` 只查语法，查不出后者；
@@ -269,6 +275,24 @@ Chromium 会丢内容层。纯色背景没有这个问题。
 > 「DOM 查询能看到元素，但人眼看不到」——自动化断言查不出来，只有截图能。
 > 截图必须**缩到最长边 ≤1200px** 再读（见 §4 的图片纪律）。
 
+### ④ 祖先 `overflow:hidden` + 自身带 `filter` 的 `<img>` = 空白图片
+
+`.dd-thumb img` 曾经带 `animation: dd-develop`（里面是 `filter: blur(10px)`）。
+结果是：**参考图一片空白**——DOM 在、几何对、网络请求也成功，就是不画。
+
+与 ①③ 同源：Chromium 在「祖先裁剪 + 自身滤镜」这一组合下会丢内容层。
+淡入只用 `opacity`，**不要用 `filter`**。
+
+> 对策：入场动画只用 `opacity` / `transform`；任何 `filter` 都不许进图片动画。
+
+### ⑤ 纵向 flex 里的中文标题会被压成一个字一行
+
+`.dd-stagehead` 是横向 flex。右侧一旦放了一条很宽的子元素（12 枚场次 chip），
+左侧的中文标题就被压到**最小内容宽度 = 1 个字**，于是整段话竖着排。
+
+> 对策：给文字那一侧一个下限（`min-width: 300px`），并允许换行
+> （`flex-wrap: wrap`）。挤不下就换行，不许把字压成一列。
+
 ---
 
 ## 11. 性能是红线
@@ -291,18 +315,23 @@ node scripts/build.mjs --perf --render      # 两道都跑，作为构建的一�
 
 ### 本机的实测基线（2026-11-16，Windows / Electron）
 
+演示作品：72 镜 / 12 场（`demo-epic`）。
+
 | 指标 | 预算 | 实测 |
 |---|---|---|
-| 一轮刷新（面板实际用的 `/snapshot`）p95 | 60 ms | **6.2 ms** |
-| 端点 p95（最慢的 `snapshot`） | 60 ms | **12.3 ms** |
-| 打开工作台的切换延迟 | 1200 ms | **323–451 ms** |
-| 切走工作台 | — | 213–232 ms |
-| 工作台净 CPU 开销（A/B 对照） | 20 % | **0.6–2 %** |
+| 一轮刷新（面板实际用的 `/snapshot`）p95 | 60 ms | **16.4 ms** |
+| 端点 p95（最慢的 `assets`） | 60 ms | **53.3 ms** |
+| 打开工作台的切换延迟 | 1200 ms | **353–473 ms** |
+| 切走工作台 | — | 526 ms |
+| 工作台净 CPU 开销（A/B 对照） | 20 % | **−7.6 %**（比会话还省） |
 | 面板藏起来后的轮询次数（8 秒） | 0 次 | **0 次** |
 
 > 切换延迟的预算**不是拍的**：同一台机器上，用户自己的「自媒体工作台」插件
 > 打开耗时 **244–1136 ms**。预算定在 1200 ms =「不许比参照插件更差」。
 > 换机器要重新测参照插件。
+>
+> `/snapshot` 的响应体随作品规模增长（72 镜 ≈ 37 KB）。它每 4 秒发一次，
+> 即 ~9 KB/s。**作品的镜头数再上一个量级时，要重新量这一条。**
 
 ### 六条规矩（每条都对应一个已修掉的坑）
 
@@ -336,3 +365,110 @@ node scripts/build.mjs --perf --render      # 两道都跑，作为构建的一�
 把「点击了工作区标题而不是会话行」当成面板没隐藏。
 **所以探针的每个判据都要能用截图或 DOM 查询独立验证**——
 探针报「超预算」时，先怀疑探针。
+
+> **更严重的一种：探针测不到，却报「通过」。**
+> 标志元素的文案一改，探针就找不到面板，于是延迟测成 `-1`、
+> CPU 测成 `0`——而 `-1 > 1200` 为假，于是「通过」。
+> 那是把「没测」说成「没问题」。
+>
+> **对策（已落到代码里）**：
+> ① 标志元素用**插件独占**的一行字（`AI 短剧生产线`），不要用输入框的
+>    placeholder —— 改一次文案探针就瞎了；
+> ② 探针**测不到就失败**：`switchAvg < 0` / `hiddenPolls < 0` 一律计入问题。
+
+---
+
+## 12. 阶段语义：**点节点 = 切视图，不是改状态**
+
+> 用户的原话：「点击某个阶段的节点，直接切换过去，但为预览状态，
+> 只有在该状态明确进行修改后，才会变更总体的进度状态。」
+
+所以阶段条上有**两个**概念：
+
+| 概念 | 存在哪 | 谁改它 |
+|---|---|---|
+| **已提交的阶段**（committed） | `state.json` 的 `stage` | 状态机（Host） |
+| **正在看的阶段**（viewStage） | 客户端内存 | 用户点阶段节点 |
+
+规则：
+
+- **点阶段节点不发任何请求。** 只是换视图（`setViewStage`）。
+  没有确认框，没有「再点一次」。
+- 预览时阶段条上：已提交的阶段是**实心**，正在预览的是**虚线描边**，
+  下面有一条「预览中 · 已提交进度仍停在 X」的横幅。
+- **任何写操作**都把 `viewStage` 一起发给 Host；Host **先保存内容**，
+  再尝试把 `state.json` 推进到那一阶段。
+- **保存与推进分离**：前置条件不满足时**内容照样保存**，只是进度不动，
+  缺口如实回报给用户。
+
+> 回退**永远允许**（契约明写：「分镜返工要能只重做第 7 个镜头」）。
+> 正向推进按契约 §11.2 逐段校验。
+>
+> 「已经在这一阶段」**不算**「没推进」——那说明人还在这里干活。
+
+实现：`src/host/editors.js` 的 `commitStage()` +
+`src/host/service.js` 的 `commitStageFor()` + `client.js` 的 `runEdit()`。
+
+---
+
+## 13. 三条新踩的坑（2026-11-16）
+
+### ① Windows 的 `rename` 会 `EBUSY`
+
+原子写是「写临时文件 → rename 覆盖目标」。目标文件正被别的进程打开时
+（杀毒软件、索引器、文件预览、甚至另一个读者），
+`rename` 会报 `EBUSY: resource busy or locked`，**整个写操作失败**。
+
+> 对策（`src/host/fsx.js` 的 `replaceFile()`）：
+> 重试几次（0 / 40 / 120 / 300 ms），仍不行就**就地覆盖**
+> （`copyFile` + 删临时文件）——那不原子，但**不丢数据**。
+
+### ② 中文 Windows 的 Python stdout 是 GBK
+
+体检器用 `ensure_ascii=False` 打印中文 JSON，Python 按 cp936 编码写 stdout，
+Node 按 UTF-8 解码 —— **每一个中文字段都变成乱码**（`无可拍动作` → `�޿��Ķ���`）。
+这条直接打到界面上（表演层的问题清单）。
+
+> 对策：所有 `execFile` 调 Python 的地方都带
+> `env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }`。
+> 涉及 `src/host/qc.js`、`src/host/compile.js`、`src/host/api.js`。
+
+### ③ 随包工具必须自成一体
+
+「重新编译」曾直接报 `ModuleNotFoundError: No module named 'slim_prompt'`：
+编译器 `import` 了一个**从来没被打包**的生成器。
+
+> 对策：
+> - `src/tools/` 现在自带 `slim_prompt.py`（通用默认生成器）与 `lighting.py`
+>   （光参数预设）；
+> - 编译器在**找不到**生成器时**不崩**：跳过提示词生成、仍然重编译派生字段，
+>   并在 JSON 里报 `note`；
+> - `scripts/build.mjs` 增加了检查：随包工具缺一个就**不许发布**。
+
+---
+
+## 14. 目录与文件的新增
+
+```
+src/host/
+  service.js     主编排（一个操作，两个调用者）
+  api.js         HTTP 传输层（不含业务逻辑）
+  stages.js      阶段机（顺序、前置条件、推进判定）
+  stageviews.js  九个阶段的视图载荷
+  editors.js     写操作 + 阶段提交
+  posters.js     静帧（关键帧 / 缓存帧 / ffmpeg 抽帧）
+  hostinfo.js    宿主真实配置（模型路由 / 目录选择器 / 作品列表）
+  workspace.js   作品读写
+  qc.js          体检器驱动
+  compile.js     编译器驱动
+  locations.js   路径解析（Windows 已知文件夹）
+  fsx.js         文件系统助手（原子写 + Windows 重试）
+src/tools/
+  compile_prompts.py  编译器驱动（派生字段 + 提示词产物 + 人工覆盖）
+  slim_prompt.py      通用默认提示词生成器
+  lighting.py         光参数 preset
+  desk_qc.py          体检器驱动
+```
+
+界面与 Host 的契约写在 `docs/API.md`——**那是接口的唯一真源**。
+改接口先改它。

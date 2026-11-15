@@ -567,6 +567,10 @@ export class DramaDeskService {
       workspace: { id: workspace.id, title: workspace.title, dir: workspace.dir },
       shot: {
         ...shot,
+        // 这一镜「要表达什么」是**派生**的：summary → description → motion_action
+        // → 覆盖到的 beats 的动作行。界面读它来显示，编辑改的是契约里的
+        // motion_action（真源字段），不是派生字段。
+        summary: shotSummary(data, shot),
         derivedFields: DERIVED_SHOT_FIELDS,
       },
       scene: scene === undefined ? undefined : {
@@ -984,7 +988,12 @@ export class DramaDeskService {
       specModels: adapters,
       // 规范适配：铁律来源。adapters 是 build/spec/models/<id>/ 里的那几份。
       adapter: this.config.model,
-      adapters: adapters.map(adapter => ({ ...adapter, label: adapter.title ?? adapter.id })),
+      adapters: adapters.map(adapter => ({
+        ...adapter,
+        label: adapter.title !== undefined && adapter.title !== adapter.id
+          ? adapter.id + ' · ' + adapter.title
+          : adapter.id,
+      })),
       // 生成模型：提交生成时用谁。它是**插件自己的配置**，不是宿主的默认模型。
       generation: {
         provider: this.config.generationProvider ?? '',

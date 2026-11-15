@@ -74,6 +74,11 @@ export async function commitStage(input) {
   const from = typeof state.stage === 'string' && state.stage !== '' ? state.stage : 'conceive'
   const work = input.work ?? { dir }
   const spec = input.spec ?? {}
+  // **已经在这一阶段**：内容保存了，进度也没变——那不是「没推进」，
+  // 那就是「还在这里」。说成「没推进」会让人以为白干了。
+  if (from === to) {
+    return { from, to, advanced: true, reason: `已经在 ${to} 阶段（内容已保存）`, gaps: [] }
+  }
   const decision = decideMove(from, to, work, spec)
   if (!decision.allowed) {
     // 不推进，也不改 state.json —— 内容照旧保存，缺口说清楚。

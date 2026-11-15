@@ -9,7 +9,7 @@
  *  - JSON carries a trailing newline and keeps its original key order, so a
  *    human diff of a真源 file stays readable.
  */
-import { readFile, writeFile, rename, mkdir, readdir, stat } from 'node:fs/promises'
+import { readFile, writeFile, rename, mkdir, readdir, stat, copyFile, rm } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 
 /** Read a UTF-8 text file; return `undefined` when it does not exist. */
@@ -36,9 +36,45 @@ export async function readJsonIfExists(path) {
 /** Write a text file atomically, creating parent directories as needed. */
 export async function writeTextAtomic(path, text) {
   await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.tmp-${process.pid.toString(36)}`
+  const temporary = `${path}.tmp-${process.pid.toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   await writeFile(temporary, text, 'utf8')
-  await rename(temporary, path)
+  await replaceFile(temporary, path)
+}
+
+/**
+ * Put `temporary` in place of `path`.
+ *
+ * Windows 的 `rename` 在目标文件正被别的进程打开时（杀毒软件、索引器、
+ * 文件预览、甚至另一个读者）会报 `EBUSY` / `EPERM`。那是**暂时**的：
+ * 重试几次就成了。
+ *
+ * 重试仍然不行，就退回到「就地覆盖」——那不原子，但**不丢数据**。
+ * 半写的文件比拿不到数据的界面好得多。
+ */
+async function replaceFile(temporary, path) {
+  const delays = [0, 40, 120, 300]
+  for (const delay of delays) {
+    if (delay > 0) await sleep(delay)
+    try {
+      await rename(temporary, path)
+      return
+    } catch (error) {
+      if (!isBusy(error)) throw error
+    }
+  }
+  await copyFile(temporary, path)
+  await rm(temporary, { force: true })
+}
+
+/** Whether an error is Windows'「文件正忙」. */
+function isBusy(error) {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false
+  return error.code === 'EBUSY' || error.code === 'EPERM' || error.code === 'EACCES'
+}
+
+/** A short sleep. */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 /** Write a JSON file atomically, pretty-printed with a trailing newline. */
