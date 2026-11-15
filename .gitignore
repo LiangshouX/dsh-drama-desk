@@ -1,0 +1,30 @@
+# 构建产物：由 scripts/build.mjs 从 src/ 生成，不入库
+build/
+
+# 依赖
+node_modules/
+pnpm-lock.yaml
+
+# 产物与实验数据（体积大、可再生）
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.mp3
+*.wav
+
+# 本地配置
+.env
+.env.local
+*.local
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 运行期
+*.log
+.tmp/
