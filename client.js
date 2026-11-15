@@ -3295,7 +3295,11 @@ window.__ModuleLoader__.load({
         ? overview.workspaces.find(work => work.id === workspaceId)
         : undefined
 
-      const stageData = stagePayload && stagePayload.kind === viewStage ? stagePayload.data : undefined
+      const stageData = stagePayload ? stagePayload.data : undefined
+      // 用**载荷自己的阶段**来选组件：这样即使 viewStage 刚变、请求还在路上，
+      // 也不会出现「已经拿到数据却什么都不显示」的空档。
+      const shownStage = stagePayload ? (stagePayload.stage || stagePayload.kind) : viewStage
+      const switching = stagePayload !== null && shownStage !== viewStage
 
       return h('div', { className: 'dd', ref: rootRef },
         h('style', null, CSS),
@@ -3414,29 +3418,42 @@ window.__ModuleLoader__.load({
               ? stageLoading && !stagePayload
                 ? h('div', { className: 'dd-empty' }, '正在读取 ' + (STAGE_LABEL[viewStage] || viewStage) + ' 阶段…')
                 : stageData === undefined
-                  ? h('div', { className: 'dd-empty' }, '还没有阶段数据')
-                  : viewStage === 'conceive'
-                    ? h(ConceiveView, { data: stageData, busy, actions })
-                    : viewStage === 'outline'
-                      ? h(OutlineView, { data: stageData, busy, actions, onGoto: stage => { setViewStage(stage); setStagePayload(null); stageRevision.current = null } })
-                      : viewStage === 'characters'
-                        ? h(CharactersView, { data: stageData, busy, actions, workspaceId, onOpenImage: asset => setViewer(asset) })
-                        : viewStage === 'script'
-                          ? h(ScriptView, { data: stageData, busy, actions })
-                          : viewStage === 'storyboard'
-                            ? h(StoryboardView, { data: stageData, busy, actions, onOpenShot: openShot })
-                            : viewStage === 'generate'
-                              ? h(GenerateView, {
-                                data: stageData, busy, actions, workspaceId,
-                                selectedShot, onSelectShot: openShot,
-                                onOpenImage: asset => setViewer(asset),
-                              })
-                              : viewStage === 'verify'
-                                ? h(VerifyView, { data: stageData, busy, actions, onOpenShot: openShot })
-                                : viewStage === 'assemble'
-                                  ? h(AssembleView, { data: stageData, onOpenShot: openShot })
-                                  : h(DeliverView, { data: stageData })
+                  ? h('div', { className: 'dd-empty' },
+                    h('div', { className: 'dd-empty-title' }, '这一阶段还没有数据'),
+                    h('div', null, '正在看的阶段：' + (viewStage || '—')
+                      + '；拿到载荷的阶段：' + (stagePayload ? (stagePayload.stage || stagePayload.kind || '—') : '还没有')),
+                    h('div', { style: { marginTop: '10px' } },
+                      h('button', {
+                        className: 'dd-btn',
+                        onClick: () => { setStagePayload(null); stageRevision.current = null; loadStage(viewStage) },
+                      }, '重新读取')))
+                  : switching
+                    ? h('div', { className: 'dd-empty' }, '正在切换到 ' + (STAGE_LABEL[viewStage] || viewStage) + '…')
+                    : null
               : null,
+              view === 'stage' && stageData !== undefined && !switching
+                ? (shownStage === 'conceive'
+                  ? h(ConceiveView, { data: stageData, busy, actions })
+                  : shownStage === 'outline'
+                    ? h(OutlineView, { data: stageData, busy, actions, onGoto: stage => { setViewStage(stage); setStagePayload(null); stageRevision.current = null } })
+                    : shownStage === 'characters'
+                      ? h(CharactersView, { data: stageData, busy, actions, workspaceId, onOpenImage: asset => setViewer(asset) })
+                      : shownStage === 'script'
+                        ? h(ScriptView, { data: stageData, busy, actions })
+                        : shownStage === 'storyboard'
+                          ? h(StoryboardView, { data: stageData, busy, actions, onOpenShot: openShot })
+                          : shownStage === 'generate'
+                            ? h(GenerateView, {
+                              data: stageData, busy, actions, workspaceId,
+                              selectedShot, onSelectShot: openShot,
+                              onOpenImage: asset => setViewer(asset),
+                            })
+                            : shownStage === 'verify'
+                              ? h(VerifyView, { data: stageData, busy, actions, onOpenShot: openShot })
+                              : shownStage === 'assemble'
+                                ? h(AssembleView, { data: stageData, onOpenShot: openShot })
+                                : h(DeliverView, { data: stageData }))
+                : null,
             view === 'spec' ? h(SpecView, { spec, tab: specTab, onTab: setSpecTab, stage: specStage, onStage: setSpecStage }) : null,
             view === 'assets' ? h(AssetsView, { assets, workspaceId, onOpenImage: asset => setViewer(asset) }) : null,
             view === 'ledger' ? h(LedgerView, { ledger }) : null,
