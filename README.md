@@ -20,7 +20,7 @@
 生成仍由 agent 调 CLI / Connector 完成，并走幂等三步（台账 → 提交 → 立刻回写）。
 本仓库不发起付费生成。
 
-**入口**：DSH 左侧栏的插件区（与「自媒体工作台」同级），点开是一整块工作台。
+**入口**：DSH 左侧栏的插件区（与「自媒体工作台」同级），叫**导演工作台**。
 
 ---
 
@@ -33,10 +33,11 @@ dsh-drama-desk/
 ├── index.js                  Host 半边（service + HTTP 路由 + agent 工具）
 ├── client.js                 Client 半边（浏览器 bundle，无构建步骤）
 ├── icon.svg  locale/  docs/  显示元信息
-├── AGENTS.md                 ★ 开发纪律（安装方式、硬边界、检查清单）
+├── AGENTS.md                 ★ 开发纪律（安装方式、硬边界、渲染层教训、检查清单）
 ├── scripts/
 │   ├── build.mjs             构建 + 发布前校验（语法 + 运行时冒烟）
-│   └── pack.mjs              打包 npm bundle → release/
+│   ├── pack.mjs              打包 npm bundle → release/
+│   └── make_demo_work.py     生成带真实图片/视频的演示作品
 │
 ├── src/                      ← 开发对象（DSH 不可见）
 │   ├── spec/
@@ -91,8 +92,11 @@ node scripts/build.mjs --check   # 校验 build/ 是否与 src/ 同步
 | 读规则与依据 | 规范视图 | `drama_desk_rules` |
 | 读资产 | 资产视图 | `drama_desk_assets` |
 | 读台账 | 台账页 | `drama_desk_ledger` |
+| 读 / 推进阶段 | 阶段条 | `drama_desk_stage` |
+| 读 / 改设置 | 设置抽屉 | `drama_desk_settings` |
 | 改表演（beats） | beats 编辑器 | `drama_desk_edit_beat` |
 | 改镜头参数 | 镜头字段 | `drama_desk_edit_shot` |
+| 写批注 | 批注区 | `drama_desk_annotate` |
 | 重新编译 | 按钮 | `drama_desk_compile` |
 | 校验产物是否过期 | 角标 | `drama_desk_check` |
 
@@ -105,8 +109,18 @@ spec/core/        模型无关：数据契约·宪法·表演纪律·模板·依
 spec/models/<id>/ 模型专属：规则·提示词写法·体检器·端点
 ```
 
-插件**解析** `build/spec/` 得到规则、依据、适用阶段；**不复述**任何一个阈值。
-Skill 正文只写"去哪拿"。改一处即全局生效。
+插件**解析** `build/spec/` 得到规则、依据、适用阶段与**前置条件**；**不复述**
+任何一个阈值。要显示阈值，就从体检器/规范里解析出来。改一处即全局生效。
+
+---
+
+## 阶段与前置条件
+
+阶段条上的每一段都可以点。点开是**契约自己的话**：
+
+- 前置条件：来自数据契约 §11.2 的原文（插件解析，不复述）；
+- 缺口：具体到「镜头 SC02-SH01 没有登记视频资产」；
+- 正向推进被缺口拦下；**回退不校验**（契约明写：分镜返工要能只重做一个镜头）。
 
 ---
 
@@ -123,7 +137,7 @@ Skill 正文只写"去哪拿"。改一处即全局生效。
 4. `%USERPROFILE%\Videos`——最后的朴素默认。
 
 项目根同理（会话工作目录 → 产物旁边的目录 → DSH 默认目录）。
-界面「项目」页写清**当前解析到哪个路径、为什么是它**，并在路径落在系统盘时**明说**——
+界面「设置」页写清**当前解析到哪个路径、为什么是它**，并在路径落在系统盘时**明说**——
 成片很占地方，系统盘会被不知不觉撑爆。
 
 ---
@@ -167,7 +181,7 @@ Skill 正文只写"去哪拿"。改一处即全局生效。
 ## 相关文档
 
 - **PRD**：`../PRD.md` —— 定位、旅程、界面设计规范、技术架构、路线图
-- **开发纪律**：`AGENTS.md` —— 安装方式、硬边界、提交前检查清单
+- **开发纪律**：`AGENTS.md` —— 安装方式、硬边界、渲染层教训、提交前检查清单
 - **数据契约**：`src/spec/core/数据契约.md`
 - **铁律**：`src/spec/models/minimax/rules.md`
 - **DSH 插件开发**：`dsh-doc` 技能的 `references/plugin-development.md` 与 `references/ui-plugin.md`

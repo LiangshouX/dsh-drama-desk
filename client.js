@@ -245,8 +245,10 @@ window.__ModuleLoader__.load({
 /* ── top bar ─────────────────────────────────────────────────────────── */
 .dd-top{
   display:flex;align-items:center;gap:16px;padding:0 18px;height:56px;flex:none;z-index:3;
-  background:linear-gradient(180deg,color-mix(in srgb,var(--card) 82%,transparent),var(--bg));
-  backdrop-filter:blur(24px) saturate(160%);
+  /* 这里**不用 backdrop-filter**：.dd-ambient 里有 56vmax 的大模糊层，
+     Chromium 在同一层叠上下文里做 backdrop 采样时会把该元素的内容层整个丢掉
+     （DOM 在、几何对、就是不画）。半透明纯色是可靠的等价做法。 */
+  background:color-mix(in srgb,var(--card) 88%,transparent);
   border-bottom:.5px solid var(--line);
 }
 .dd-mark{display:flex;align-items:center;gap:10px;flex:none}
@@ -276,15 +278,15 @@ window.__ModuleLoader__.load({
 .dd-top-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
 .dd-chip{
   display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;border-radius:var(--r-md);
-  background:var(--glass);border:.5px solid var(--line);font-size:11.5px;color:var(--ink3);
-  max-width:280px;overflow:hidden;white-space:nowrap;backdrop-filter:blur(12px);
+  background:color-mix(in srgb,var(--card) 72%,transparent);border:.5px solid var(--line);
+  font-size:11.5px;color:var(--ink3);max-width:280px;overflow:hidden;white-space:nowrap;
 }
 .dd-chip b{color:var(--ink);font-weight:500}
 .dd-chip.click{cursor:pointer;transition:border-color .18s var(--ease),color .18s var(--ease)}
 .dd-chip.click:hover{border-color:var(--accent);color:var(--ink)}
 .dd-icon-btn{
   width:30px;height:30px;border-radius:var(--r-md);display:grid;place-items:center;flex:none;
-  border:.5px solid var(--line);background:var(--glass);color:var(--ink2);backdrop-filter:blur(12px);
+  border:.5px solid var(--line);background:color-mix(in srgb,var(--card) 72%,transparent);color:var(--ink2);
   transition:color .18s var(--ease),border-color .18s var(--ease),background .18s var(--ease);
 }
 .dd-icon-btn:hover{color:var(--accent);border-color:var(--accent)}
@@ -410,7 +412,7 @@ window.__ModuleLoader__.load({
 /* ── detail column ───────────────────────────────────────────────────── */
 .dd-detail{
   width:clamp(360px,40%,520px);flex:0 0 auto;border-left:.5px solid var(--line);
-  background:color-mix(in srgb,var(--bg) 72%,transparent);backdrop-filter:blur(30px) saturate(160%);
+  background:color-mix(in srgb,var(--bg) 88%,transparent);
   display:flex;flex-direction:column;min-height:0;
 }
 .dd-detail-head{
@@ -419,18 +421,21 @@ window.__ModuleLoader__.load({
 .dd-detail-head .id{font-family:var(--latin-serif);font-size:13px;font-weight:600}
 .dd-detail-head .ttl{font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dd-detail-body{overflow:auto;padding:14px 16px 30px;display:flex;flex-direction:column;gap:11px}
+/* 关键：纵向 flex 容器里，子项默认可压缩 —— 内容比容器高时它们会被压扁
+   （而不是溢出滚动）。详情面板的每一段都必须保持自己的高度。 */
+.dd-detail-body>*{flex:0 0 auto}
 .dd-sec{border:.5px solid var(--line);border-radius:var(--r-lg);background:var(--bg);overflow:hidden;box-shadow:var(--elev-panel)}
 .dd-sec-head{
   display:flex;align-items:center;gap:9px;padding:9px 13px;cursor:pointer;user-select:none;
   background:color-mix(in srgb,var(--card) 62%,transparent);transition:background .16s var(--ease);
-}
-.dd-sec-head:hover{background:var(--card)}
+}.dd-sec-head:hover{background:var(--card)}
 .dd-sec-head .t{font-size:12.5px;font-weight:500}
 .dd-sec-head .sp{flex:1}
 .dd-tag{font-size:10px;padding:2px 8px;border-radius:999px;border:.5px solid var(--line);color:var(--ink3);letter-spacing:.05em}
 .dd-tag.src{border-color:color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent)}
 .dd-tag.out{border-color:color-mix(in srgb,var(--ok) 40%,transparent);color:var(--ok)}
 .dd-sec-body{padding:11px 13px;display:flex;flex-direction:column;gap:10px}
+.dd-sec-body>*{flex:0 0 auto}
 
 .dd-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
 .dd-field{display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -445,6 +450,7 @@ window.__ModuleLoader__.load({
 .dd-field select option{background:var(--card)}
 
 .dd-beats{display:flex;flex-direction:column;gap:8px}
+.dd-beats>*{flex:0 0 auto}
 .dd-beat{border:.5px solid var(--line);border-radius:var(--r-md);background:var(--card);overflow:hidden;box-shadow:var(--elev-panel)}
 .dd-beat-head{display:flex;align-items:center;gap:9px;padding:7px 11px;font-size:11px;color:var(--ink4);border-bottom:.5px solid var(--line)}
 .dd-beat-head .n{font-family:var(--latin-serif)}
@@ -539,13 +545,14 @@ window.__ModuleLoader__.load({
 /* ── drawer ──────────────────────────────────────────────────────────── */
 .dd-drawer{
   position:absolute;top:0;right:0;bottom:0;width:min(430px,88%);z-index:20;
-  background:color-mix(in srgb,var(--card) 62%,transparent);backdrop-filter:blur(30px) saturate(160%);
+  background:color-mix(in srgb,var(--card) 97%,transparent);
   border-left:.5px solid var(--line-strong);box-shadow:-24px 0 60px rgba(0,0,0,.28);
   display:flex;flex-direction:column;animation:dd-dock-in .3s cubic-bezier(.2,1,.3,1) both;
 }
 @keyframes dd-dock-in{from{opacity:0;transform:translateX(20px)}}
 .dd-drawer-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:.5px solid var(--line)}
 .dd-drawer-body{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:18px}
+.dd-drawer-body>*{flex:0 0 auto}
 .dd-drawer h4{margin:0;font-size:10.5px;font-family:var(--dsw-font-family-brand,"Montserrat",system-ui,sans-serif);font-weight:500;letter-spacing:.12em;color:var(--ink4);text-transform:uppercase}
 .dd-note{font-size:11.5px;color:var(--ink4);line-height:1.65}
 .dd-warnbox{
@@ -570,7 +577,7 @@ window.__ModuleLoader__.load({
 /* ── popover ─────────────────────────────────────────────────────────── */
 .dd-pop{
   position:fixed;z-index:30;min-width:250px;max-width:360px;
-  background:color-mix(in srgb,var(--card) 86%,transparent);backdrop-filter:blur(20px) saturate(160%);
+  background:var(--card);
   border:.5px solid var(--line-strong);border-radius:var(--r-md);
   box-shadow:var(--elev-prominent);padding:12px;animation:dd-pop .2s var(--pop) both;
 }

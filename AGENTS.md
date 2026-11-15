@@ -130,8 +130,11 @@ release/   ← npm bundle tarball（gitignore）
 | 读规则与依据 | 规范视图 | `drama_desk_rules` | `service.rules()` |
 | 读资产 | 资产视图 | `drama_desk_assets` | `service.assets()` |
 | 读台账 | 台账页 | `drama_desk_ledger` | `service.ledger()` |
+| 读 / 推进阶段 | 阶段条 | `drama_desk_stage` | `service.stageState()` / `service.setStage()` |
+| 读 / 改设置 | 设置抽屉 | `drama_desk_settings` | `service.settings()` / `service.updateSettings()` |
 | 改表演 | beats 编辑器 | `drama_desk_edit_beat` | `service.editBeat()` |
 | 改镜头 | 镜头字段 | `drama_desk_edit_shot` | `service.editShot()` |
+| 写批注 | 批注区 | `drama_desk_annotate` | `service.annotateShot()` |
 | 重新编译 | 按钮 | `drama_desk_compile` | `service.compile()` |
 | 校验过期 | 角标 | `drama_desk_check` | `service.check()` |
 
@@ -152,7 +155,8 @@ dsh-drama-desk/
 ├── docs/DETAIL.md            插件详情页
 ├── scripts/
 │   ├── build.mjs             构建 + 发布前校验
-│   └── pack.mjs              打包 npm bundle → release/
+│   ├── pack.mjs              打包 npm bundle → release/
+│   └── make_demo_work.py     生成带真实图片/视频的演示作品（落在视频目录，不入库）
 ├── src/
 │   ├── spec/                 规范源码（core/ + models/<id>/）
 │   ├── skills/<name>/SKILL.md
@@ -161,6 +165,16 @@ dsh-drama-desk/
 │   └── client/               （预留：将来放需要构建的 Client 源码）
 └── build/  release/          构建产物与发布物（都不入库）
 ```
+
+### 演示作品
+
+```bash
+python scripts/make_demo_work.py --out "D:/Default/Videos/drama-desk-demo"
+```
+
+生成一个带**真实参考图**（含一张 2048px，用来验证 ≤1200px 的显示约束）与
+**真实视频**（用来验证播放器与运动层体检）的最小作品，落在「视频」目录下
+——**不在插件仓库里**。没有真实素材时，预览与视频体检都无从检验。
 
 ---
 
@@ -218,4 +232,39 @@ Host 的 ES 模块要等 DSH 重启才会是新的模块代。所以：
 
 > 实在需要重启 DSH 时，先确认 `cordis.patch.yml` 已保存、仓库已提交。
 > 会话是持久化的（`session-persistence-jsonl`），重启后可以恢复。
+
+---
+
+## 10. 渲染层的三条血泪教训
+
+这三条都在 DSH Desktop 的 Electron 渲染器里真实踩过，**症状都是「DOM 在、
+几何对、就是不画」**——不截图根本发现不了。
+
+### ① 同一层叠上下文里的大模糊层会吃掉 `backdrop-filter`
+
+`.dd-ambient` 里有三个 `56vmax` 的 `filter: blur(70px)` 光斑。
+同一个层叠上下文里再给顶栏用 `backdrop-filter`，Chromium 会把该元素的
+**内容层整个丢掉**——只剩背景，文字、按钮、图标全不画。
+
+**对策**：顶栏 / 抽屉 / 浮层一律**不用 backdrop-filter**，用半透明纯色。
+（`filter: blur()` 的大光斑本身可以留，它自己画得好好的。）
+
+### ② 纵向 flex 容器里的子项会被压扁
+
+`.dd-detail-body` 是 `display:flex; flex-direction:column`。子项默认可压缩，
+内容比容器高时它们会被**压扁**（而不是溢出滚动）——表现为每段只露一条缝。
+
+**对策**：可滚动的纵向 flex 容器里，所有直接子项都要 `flex:0 0 auto`。
+
+### ③ 渐变背景 + backdrop-filter 同元素 = 内容不画
+
+`background: linear-gradient(...)` 与 `backdrop-filter` 同时用在同一元素上时，
+Chromium 会丢内容层。纯色背景没有这个问题。
+
+**对策**：不要在同一个元素上同时用渐变背景与 backdrop-filter。
+
+> 通用做法：**每次改完界面都截图看一眼**。这三条的共同特征是
+> 「DOM 查询能看到元素，但人眼看不到」——自动化断言查不出来，只有截图能。
+> 截图必须**缩到最长边 ≤1200px** 再读（见 §4 的图片纪律）。
+
 
