@@ -129,6 +129,10 @@ export function registerApi(ctx, service) {
           await serveImage(service, url, res)
           return
         }
+        if (path.startsWith(`${API_PREFIX}/poster`)) {
+          await servePoster(service, url, res)
+          return
+        }
         if (path.startsWith(`${API_PREFIX}/video`)) {
           await serveVideo(service, url, req, res)
           return
@@ -198,6 +202,16 @@ async function readResource(service, resource, query) {
       // **轮询用这一个端点**：面板每几秒问一次「现在什么样」，
       // 四个请求就是四倍往返与四倍 HTTP 开销。这里一次给全。
       return await service.snapshot({ workspaceId: query.workspace })
+    case 'stage':
+      if (query.stage === undefined) throw new Error('缺少 stage 参数')
+      return await service.stageView({ workspaceId: query.workspace, stage: query.stage })
+    case 'prompt':
+      if (query.shot === undefined) throw new Error('缺少 shot 参数')
+      return await service.prompt({ workspaceId: query.workspace, shotId: query.shot })
+    case 'workspaces':
+      return await service.workspaces({ workspaceId: query.workspace })
+    case 'browse':
+      return await service.browse({ path: query.path })
     default:
       throw new Error(`未知接口 ${resource}`)
   }
@@ -210,21 +224,85 @@ async function runAction(service, action, body) {
       return await service.editBeat({
         workspaceId: body.workspaceId,
         sceneId: body.sceneId,
+        op: body.op,
         beatIndex: body.beatIndex,
+        toIndex: body.toIndex,
         patch: body.patch,
+        stage: body.stage,
       })
     case 'edit-shot':
       return await service.editShot({
         workspaceId: body.workspaceId,
         shotId: body.shotId,
         patch: body.patch,
+        stage: body.stage,
+      })
+    case 'edit-scene':
+      return await service.editScene({
+        workspaceId: body.workspaceId,
+        sceneId: body.sceneId,
+        patch: body.patch,
+        stage: body.stage,
+      })
+    case 'edit-character':
+      return await service.editCharacter({
+        workspaceId: body.workspaceId,
+        characterId: body.characterId,
+        patch: body.patch,
+        stage: body.stage,
+      })
+    case 'edit-brief':
+      return await service.editBrief({
+        workspaceId: body.workspaceId,
+        text: body.text,
+        stage: body.stage,
+      })
+    case 'edit-asset':
+      return await service.editAsset({
+        workspaceId: body.workspaceId,
+        assetId: body.assetId,
+        patch: body.patch,
+        stage: body.stage,
+      })
+    case 'edit-verify':
+      return await service.editVerify({
+        workspaceId: body.workspaceId,
+        shotId: body.shotId,
+        patch: body.patch,
+        stage: body.stage,
       })
     case 'annotate-shot':
       return await service.annotateShot({
         workspaceId: body.workspaceId,
         shotId: body.shotId,
         note: body.note,
+        stage: body.stage,
       })
+    case 'prompt':
+      return await service.savePrompt({
+        workspaceId: body.workspaceId,
+        shotId: body.shotId,
+        text: body.text,
+        stage: body.stage,
+      })
+    case 'prompt-reset':
+      return await service.resetPrompt({
+        workspaceId: body.workspaceId,
+        shotId: body.shotId,
+        stage: body.stage,
+      })
+    case 'pick-folder':
+      return await service.pickFolder({ target: body.target })
+    case 'create-directory':
+      return await service.makeDirectory({ path: body.path, name: body.name })
+    case 'workspace':
+      if (body.action === 'create') {
+        return await service.createWorkspace({ id: body.id, title: body.title })
+      }
+      if (body.action === 'select') {
+        return { ok: true, selected: body.id }
+      }
+      throw new Error(`未知作品操作 ${body.action}`)
     case 'set-stage':
       return await service.setStage({
         workspaceId: body.workspaceId,
@@ -234,7 +312,13 @@ async function runAction(service, action, body) {
       return await service.updateSettings({
         projectRoot: body.projectRoot,
         outputRoot: body.outputRoot,
+        adapter: body.adapter,
         model: body.model,
+        generationProvider: body.generationProvider,
+        generationModel: body.generationModel,
+        hostProvider: body.hostProvider,
+        hostModel: body.hostModel,
+        autoRefresh: body.autoRefresh,
       })
     case 'compile':
       return await service.compile({
@@ -314,6 +398,42 @@ async function serveImage(service, url, res) {
     'x-image-scaled-from': `${scaled.sourceWidth ?? '?'}x${scaled.sourceHeight ?? '?'}`,
   })
   res.end(scaled.bytes)
+}
+
+/**
+ * Serve one shot's still frame — keyframe, cached frame, or a grab from the
+ * shot's own video.
+ *
+ * The frame is produced by the Host (which knows the work) and cached in the
+ * work's `.frames/` directory. It is a **cache**, not an asset: nothing is
+ * registered, nothing is written into `assets.json`.
+ */
+async function servePoster(service, url, res) {
+  const shotId = url.searchParams.get('shot')
+  const workspaceId = url.searchParams.get('workspace') ?? undefined
+  if (shotId === null) {
+    sendJson(res, 400, { ok: false, error: '缺少 shot 参数' })
+    return
+  }
+  const poster = await service.posterPath({ workspaceId, shotId })
+  if (poster === undefined) {
+    sendJson(res, 404, { ok: false, error: `镜头 ${shotId} 没有静帧` })
+    return
+  }
+  let body
+  try {
+    body = await readFile(poster.path)
+  } catch {
+    sendJson(res, 404, { ok: false, error: `镜头 ${shotId} 的静帧读不出来` })
+    return
+  }
+  res.writeHead(200, {
+    'content-type': 'image/jpeg',
+    'content-length': String(body.length),
+    'cache-control': 'no-store',
+    'x-poster-cached': poster.cached === true ? '1' : '0',
+  })
+  res.end(body)
 }
 
 /** Content type by extension. */

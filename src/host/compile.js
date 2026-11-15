@@ -71,7 +71,13 @@ export async function runCompile(workDir, options = {}) {
   if (options.dry === true) args.push('--dry')
   if (options.shotId !== undefined) args.push('--shot', options.shotId)
   const result = await new Promise(resolve => {
-    execFile(python.command, args, { timeout: 120000, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+    execFile(python.command, args, {
+      timeout: 120000,
+      maxBuffer: 16 * 1024 * 1024,
+      windowsHide: true,
+      // 中文 Windows 的 Python 默认用 GBK 写 stdout，中文会变成乱码。
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    }, (error, stdout, stderr) => {
       resolve({ error, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') })
     })
   })
@@ -93,6 +99,9 @@ export async function runCompile(workDir, options = {}) {
     changed: parsed.changed ?? [],
     stale: parsed.stale ?? [],
     prompts: parsed.prompts ?? 0,
+    // 人工覆盖：这些镜的提示词是人写的，编译器尊重它们，不覆盖。
+    overridden: parsed.overridden ?? [],
+    note: parsed.note ?? '',
     source: located.source,
     script: located.script,
   }

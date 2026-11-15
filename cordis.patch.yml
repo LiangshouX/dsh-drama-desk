@@ -16,6 +16,8 @@
 #                显式写死会覆盖这个自动解析。
 #   model        规范分层里的模型适配 id，对应 build/spec/models/<id>/。
 #   autoRefresh  读取磁盘文件的节流间隔（毫秒）；0 = 不自动刷新。
+#   generationProvider / generationModel
+#                提交生成时用哪个模型路由。留空 = 由 agent 自己决定。
 - insert:
     - id: drama-desk
       name: 'dsh-drama-desk'
@@ -24,3 +26,5 @@
         outputRoot: ''
         model: 'minimax'
         autoRefresh: 4000
+        generationProvider: ''
+        generationModel: ''

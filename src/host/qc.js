@@ -45,7 +45,14 @@ async function resolvePython() {
 /** Promise wrapper around execFile with a hard timeout. */
 function run(command, args, timeoutMs) {
   return new Promise(resolve => {
-    execFile(command, args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+    execFile(command, args, {
+      timeout: timeoutMs,
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
+      // 中文 Windows 的 Python 默认用 GBK 写 stdout，JSON 里的中文字段会变成乱码。
+      // 强制 UTF-8：体检器的中文问题清单必须原样到达界面。
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    }, (error, stdout, stderr) => {
       resolve({
         ok: error === null,
         code: error === null ? 0 : (typeof error.code === 'number' ? error.code : 1),

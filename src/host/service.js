@@ -11,9 +11,9 @@
  *  - the parsed-file cache is invalidated by the file's own mtime and size,
  *    so it can never disagree with the disk.
  */
-import { stat, statfs } from 'node:fs/promises'
+import { stat, statfs, mkdir } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
-import { readJsonIfExists, readTextIfExists, isFile, resolveWithin, writeJsonAtomic, listDirIfExists } from './fsx.js'
+import { readJsonIfExists, readTextIfExists, isFile, resolveWithin, writeJsonAtomic, writeTextAtomic, listDirIfExists } from './fsx.js'
 import { discoverWorkspaces, loadWorkspace, writeSceneBeats, writeShotFields, DERIVED_SHOT_FIELDS } from './workspace.js'
 import { loadSpec, STAGES } from './spec.js'
 import { runBeatQc, runMotionQc, runImageQc } from './qc.js'
@@ -22,6 +22,26 @@ import { judgeRule } from './applicability.js'
 import { resolveConfig, SPEC_DIR } from './paths.js'
 import { resolveOutputRoot, resolveProjectRoot } from './locations.js'
 import { describeStages, decideMove, stageOrder } from './stages.js'
+import { buildStageView, readStagePrompt, shotSummary, STAGE_VIEWS } from './stageviews.js'
+import { resolvePoster, resolvePosterSource } from './posters.js'
+import {
+  readHostInfo,
+  pickDirectory,
+  browseDirectory,
+  createDirectory,
+  listWorkspacesDetailed,
+} from './hostinfo.js'
+import {
+  commitStage,
+  editSceneFields,
+  editCharacterFields,
+  editBrief,
+  editAssetFields,
+  editVerifyReport,
+  editBeatOp,
+  writePromptOverride,
+  resetPromptOverride,
+} from './editors.js'
 
 /** The five QC colours, in the order the PRD defines them. */
 export const STATUS_ORDER = ['none', 'generated', 'warn', 'fail', 'pass']
@@ -871,6 +891,8 @@ export class DramaDeskService {
       workspace: { id: workspace.id, title: workspace.title, dir: workspace.dir },
       revision: await this.revisionOf(workspace.dir),
       stage: data.state?.stage,
+      // **已提交的阶段**——面板据此区分「已提交的进度」与「正在预览的视图」。
+      committed: current,
       stages: describeStages(data, spec, current),
       order: stageOrder(spec),
       updatedAt: data.state?.updated_at,
@@ -931,6 +953,15 @@ export class DramaDeskService {
     const editor = this.ctx?.get?.('configEditor')
     const entry = this.ctx?.fiber?.entry
     const adapters = await this.listModelAdapters()
+    // 宿主真实配置：模型路由、密钥状态、目录选择器。
+    //
+    // **轻量路径**（轮询用的那个）只读 provider 名单与宿主模型——列模型目录
+    // 可能要去问 provider，那不是每几秒该做的事。设置抽屉打开时才走 full。
+    const providers = await this.providerList(options.full === true)
+    const picker = this.pickerCapability()
+    const hostModel = model === undefined
+      ? undefined
+      : { provider: model.provider, model: model.model, reasoningEffort: model.reasoningEffort }
     return {
       projectRoot: locations.project.path,
       projectRootReason: locations.project.reason,
@@ -951,11 +982,17 @@ export class DramaDeskService {
       },
       specModel: this.config.model,
       specModels: adapters,
-      hostModel: model === undefined ? undefined : {
-        provider: model.provider,
-        model: model.model,
-        reasoningEffort: model.reasoningEffort,
+      // 规范适配：铁律来源。adapters 是 build/spec/models/<id>/ 里的那几份。
+      adapter: this.config.model,
+      adapters: adapters.map(adapter => ({ ...adapter, label: adapter.title ?? adapter.id })),
+      // 生成模型：提交生成时用谁。它是**插件自己的配置**，不是宿主的默认模型。
+      generation: {
+        provider: this.config.generationProvider ?? '',
+        model: this.config.generationModel ?? '',
       },
+      providers,
+      picker,
+      hostModel,
       specAvailable: spec.available,
       editable: editor !== undefined && entry !== undefined,
       patchPath: this.ctx?.get?.('profileContext')?.patchPath,
@@ -981,6 +1018,46 @@ export class DramaDeskService {
   }
 
   /**
+   * The provider list, read from the **host's own** model registry.
+   *
+   * Light mode (the polled path) asks only for the route names — that is an
+   * in-memory registry read. Full mode also lists each provider's models,
+   * which may reach the provider itself, so it is only used when the settings
+   * drawer asks for it.
+   */
+  async providerList(full) {
+    if (full === true) {
+      try {
+        const info = await readHostInfo(this)
+        return info.providers ?? []
+      } catch {
+        return []
+      }
+    }
+    const llm = this.ctx?.get?.('llm')
+    if (llm === undefined || typeof llm.listProviders !== 'function') return []
+    try {
+      const rows = llm.listProviders()
+      if (!Array.isArray(rows)) return []
+      return rows.map(row => ({ id: row.id, name: row.name ?? row.id, configured: false, models: [] }))
+    } catch {
+      return []
+    }
+  }
+
+  /** Whether the host can open a native folder picker. */
+  pickerCapability() {
+    const picker = this.ctx?.get?.('directoryPicker')
+    try {
+      const capability = picker?.capability?.()
+      const kind = capability?.kind === 'native' ? 'native' : 'browse'
+      return { kind }
+    } catch {
+      return { kind: 'browse' }
+    }
+  }
+
+  /**
    * Change the plugin's settings.
    *
    * The write goes through the Host's **config editor** when the profile has
@@ -998,13 +1075,35 @@ export class DramaDeskService {
     const patch = {}
     if (options.projectRoot !== undefined) patch.projectRoot = String(options.projectRoot)
     if (options.outputRoot !== undefined) patch.outputRoot = String(options.outputRoot)
-    if (options.model !== undefined) patch.model = String(options.model)
-    if (Object.keys(patch).length === 0) throw new Error('没有要改的项')
-    await editor.edit(entry, current => ({ ...current, ...patch }))
-    // The editor restarts the plugin, which rebuilds the service with the new
-    // config. The in-memory location cache is therefore stale on purpose.
-    this.locationCache = undefined
-    return { ok: true, patch }
+    if (options.adapter !== undefined) patch.model = String(options.adapter)
+    else if (options.model !== undefined) patch.model = String(options.model)
+    if (options.generationProvider !== undefined) patch.generationProvider = String(options.generationProvider)
+    if (options.generationModel !== undefined) patch.generationModel = String(options.generationModel)
+    if (options.autoRefresh !== undefined) patch.autoRefresh = Number(options.autoRefresh) || 0
+    if (Object.keys(patch).length > 0) {
+      await editor.edit(entry, current => ({ ...current, ...patch }))
+      // The editor restarts the plugin, which rebuilds the service with the new
+      // config. The in-memory location cache is therefore stale on purpose.
+      this.locationCache = undefined
+    }
+    // 宿主模型走宿主自己的服务（与 DSH 其它地方的默认模型选择同一个真源）。
+    let hostModel
+    if (options.hostProvider !== undefined || options.hostModel !== undefined) {
+      const host = this.ctx?.get?.('agentDefaultModel')
+      if (host === undefined || typeof host.saveSelection !== 'function') {
+        throw new Error('这个宿主没有 agentDefaultModel 服务：无法改宿主模型')
+      }
+      const current = host.currentSelection?.() ?? {}
+      hostModel = {
+        provider: options.hostProvider !== undefined ? String(options.hostProvider) : current.provider,
+        model: options.hostModel !== undefined ? String(options.hostModel) : current.model,
+      }
+      if (hostModel.provider === undefined || hostModel.model === undefined) {
+        throw new Error('宿主模型需要同时给出 provider 与 model')
+      }
+      await host.saveSelection(hostModel)
+    }
+    return { ok: true, patch, hostModel }
   }
 
   // ── edits ────────────────────────────────────────────────────────────────
@@ -1012,41 +1111,37 @@ export class DramaDeskService {
   /**
    * Edit one beat of one scene — the 表演层真源.
    *
-   * The patch replaces the named fields of one beat; nothing else in
-   * `scenes.json` is touched.
+   * Four operations, one writer: `patch` replaces fields, `insert` adds a beat,
+   * `delete` removes one, `move` reorders. Nothing else in `scenes.json` moves.
    */
   async editBeat(options) {
-    const workspace = await this.resolveWorkspace(options.workspaceId)
-    if (workspace === undefined) throw new Error('没有可用的作品')
-    const data = await this.loadWork(workspace.dir)
-    const scene = data.scenes.find(entry => entry.id === options.sceneId)
-    if (scene === undefined) throw new Error(`场次 ${options.sceneId} 不存在`)
-    const index = Number(options.beatIndex)
-    if (!Number.isInteger(index) || index < 1 || index > (scene.beats?.length ?? 0)) {
-      throw new Error(`beat 序号越界：${options.beatIndex}（该场次共 ${scene.beats?.length ?? 0} 拍）`)
-    }
-    const patch = options.patch
-    if (patch === undefined || typeof patch !== 'object' || patch === null) {
-      throw new Error('缺少 patch')
-    }
-    const beats = JSON.parse(JSON.stringify(scene.beats))
-    beats[index - 1] = { ...beats[index - 1], ...patch }
-    await writeSceneBeats(workspace.dir, options.sceneId, beats)
+    const workspace = await this.requireWorkspace(options)
+    const op = typeof options.op === 'string' ? options.op : 'patch'
+    const result = await editBeatOp(workspace.dir, options.sceneId, {
+      op,
+      beatIndex: Number(options.beatIndex),
+      toIndex: options.toIndex === undefined ? undefined : Number(options.toIndex),
+      patch: options.patch,
+    })
     this.invalidateWork(workspace.dir)
-    return { ok: true, sceneId: options.sceneId, beatIndex: index, beats }
+    return {
+      ok: true,
+      saved: true,
+      sceneId: options.sceneId,
+      op,
+      beatIndex: result.beatIndex,
+      beats: result.beats,
+      stage: await this.commitStageFor(options, workspace),
+    }
   }
 
   /** Edit the 分镜层真源 fields of one shot. */
   async editShot(options) {
-    const workspace = await this.resolveWorkspace(options.workspaceId)
-    if (workspace === undefined) throw new Error('没有可用的作品')
+    const workspace = await this.requireWorkspace(options)
     const patch = options.patch
-    if (patch === undefined || typeof patch !== 'object' || patch === null) {
-      throw new Error('缺少 patch')
-    }
     await writeShotFields(workspace.dir, options.shotId, patch)
     this.invalidateWork(workspace.dir)
-    return { ok: true, shotId: options.shotId, patch }
+    return { ok: true, saved: true, shotId: options.shotId, patch, stage: await this.commitStageFor(options, workspace) }
   }
 
   /**
@@ -1057,12 +1152,263 @@ export class DramaDeskService {
    * schema: the annotation is真源 like everything else in `shots.json`.
    */
   async annotateShot(options) {
-    const workspace = await this.resolveWorkspace(options.workspaceId)
-    if (workspace === undefined) throw new Error('没有可用的作品')
+    const workspace = await this.requireWorkspace(options)
     const note = typeof options.note === 'string' ? options.note : ''
     await writeShotFields(workspace.dir, options.shotId, { notes: note })
     this.invalidateWork(workspace.dir)
-    return { ok: true, shotId: options.shotId, notes: note }
+    return { ok: true, saved: true, shotId: options.shotId, notes: note, stage: await this.commitStageFor(options, workspace) }
+  }
+
+  // ── stage views ───────────────────────────────────────────────────────────
+
+  /**
+   * One stage's own view of the work.
+   *
+   * 每个阶段都有自己的数据契约出口，所以每个阶段也该有自己的呈现：
+   * 创意看简报，角色看角色卡与每张参考图的提示词，剧本看表演，分镜看机位，
+   * 生成看网格与产物，验收看报告，装配看版本，交付看成片。
+   *
+   * 载荷由 `stageviews.js` 组装；**判断不在这里做**——判定、阈值、规则
+   * 都来自已有的层（体检器 / 网格格子 / 规范）。
+   */
+  async stageView(options = {}) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) throw new Error('没有可用的作品')
+    const kind = typeof options.stage === 'string' ? options.stage : 'generate'
+    if (!STAGE_VIEWS.includes(kind)) throw new Error(`未知阶段 ${kind}`)
+    const work = await loadWorkspace(workspace.dir)
+    const payload = await buildStageView({ kind, work, service: this })
+    return {
+      workspace: { id: workspace.id, title: workspace.title, dir: workspace.dir },
+      stage: kind,
+      kind,
+      revision: await this.revisionOf(workspace.dir),
+      data: payload,
+    }
+  }
+
+  // ── posters ──────────────────────────────────────────────────────────────
+
+  /**
+   * The still frame for one shot — keyframe, cached frame, or a grab from the
+   * shot's own video.
+   *
+   * 网格里的每一格都要看得见这一镜是什么。抽帧走 ffmpeg，结果缓存在作品目录
+   * 的 `.frames/` 里（那是**缓存**，不是资产，不需要登记）。
+   */
+  async posterPath(options = {}) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) return undefined
+    const data = await this.loadWork(workspace.dir)
+    const poster = await resolvePoster(data, options.shotId)
+    if (poster === undefined) return undefined
+    return { path: poster.path, cached: poster.cached }
+  }
+
+  // ── prompts ───────────────────────────────────────────────────────────────
+
+  /**
+   * One shot's prompt artifact, plus whether it is still in sync with the真源.
+   *
+   * 「过期」由编译器自己说（`--check`），界面不复述任何规则。
+   */
+  async prompt(options = {}) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) throw new Error('没有可用的作品')
+    const data = await this.loadWork(workspace.dir)
+    const shot = data.shots.find(entry => entry.id === options.shotId)
+    if (shot === undefined) throw new Error(`镜头 ${options.shotId} 不存在`)
+    const artifact = await readStagePrompt(data, options.shotId)
+    let stale
+    try {
+      const check = await this.check({ workspaceId: workspace.id, shotId: options.shotId })
+      stale = check.ok === true ? check.stale : undefined
+    } catch {
+      stale = undefined
+    }
+    return {
+      shotId: options.shotId,
+      path: artifact.path,
+      text: artifact.text,
+      exists: artifact.exists,
+      overridden: artifact.overridden,
+      words: artifact.words,
+      stale,
+    }
+  }
+
+  /**
+   * Write a hand-edited prompt.
+   *
+   * 人工改写的提示词写在两处：产物本体（界面立刻看得到）与 `prompts/overrides/`
+   * （编译器尊重它，所以下一次「重新编译」不会把人的劳动悄悄冲掉）。
+   */
+  async savePrompt(options = {}) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) throw new Error('没有可用的作品')
+    const text = typeof options.text === 'string' ? options.text : ''
+    const saved = await writePromptOverride(workspace.dir, options.shotId, text)
+    this.invalidateWork(workspace.dir)
+    const stage = await this.commitStageFor(options, workspace)
+    return { ok: true, saved: true, shotId: options.shotId, words: saved.words, stage }
+  }
+
+  /** Drop the hand edit and go back to what the compiler makes of the真源. */
+  async resetPrompt(options = {}) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) throw new Error('没有可用的作品')
+    const reset = await resetPromptOverride(workspace.dir, options.shotId)
+    this.invalidateWork(workspace.dir)
+    const compiled = await this.compile({ workspaceId: workspace.id, shotId: options.shotId })
+    const stage = await this.commitStageFor(options, workspace)
+    return {
+      ok: true,
+      reset: reset.reset === true,
+      compiled: compiled.ok === true,
+      error: compiled.ok === true ? undefined : compiled.error,
+      stage,
+    }
+  }
+
+  // ── the editors ───────────────────────────────────────────────────────────
+  //
+  // 每个写操作都做同一件事：**先保存内容，再尝试把已提交的阶段推进到
+  // 用户正在工作的那一阶段**。保存与推进分离——前置条件不满足时内容照样
+  // 留下来，只是进度不动，缺口如实回报。
+
+  async editScene(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const saved = await editSceneFields(workspace.dir, options.sceneId, options.patch ?? {})
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, sceneId: options.sceneId, scene: saved, stage: await this.commitStageFor(options, workspace) }
+  }
+
+  async editCharacter(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const saved = await editCharacterFields(workspace.dir, options.characterId, options.patch ?? {})
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, characterId: options.characterId, character: saved, stage: await this.commitStageFor(options, workspace) }
+  }
+
+  async editBrief(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const saved = await editBrief(workspace.dir, typeof options.text === 'string' ? options.text : '')
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, brief: saved, stage: await this.commitStageFor(options, workspace) }
+  }
+
+  async editAsset(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const saved = await editAssetFields(workspace.dir, options.assetId, options.patch ?? {})
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, assetId: options.assetId, asset: saved, stage: await this.commitStageFor(options, workspace) }
+  }
+
+  async editVerify(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const saved = await editVerifyReport(workspace.dir, options.shotId, options.patch ?? {})
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, shotId: options.shotId, report: saved, stage: await this.commitStageFor(options, workspace) }
+  }
+
+  /** Resolve the workspace or fail with the message the UI shows. */
+  async requireWorkspace(options = {}) {
+    const workspace = await this.resolveWorkspace(options.workspaceId)
+    if (workspace === undefined) throw new Error('没有可用的作品')
+    return workspace
+  }
+
+  /**
+   * Move the committed stage to the stage the human just worked in.
+   *
+   * 契约允许回退（"分镜返工要能只重做第 7 个镜头"），所以回退总是成立；
+   * 正向推进按契约 §11.2 校验，不满足就**不推进**，但内容已经保存。
+   */
+  async commitStageFor(options = {}, workspace) {
+    const stage = typeof options.stage === 'string' ? options.stage : undefined
+    if (stage === undefined || !STAGE_VIEWS.includes(stage)) return undefined
+    const work = await loadWorkspace(workspace.dir)
+    const spec = await this.getSpec()
+    const result = await commitStage({
+      dir: workspace.dir,
+      state: work.state,
+      work,
+      spec,
+      stage,
+    })
+    if (result.advanced) this.invalidateWork(workspace.dir)
+    return result
+  }
+
+  // ── works ─────────────────────────────────────────────────────────────────
+
+  /** Every work under the project root, with the figures the picker shows. */
+  async workspaces(options = {}) {
+    const rows = await listWorkspacesDetailed(this)
+    return { workspaces: rows, selected: this.selectedWorkspaceId }
+  }
+
+  /**
+   * Create one work, following the data contract's directory layout.
+   *
+   * An empty work is still a valid work: the contract's seven state files plus
+   * an empty brief. Everything else is filled in by the stages.
+   */
+  async createWorkspace(options = {}) {
+    const id = typeof options.id === 'string' ? options.id.trim() : ''
+    if (!/^[a-z0-9][a-z0-9-]{2,39}$/.test(id)) {
+      throw new Error('作品 id 不合法：只允许小写字母、数字与连字符（3–40 字符）')
+    }
+    const locations = await this.locations()
+    const root = locations.project.path
+    const dir = join(root, 'workspaces', id)
+    if (await isFile(join(dir, 'work.json'))) throw new Error(`作品 ${id} 已经存在`)
+    await mkdir(join(dir, 'creative'), { recursive: true })
+    await writeJsonAtomic(join(dir, 'work.json'), {
+      version: '1.0',
+      work_id: id,
+      title: typeof options.title === 'string' && options.title !== '' ? options.title : id,
+      created_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      created_by: 'human',
+      notes: '',
+    })
+    await writeJsonAtomic(join(dir, 'state.json'), {
+      version: '1.0',
+      work_id: id,
+      stage: 'conceive',
+      updated_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      shots_total: 0,
+      shots_done: 0,
+      shots_failed: 0,
+    })
+    await writeJsonAtomic(join(dir, 'scenes.json'), { version: '1.0', scenes: [] })
+    await writeJsonAtomic(join(dir, 'characters.json'), { version: '1.0', characters: [], props: [] })
+    await writeJsonAtomic(join(dir, 'shots.json'), { version: '1.0', shots: [] })
+    await writeJsonAtomic(join(dir, 'assets.json'), { version: '1.0', assets: [] })
+    await writeJsonAtomic(join(dir, 'ledger.json'), { version: '1.0', entries: [], totals: { cost_usd: 0, tasks: 0, succeeded: 0, failed: 0 } })
+    await writeTextAtomic(join(dir, 'creative', 'brief.md'), '# 简报\n\n')
+    this.selectedWorkspaceId = id
+    return { ok: true, id, dir }
+  }
+
+  // ── directories ───────────────────────────────────────────────────────────
+
+  /** Open the host's folder picker, or say the host has none. */
+  async pickFolder(options = {}) {
+    const result = await pickDirectory(this)
+    if (result.browse === true) return { browse: true, target: options.target }
+    return { path: result.path ?? null, cancelled: result.cancelled === true }
+  }
+
+  /** List a directory (the in-drawer fallback). */
+  async browse(options = {}) {
+    return await browseDirectory(this, options.path)
+  }
+
+  /** Create a directory (the in-drawer fallback's "new folder" button). */
+  async makeDirectory(options = {}) {
+    const path = await createDirectory(this, options.path, options.name)
+    return { path }
   }
 
   // ── compile / check ──────────────────────────────────────────────────────

@@ -74,5 +74,8 @@ export function resolveConfig(raw) {
     outputRoot: text(config.outputRoot),
     model,
     autoRefresh,
+    // 生成模型：提交生成时用谁。空 = 不由插件决定（agent 走自己的模型）。
+    generationProvider: text(config.generationProvider) ?? '',
+    generationModel: text(config.generationModel) ?? '',
   }
 }

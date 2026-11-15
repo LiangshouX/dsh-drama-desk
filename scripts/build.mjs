@@ -222,6 +222,17 @@ async function checkPluginHalf() {
       note('client.js 必须从模块表取 react（require(\'react\')）')
     }
   }
+
+  // **随包工具必须自成一体。**
+  //
+  // 曾经「重新编译」直接报 `ModuleNotFoundError: No module named 'slim_prompt'`：
+  // 编译器 import 了一个从来没被打包的生成器。这一条把那条坑钉死。
+  const toolsSrc = join(SRC, 'tools')
+  for (const file of ['compile_prompts.py', 'slim_prompt.py', 'lighting.py', 'desk_qc.py']) {
+    if (!existsSync(join(toolsSrc, file))) {
+      note(`src/tools/${file} 缺失：编译器/体检器必须随包自带（没有它，界面上的「重新编译」会直接报错）`)
+    }
+  }
 }
 
 /**
@@ -274,6 +285,18 @@ const pipeline = await service.pipeline({})
 if (!Array.isArray(pipeline.scenes)) throw new Error('pipeline().scenes 不是数组')
 const spec = await service.getSpec()
 if (typeof spec.available !== 'boolean') throw new Error('getSpec() 形状不对')
+// 阶段视图：九个阶段都要能被组装出来，形状不能是空的。
+// （没有作品时跳过——冒烟测试不该依赖用户的数据。）
+if (Array.isArray(overview.workspaces) && overview.workspaces.length > 0) {
+  for (const kind of ['conceive','outline','characters','script','storyboard','generate','verify','assemble','deliver']) {
+    const view = await service.stageView({ stage: kind })
+    if (view.kind !== kind) throw new Error('stageView(' + kind + ') 的 kind 不对')
+    if (view.data === undefined || view.data === null) throw new Error('stageView(' + kind + ') 没有 data')
+  }
+}
+const settings = await service.settings({})
+if (!Array.isArray(settings.adapters)) throw new Error('settings().adapters 不是数组')
+if (settings.picker === undefined) throw new Error('settings().picker 缺失')
 console.log('runtime smoke ok')
 `
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 60000 })
@@ -346,6 +369,8 @@ if (!onlyCheck) {
   await mkdir(join(BUILD, 'skills'), { recursive: true })
   await cp(SPEC_SRC, join(BUILD, 'spec'), { recursive: true })
   if (existsSync(TOOLS_SRC)) await cp(TOOLS_SRC, join(BUILD, 'tools'), { recursive: true })
+  // Python 的字节码缓存不是发布物：它会随机器而变，还会弄脏包。
+  await rm(join(BUILD, 'tools', '__pycache__'), { recursive: true, force: true })
   for (const name of skillDirs) {
     await cp(join(SKILLS_SRC, name), join(BUILD, 'skills', name), { recursive: true })
   }
