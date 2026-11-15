@@ -1,0 +1,26 @@
+# dsh-drama-desk bundle patch
+#
+# One Host row. The row id is the plugin id the Plugin Manager shows;
+# `name` must equal the package name so the client-modules scan resolves this
+# package's ./client bundle and serves it at /plugins/dsh-drama-desk/client.js.
+#
+# `config` is replaced wholesale by any later patch layer, so every field the
+# plugin needs is restated here. The user edits their own layer
+# (`~/.dsh/profiles/<profile>/cordis.patch.yml`) to change these values; that
+# layer survives plugin upgrades.
+#
+#   projectRoot  从哪里发现作品（<projectRoot>/workspaces/<work-id>/）。
+#                留空 = 自动：先找当前会话工作目录，再找产物位置旁边的目录。
+#   outputRoot   产物落点。**留空 = 自动**：跟随 Windows 的「视频」已知文件夹
+#                （资源管理器里搬过位置也跟得住，通常不在系统盘）。
+#                显式写死会覆盖这个自动解析。
+#   model        规范分层里的模型适配 id，对应 build/spec/models/<id>/。
+#   autoRefresh  读取磁盘文件的节流间隔（毫秒）；0 = 不自动刷新。
+- insert:
+    - id: drama-desk
+      name: 'dsh-drama-desk'
+      config:
+        projectRoot: ''
+        outputRoot: ''
+        model: 'minimax'
+        autoRefresh: 4000

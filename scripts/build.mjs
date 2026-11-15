@@ -18,10 +18,12 @@
  *   2. skill 正文里引用的 spec/ 与 tools/ 路径都真实存在
  *   3. 没有指向已废弃路径的残留（.drama/、docs/数据契约.md 等）
  *   4. 没有把具体作品名当通用规则写进来
+ *   5. 插件半边（manifest / patch / host / client / locale / icon）齐全且合法
  */
 
 import { readdir, readFile, writeFile, mkdir, rm, cp, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -30,6 +32,7 @@ const SRC = join(ROOT, 'src')
 const BUILD = join(ROOT, 'build')
 const SKILLS_SRC = join(SRC, 'skills')
 const SPEC_SRC = join(SRC, 'spec')
+const TOOLS_SRC = join(SRC, 'tools')
 
 const onlyCheck = process.argv.includes('--check')
 
@@ -153,15 +156,152 @@ const modelDirs = existsSync(join(SPEC_SRC, 'models'))
   : []
 if (modelDirs.length === 0) note('spec/models/ 下没有任何模型适配目录')
 
+// ---------- 3b. 插件半边（manifest / patch / host / client / locale / icon） ----------
+async function checkPluginHalf() {
+  const manifestPath = join(ROOT, 'package.json')
+  if (!existsSync(manifestPath)) {
+    note('package.json 缺失：插件不是包，装不上')
+    return
+  }
+  let manifest
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  } catch (error) {
+    note(`package.json 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`)
+    return
+  }
+  if (manifest.name !== 'dsh-drama-desk') note(`包名应为 dsh-drama-desk，当前是 ${manifest.name}`)
+  if (manifest.type !== 'module') note('package.json 的 type 必须是 module（Host 半边是 ESM）')
+  const exportsField = manifest.exports ?? {}
+  for (const key of ['.', './client', './locale/*.json', './icon']) {
+    if (exportsField[key] === undefined) note(`package.json 缺少 exports["${key}"]`)
+  }
+  if (manifest.dsh?.bundle?.patch === undefined) note('package.json 缺少 dsh.bundle.patch')
+  if (manifest.dsh?.client?.platform !== 'web') note("dsh.client.platform 必须是 'web'")
+  if (manifest.dsh?.client?.inject === undefined) note('dsh.client.inject 未声明')
+
+  for (const file of ['index.js', 'client.js', 'cordis.patch.yml', 'icon.svg']) {
+    if (!existsSync(join(ROOT, file))) note(`缺少 ${file}`)
+  }
+  const icon = await stat(join(ROOT, 'icon.svg')).catch(() => undefined)
+  if (icon !== undefined && icon.size > 256 * 1024) note('icon.svg 超过 256 KiB')
+
+  for (const locale of ['en', 'zh']) {
+    const path = join(ROOT, 'locale', `${locale}.json`)
+    if (!existsSync(path)) {
+      note(`缺少 locale/${locale}.json`)
+      continue
+    }
+    let doc
+    try {
+      doc = JSON.parse(await readFile(path, 'utf8'))
+    } catch (error) {
+      note(`locale/${locale}.json 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`)
+      continue
+    }
+    if (typeof doc?.meta?.title !== 'string' || doc.meta.title === '') note(`locale/${locale}.json 缺少 meta.title`)
+    if (typeof doc?.meta?.description !== 'string' || doc.meta.description === '') note(`locale/${locale}.json 缺少 meta.description`)
+    if (doc?.meta?.detail !== undefined && !existsSync(join(ROOT, doc.meta.detail))) {
+      note(`locale/${locale}.json 的 meta.detail 指向不存在的文件：${doc.meta.detail}`)
+    }
+  }
+
+  const hostDir = join(SRC, 'host')
+  if (!existsSync(hostDir)) note('src/host/ 缺失：Host 半边没有源码')
+  for (const file of ['index.js', 'client.js']) {
+    const path = join(ROOT, file)
+    if (!existsSync(path)) continue
+    const text = await readFile(path, 'utf8')
+    if (file === 'index.js' && !/export\s+(async\s+)?function\s+apply\s*\(/.test(text)) {
+      note('index.js 必须导出 apply(ctx, config)')
+    }
+    if (file === 'client.js' && !text.includes('window.__ModuleLoader__.load')) {
+      note('client.js 必须通过 window.__ModuleLoader__.load 注册工厂')
+    }
+    if (file === 'client.js' && !text.includes("require('react')")) {
+      note('client.js 必须从模块表取 react（require(\'react\')）')
+    }
+  }
+}
+
+/**
+ * 语法检查：每个 JS 文件都要能被解析。
+ *
+ * 这不是形式主义——曾经有一次编辑把两行 `import` 粘成了一行，
+ * 插件在 Host 里直接抛 SyntaxError，而界面只显示「读不到数据」。
+ * 语法错误必须在**构建时**拦住，而不是在用户面前。
+ */
+async function checkSyntax() {
+  const targets = [join(ROOT, 'index.js'), join(ROOT, 'client.js')]
+  const hostDir = join(SRC, 'host')
+  if (existsSync(hostDir)) {
+    for (const entry of await readdir(hostDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.js')) targets.push(join(hostDir, entry.name))
+    }
+  }
+  for (const target of targets) {
+    if (!existsSync(target)) continue
+    const result = spawnSync(process.execPath, ['--check', target], { encoding: 'utf8' })
+    if (result.status !== 0) {
+      const detail = String(result.stderr ?? '').split('\n').slice(0, 6).join('\n')
+      note(`${relative(ROOT, target)} 语法错误：\n${detail}`)
+    }
+  }
+}
+
+/**
+ * 运行时冒烟测试：**真的 import 一次，并把关键方法调一遍**。
+ *
+ * `node --check` 只查语法，查不出「import 了但名字拼错」这种错误——
+ * 那类错误在插件里表现为「界面读不到数据」，用户看到的是空白而不是报错。
+ * 所以这里要**跑**：import Host 半边 → 建 service → 调 overview / rules / pipeline。
+ *
+ * 这一步不需要作品目录：没有作品时这些方法返回空列表，正是要验的形状。
+ */
+async function checkRuntime() {
+  const servicePath = join(SRC, 'host', 'service.js')
+  if (!existsSync(servicePath)) return
+  const script = `
+import { DramaDeskService } from ${JSON.stringify(pathToFileUrl(servicePath))}
+const service = new DramaDeskService({ config: {} })
+const overview = await service.overview()
+if (typeof overview.outputRoot !== 'string' || overview.outputRoot === '') throw new Error('overview().outputRoot 不对')
+if (typeof overview.projectRoot !== 'string' || overview.projectRoot === '') throw new Error('overview().projectRoot 不对')
+if (!Array.isArray(overview.warnings)) throw new Error('overview().warnings 不是数组')
+const rules = await service.rules({})
+if (!Array.isArray(rules.rules)) throw new Error('rules().rules 不是数组')
+const pipeline = await service.pipeline({})
+if (!Array.isArray(pipeline.scenes)) throw new Error('pipeline().scenes 不是数组')
+const spec = await service.getSpec()
+if (typeof spec.available !== 'boolean') throw new Error('getSpec() 形状不对')
+console.log('runtime smoke ok')
+`
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 60000 })
+  if (result.status !== 0) {
+    const detail = String(result.stderr ?? '').split('\n').filter(line => line.trim() !== '').slice(0, 8).join('\n')
+    note(`Host 半边运行时冒烟测试失败：\n${detail}`)
+  }
+}
+
+/** Convert a path into a file URL usable in an ESM import specifier. */
+function pathToFileUrl(path) {
+  return new URL(`file:///${path.replace(/\\/g, '/').replace(/^\/+/, '')}`).href
+}
+
+await checkPluginHalf()
+await checkSyntax()
+
 // ---------- 4. 构建或校验 ----------
 if (!onlyCheck) {
   await rm(BUILD, { recursive: true, force: true })
   await mkdir(join(BUILD, 'skills'), { recursive: true })
   await cp(SPEC_SRC, join(BUILD, 'spec'), { recursive: true })
+  if (existsSync(TOOLS_SRC)) await cp(TOOLS_SRC, join(BUILD, 'tools'), { recursive: true })
   for (const name of skillDirs) {
     await cp(join(SKILLS_SRC, name), join(BUILD, 'skills', name), { recursive: true })
   }
-  console.log(`✓ 已构建：build/skills（${skillDirs.length} 个）+ build/spec`)
+  console.log(`✓ 已构建：build/skills（${skillDirs.length} 个）+ build/spec + build/tools`)
+  await checkRuntime()
 } else {
   // 校验 build/ 与 src/ 是否同步
   const srcFiles = (await walk(SKILLS_SRC)).map((f) => relative(SKILLS_SRC, f)).sort()

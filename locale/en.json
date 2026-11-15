@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Drama desk",
+    "description": "The workbench for an AI short-drama production line: pipeline grid, shot detail, spec contract, assets and ledger.",
+    "detail": "docs/DETAIL.md"
+  }
+}

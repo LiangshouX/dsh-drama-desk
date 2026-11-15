@@ -23,6 +23,15 @@
     python compile_prompts.py --dry      # 只预览差异，不写盘
     python compile_prompts.py --check    # 只校验：产物是否与真源一致（不一致返回非 0）
     python compile_prompts.py --shot SC03-SH01   # 只编译某镜
+
+插件调用约定
+------------
+    python compile_prompts.py --work <作品目录> --toolkit <含 slim_prompt.py 的目录> --json
+
+`--work` 指向作品目录（含 scenes.json / shots.json / characters.json）；
+`--toolkit` 指向 **作品自己的** 提示词生成器目录（通常就是 `<作品目录>/prompts`），
+因为六段式提示词的具体写法是模型/作品专属的，不属于插件包。
+`--json` 让插件能读懂结果（changed / stale / 产物数），文本输出保持给人看。
 """
 from __future__ import annotations
 
@@ -30,12 +39,9 @@ import argparse
 import hashlib
 import json
 import pathlib
-import subprocess
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-W = HERE.parent                      # 作品目录
-SLIM = HERE / 'slim'
 
 # shots.json 里由 beats 编译出来的字段（派生，人工编辑会被覆盖）
 DERIVED_FIELDS = ('description_en', 'dialogue')
@@ -88,11 +94,12 @@ def compile_shots(scenes, shots):
     return changed
 
 
-def build_prompts(scenes, shots):
-    """用现有的 slim_prompt 生成器产出 45 条提示词（不经过 shell）。"""
-    sys.path.insert(0, str(HERE))
+def build_prompts(scenes, shots, work, toolkit):
+    """用现有的 slim_prompt 生成器产出提示词（不经过 shell）。"""
+    if str(toolkit) not in sys.path:
+        sys.path.insert(0, str(toolkit))
     import slim_prompt as sp
-    chars = {c['id']: c for c in json.loads((W / 'characters.json').read_text(encoding='utf-8'))['characters']}
+    chars = {c['id']: c for c in json.loads((work / 'characters.json').read_text(encoding='utf-8'))['characters']}
     out = {}
     for sh in shots['shots']:
         sc = scenes.get(sh['scene'])
@@ -111,10 +118,17 @@ def main():
     ap.add_argument('--dry', action='store_true', help='只预览差异，不写盘')
     ap.add_argument('--check', action='store_true', help='只校验产物是否与真源一致')
     ap.add_argument('--shot', help='只处理这一镜')
+    ap.add_argument('--work', help='作品目录（含 scenes.json / shots.json / characters.json）')
+    ap.add_argument('--toolkit', help='含 slim_prompt.py 的目录（默认与本脚本同目录）')
+    ap.add_argument('--json', action='store_true', help='输出机器可读结果')
     args = ap.parse_args()
 
-    scenes = {s['id']: s for s in json.loads((W / 'scenes.json').read_text(encoding='utf-8'))['scenes']}
-    shots_doc = json.loads((W / 'shots.json').read_text(encoding='utf-8'))
+    work = pathlib.Path(args.work).resolve() if args.work else HERE.parent
+    toolkit = pathlib.Path(args.toolkit).resolve() if args.toolkit else HERE
+    slim = work / 'prompts' / 'slim'
+
+    scenes = {s['id']: s for s in json.loads((work / 'scenes.json').read_text(encoding='utf-8'))['scenes']}
+    shots_doc = json.loads((work / 'shots.json').read_text(encoding='utf-8'))
     shots = shots_doc['shots']
     if args.shot:
         shots = [s for s in shots if s['id'] == args.shot]
@@ -124,15 +138,26 @@ def main():
     changed = compile_shots(scenes, shots_doc)
 
     # ② 生成提示词产物
-    prompts = build_prompts(scenes, shots_doc)
+    prompts = build_prompts(scenes, shots_doc, work, toolkit)
 
     # ③ 比对
     stale = []
     for sid, text in prompts.items():
-        p = SLIM / f'{sid}.prompt.txt'
+        p = slim / f'{sid}.prompt.txt'
         cur = p.read_text(encoding='utf-8') if p.exists() else None
         if cur != text:
             stale.append(sid)
+
+    if args.json:
+        print(json.dumps({
+            'ok': True,
+            'work': str(work),
+            'toolkit': str(toolkit),
+            'changed': changed,
+            'stale': stale,
+            'prompts': len(prompts),
+        }, ensure_ascii=False))
+        return 1 if (args.check and (stale or changed)) else 0
 
     print(f'派生字段重编译：{len(changed)} 镜 {changed if changed else ""}')
     print(f'提示词产物：{len(prompts)} 条，与真源不一致 {len(stale)} 条 {stale if stale else ""}')
@@ -145,11 +170,11 @@ def main():
         return 0
 
     # 写盘：shots.json（派生字段）→ prompts/slim/*.prompt.txt（产物）
-    (W / 'shots.json').write_text(
+    (work / 'shots.json').write_text(
         json.dumps(shots_doc, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    SLIM.mkdir(parents=True, exist_ok=True)
+    slim.mkdir(parents=True, exist_ok=True)
     for sid, text in prompts.items():
-        (SLIM / f'{sid}.prompt.txt').write_text(text, encoding='utf-8')
+        (slim / f'{sid}.prompt.txt').write_text(text, encoding='utf-8')
     print(f'✓ 已写 {len(prompts)} 条提示词产物')
     return 0
 

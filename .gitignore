@@ -1,9 +1,18 @@
 # 构建产物：由 scripts/build.mjs 从 src/ 生成，不入库
 build/
 
+# 发布物：npm bundle tarball（scripts/pack.mjs 生成），不入库
+# 安装的是这个 tarball，不是源码目录 —— 见 AGENTS.md §安装纪律
+release/
+
 # 依赖
 node_modules/
 pnpm-lock.yaml
+package-lock.json
+
+# Python 缓存（体检器跑一次就会生成）
+__pycache__/
+*.pyc
 
 # 产物与实验数据（体积大、可再生）
 *.mp4
