@@ -1156,6 +1156,16 @@ window.__ModuleLoader__.load({
 
       useEffect(() => { reload() }, [reload])
 
+      // 自动刷新：状态从磁盘派生，界面必须自己跟上。
+      // 间隔由 Host 配置给出（autoRefresh，0 = 关）。轮询只打 Host 的读接口，
+      // 不碰真源；正在编辑的时候不打断——只换数据，不换焦点。
+      useEffect(() => {
+        const interval = overview && overview.autoRefresh ? overview.autoRefresh : 0
+        if (!interval || interval < 1000) return undefined
+        const timer = setInterval(() => { reload() }, interval)
+        return () => clearInterval(timer)
+      }, [overview && overview.autoRefresh, reload])
+
       useEffect(() => {
         if (view === 'spec' && !spec) {
           apiGet('rules').then(setSpec).catch(problem => setError(problem.message))

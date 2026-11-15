@@ -178,6 +178,7 @@ export class DramaDeskService {
       },
       warnings: buildLocationWarnings(locations),
       model: this.config.model,
+      autoRefresh: this.config.autoRefresh,
       workspaces,
       selected: this.selectedWorkspaceId,
       specAvailable: spec.available,

@@ -48,11 +48,13 @@ target: D:\Code\Node\DSH-DRAMA-DESK-ROOT\dsh-drama-desk\release\dsh-drama-desk-0
 
 ```bash
 node scripts/pack.mjs          # 重新打包
-# 安装新的 tarball
+plugin_manager remove_bundle  dsh-drama-desk
+plugin_manager install_bundle  <release/*.tgz>
 ```
 
-然后**刷新 DSH 页面**（客户端半边是浏览器资源；Host 半边需要 Host 重载插件）。
-若刷新不生效，用 `dsh-unlag` 的刷新；再不行才考虑重启 DSH。
+然后**刷新 DSH 页面**（`unlag_refresh`）。注意：**Host 半边不会热重载**——
+改 `src/host/**` 要等 DSH 重启才生效；只改 `client.js` 刷新就够。
+细节见 §9。
 
 ---
 
@@ -166,13 +168,26 @@ dsh-drama-desk/
 
 ```bash
 node scripts/build.mjs            # 必须通过（非 0 退出 = 不许提交）
-node --check client.js            # 语法
-node --check index.js
+node scripts/build.mjs --check    # 校验 build/ 是否与 src/ 同步
 git status --short                # 不该出现 build/ release/ node_modules/ __pycache__/
 ```
 
-`scripts/build.mjs` 会检查：Skill frontmatter、包内路径引用、废弃路径残留、
-具体作品名、插件半边完整性（manifest / patch / locale / icon / client 入口形态）。
+`scripts/build.mjs` 会检查：
+
+| 检查 | 拦什么 |
+|---|---|
+| Skill frontmatter | name 不是 kebab-case、description 缺失 |
+| 包内路径引用 | Skill 正文里引用了不存在的 `spec/` / `tools/` 路径 |
+| 废弃路径残留 | `.drama/`、`docs/数据契约.md` 这类旧路径 |
+| 具体作品名 | 把某一个作品当通用规则写进来 |
+| 插件半边完整性 | manifest 字段、`cordis.patch.yml`、`locale/*.json`、`icon.svg`、client 入口形态 |
+| **语法** | 每个 JS 文件 `node --check` 不过 |
+| **运行时** | Host 半边 import 之后调 `overview()` / `rules()` / `pipeline()`，形状不对或运行时报错 |
+
+> 最后两条是**血的教训**：曾经一次编辑把两行 `import` 粘成了一行，
+> 一次把 `dirname` 从 import 里删掉了。`node --check` 只查语法，查不出后者；
+> 两者在插件里都表现为「界面读不到数据」——用户看到的是空白，不是报错。
+> 所以**构建必须真的跑一遍**。
 
 ---
 
@@ -182,3 +197,25 @@ git status --short                # 不该出现 build/ release/ node_modules/ _
 插件只管「读作品目录」与「写真源字段」，不拥有任何作品。
 
 **别把作品名写进插件源码或规范** —— `build.mjs` 会拦（`WORK_NAMES` 名单）。
+
+---
+
+## 9. 改完代码之后
+
+```bash
+node scripts/pack.mjs                          # 重新打包
+plugin_manager remove_bundle  dsh-drama-desk   # 旧版本必须先移除
+plugin_manager install_bundle  <release/*.tgz> # 装新的 tarball
+unlag_refresh                                  # 刷新页面（客户端半边）
+```
+
+**Host 半边不会热重载。** `unlag_refresh` 只换客户端代码；
+Host 的 ES 模块要等 DSH 重启才会是新的模块代。所以：
+
+- 改了 `src/host/**` → 界面上的 Host 行为要等 DSH 重启才变；
+- 只改了 `client.js` → 刷新页面就够；
+- 改配置（`cordis.patch.yml`）→ 插件会重启，**配置立刻生效**（模块代码不变）。
+
+> 实在需要重启 DSH 时，先确认 `cordis.patch.yml` 已保存、仓库已提交。
+> 会话是持久化的（`session-persistence-jsonl`），重启后可以恢复。
+
