@@ -288,8 +288,57 @@ function pathToFileUrl(path) {
   return new URL(`file:///${path.replace(/\\/g, '/').replace(/^\/+/, '')}`).href
 }
 
+/**
+ * 性能闸门（可选）。
+ *
+ *   node scripts/build.mjs --perf          # 跑（需要 DSH 正在跑）
+ *   node scripts/build.mjs --perf <url>    # 跑，指定地址
+ *   node scripts/build.mjs --render        # 跑渲染开销闸门（需要 DSH Desktop 在跑）
+ *
+ * 插件是**嵌在别人的主应用里**的：插件慢一点，用户就会说「DSH 卡了」。
+ * 性能是红线，所以它要有闸门，而不是靠感觉。
+ *
+ * 没开 --perf / --render 时**不跑**——构建不该依赖一个正在运行的服务。
+ */
+async function checkPerformance(argv) {
+  const perfIndex = argv.indexOf('--perf')
+  const renderIndex = argv.indexOf('--render')
+  if (perfIndex >= 0) {
+    const script = join(ROOT, 'scripts', 'perf.mjs')
+    if (!existsSync(script)) {
+      note('scripts/perf.mjs 不存在：性能闸门无法运行')
+    } else {
+      const url = argv[perfIndex + 1] !== undefined && !argv[perfIndex + 1].startsWith('--') ? argv[perfIndex + 1] : undefined
+      const result = spawnSync(process.execPath, [script, ...(url === undefined ? [] : ['--base', url])], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 180000,
+      })
+      process.stdout.write(result.stdout ?? '')
+      if (result.stderr !== undefined && result.stderr !== '') process.stderr.write(result.stderr)
+      if (result.status !== 0) note('性能闸门未通过：见上面的测量结果')
+    }
+  }
+  if (renderIndex >= 0) {
+    const script = join(ROOT, 'scripts', 'render-probe.mjs')
+    if (!existsSync(script)) {
+      note('scripts/render-probe.mjs 不存在：渲染开销闸门无法运行')
+    } else {
+      const result = spawnSync(process.execPath, [script], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: 300000,
+      })
+      process.stdout.write(result.stdout ?? '')
+      if (result.stderr !== undefined && result.stderr !== '') process.stderr.write(result.stderr)
+      if (result.status !== 0) note('渲染开销闸门未通过：见上面的测量结果')
+    }
+  }
+}
+
 await checkPluginHalf()
 await checkSyntax()
+await checkPerformance(process.argv.slice(2))
 
 // ---------- 4. 构建或校验 ----------
 if (!onlyCheck) {

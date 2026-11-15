@@ -104,6 +104,15 @@ async function readJsonBody(req) {
  * @param {DramaDeskService} service
  */
 export function registerApi(ctx, service) {
+  /**
+   * Request counters — so 「面板藏起来之后轮询停了」是**测出来的**，
+   * 不是「应该会停」。
+   */
+  const counters = { total: 0, byResource: new Map(), startedAt: Date.now() }
+  const count = resource => {
+    counters.total += 1
+    counters.byResource.set(resource, (counters.byResource.get(resource) ?? 0) + 1)
+  }
   return ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: API_PREFIX,
@@ -129,6 +138,19 @@ export function registerApi(ctx, service) {
           return
         }
         const resource = path.slice(`${API_PREFIX}/api/`.length)
+        if (resource === 'stats') {
+          sendJson(res, 200, {
+            ok: true,
+            data: {
+              total: counters.total,
+              byResource: Object.fromEntries(counters.byResource),
+              startedAt: counters.startedAt,
+              uptimeMs: Date.now() - counters.startedAt,
+            },
+          })
+          return
+        }
+        count(resource)
         if (req.method === 'GET') {
           const query = Object.fromEntries(url.searchParams.entries())
           sendJson(res, 200, { ok: true, data: await readResource(service, resource, query) })
@@ -172,6 +194,10 @@ async function readResource(service, resource, query) {
     case 'check':
       if (query.shot === undefined) throw new Error('缺少 shot 参数')
       return await service.check({ workspaceId: query.workspace, shotId: query.shot })
+    case 'snapshot':
+      // **轮询用这一个端点**：面板每几秒问一次「现在什么样」，
+      // 四个请求就是四倍往返与四倍 HTTP 开销。这里一次给全。
+      return await service.snapshot({ workspaceId: query.workspace })
     default:
       throw new Error(`未知接口 ${resource}`)
   }

@@ -26,6 +26,15 @@ import { describeStages, decideMove, stageOrder } from './stages.js'
 /** The five QC colours, in the order the PRD defines them. */
 export const STATUS_ORDER = ['none', 'generated', 'warn', 'fail', 'pass']
 
+/**
+ * How long the disk/asset figures stay cached.
+ *
+ * The top bar polls every few seconds; walking the assets tree and asking the
+ * filesystem for free space on every poll is wasted work. Four seconds of
+ * staleness on a number that moves slowly is a good trade.
+ */
+const DISK_CACHE_MS = 4000
+
 /** Human labels for the five statuses. */
 export const STATUS_LABELS = {
   none: '未生成',
@@ -58,6 +67,10 @@ export class DramaDeskService {
     this.specCache = new Map()
     /** Resolved locations, cached for the process lifetime. */
     this.locationCache = undefined
+    /** Short-lived caches for the figures the top bar polls. */
+    this.diskCache = undefined
+    this.outputCache = undefined
+    this.adapterCache = undefined
   }
 
   // ── locations ────────────────────────────────────────────────────────────
@@ -159,6 +172,61 @@ export class DramaDeskService {
 
   // ── overview ─────────────────────────────────────────────────────────────
 
+  /**
+   * Everything the panel needs, in **one** round trip.
+   *
+   * The panel polls. Four endpoints means four HTTP round trips, four
+   * JSON bodies to parse, four chances to interleave with the host
+   * application's own traffic. One endpoint means one.
+   *
+   * Each section keeps its own `revision`, so the client can skip the
+   * re-render of the parts that didn't change.
+   */
+  async snapshot(options = {}) {
+    const [overview, pipeline, stages, settings] = await Promise.all([
+      this.overview(),
+      this.pipeline(options),
+      this.stageState(options),
+      this.settings(options),
+    ])
+    return { overview, pipeline, stages, settings }
+  }
+
+  /**
+   * A cheap revision of the work's data.
+   *
+   * The panel polls every few seconds. If the answer were rebuilt into a new
+   * object every time, the client would re-render the whole grid each round —
+   * 45 cells destroyed and recreated, animations replayed, for **no change**.
+   *
+   * So the Host publishes a revision: the mtime + size of every file the
+   * views depend on. The client compares it and **skips the re-render** when
+   * nothing moved. That is the difference between a panel that costs nothing
+   * and one that taxes the host application every few seconds.
+   *
+   * @param {string} dir the work directory
+   * @returns {Promise<string>}
+   */
+  async revisionOf(dir) {
+    const parts = []
+    const files = [
+      'work.json', 'state.json', 'scenes.json', 'shots.json',
+      'characters.json', 'assets.json', 'ledger.json',
+    ]
+    for (const name of files) {
+      try {
+        const info = await stat(join(dir, name))
+        parts.push(`${name}:${info.mtimeMs}:${info.size}`)
+      } catch {
+        parts.push(`${name}:-`)
+      }
+    }
+    // 提示词产物与验收报告也会改变判定，所以它们的数量进版本号。
+    parts.push(`prompts:${(await listDirIfExists(join(dir, 'prompts', 'slim'))).length}`)
+    parts.push(`verify:${(await listDirIfExists(join(dir, 'verify'))).length}`)
+    return parts.join('|')
+  }
+
   /** Everything the top bar needs: paths, disk, works, spec availability. */
   async overview() {
     const workspaces = await this.listWorkspaces()
@@ -173,6 +241,15 @@ export class DramaDeskService {
       outputRoot: locations.output.path,
       outputRootReason: locations.output.reason,
       outputRootSource: locations.output.source,
+      // 顶栏会在每一轮轮询里被重新 setState。版本号让客户端能在
+      // 「什么都没变」时**一次都不重渲染**——插件不给人添麻烦。
+      revision: [
+        locations.project.path,
+        locations.output.path,
+        this.config.model,
+        spec.available ? 'spec' : 'nospec',
+        workspaces.map(work => `${work.id}:${work.stage ?? ''}:${work.shots ?? ''}`).join(','),
+      ].join('|'),
       onSystemDrive: {
         project: locations.project.onSystemDrive,
         output: locations.output.onSystemDrive,
@@ -197,8 +274,16 @@ export class DramaDeskService {
    * The output root may not exist yet (the user has not produced anything);
    * in that case the nearest existing ancestor carries the same volume, so
    * the number the director reads is still the right one.
+   *
+   * **Cached briefly.** Disk free space moves slowly; the top bar polls this
+   * every few seconds, and a `statfs` per poll is wasted work on a busy disk.
    */
   async diskUsage(path) {
+    const now = Date.now()
+    const cached = this.diskCache
+    if (cached !== undefined && cached.path === path && now - cached.at < DISK_CACHE_MS) {
+      return cached.value
+    }
     let target = path
     for (let depth = 0; depth < 32; depth++) {
       try {
@@ -206,7 +291,7 @@ export class DramaDeskService {
         const total = Number(info.blocks) * Number(info.bsize)
         const free = Number(info.bavail) * Number(info.bsize)
         const used = Math.max(0, total - free)
-        return {
+        const value = {
           path,
           measuredAt: target,
           total,
@@ -214,6 +299,8 @@ export class DramaDeskService {
           used,
           ratio: total > 0 ? used / total : 0,
         }
+        this.diskCache = { path, at: now, value }
+        return value
       } catch {
         const parent = dirname(target)
         if (parent === target) return undefined
@@ -223,10 +310,21 @@ export class DramaDeskService {
     return undefined
   }
 
-  /** How much the current work occupies under the output root. */
+  /**
+   * How much the current work occupies under its `assets/` directory.
+   *
+   * The walk is O(assets) and the top bar polls it, so the result is cached
+   * with the same short TTL as the disk figure. A stale-by-4s number is fine;
+   * re-walking 132 files on every poll is not.
+   */
   async outputUsage() {
     const workspace = await this.resolveWorkspace(undefined)
     if (workspace === undefined) return undefined
+    const now = Date.now()
+    const cached = this.outputCache
+    if (cached !== undefined && cached.key === workspace.dir && now - cached.at < DISK_CACHE_MS) {
+      return cached.value
+    }
     const root = join(workspace.dir, 'assets')
     let bytes = 0
     let files = 0
@@ -253,7 +351,9 @@ export class DramaDeskService {
       }
     }
     await walk(root)
-    return { root, bytes, files }
+    const value = { root, bytes, files }
+    this.outputCache = { key: workspace.dir, at: now, value }
+    return value
   }
 
   // ── spec ─────────────────────────────────────────────────────────────────
@@ -297,11 +397,13 @@ export class DramaDeskService {
     }
     const scenes = []
     const counts = emptyCounts()
+    // 提示词产物是否存在：一次 readdir 拿全，不是每镜一次 stat。
+    const promptIds = new Set(await this.listPromptIds(data.dir))
     for (const scene of data.scenes) {
       const sceneQc = beatQc.get(scene.id)
       const shots = []
       for (const shot of (byScene.get(scene.id) ?? []).sort((a, b) => (a.index ?? 0) - (b.index ?? 0))) {
-        const cell = await this.buildCell(data, scene, shot, sceneQc)
+        const cell = await this.buildCell(data, scene, shot, sceneQc, promptIds.has(shot.id))
         counts[cell.status] = (counts[cell.status] ?? 0) + 1
         shots.push(cell)
       }
@@ -326,6 +428,7 @@ export class DramaDeskService {
     }
     return {
       workspace: { id: workspace.id, title: workspace.title, dir: workspace.dir },
+      revision: await this.revisionOf(workspace.dir),
       stage: data.state?.stage,
       stages: STAGES,
       scenes,
@@ -334,11 +437,29 @@ export class DramaDeskService {
     }
   }
 
+  /**
+   * The ids of the shots that have a prompt artifact.
+   *
+   * One `readdir` instead of one `stat` per shot: the grid polls, and 45 stats
+   * per poll is the kind of thing that makes a plugin feel heavy.
+   *
+   * @param {string} dir the work directory
+   * @returns {Promise<Set<string>>}
+   */
+  async listPromptIds(dir) {
+    const slim = join(dir, 'prompts', 'slim')
+    const names = await listDirIfExists(slim)
+    const ids = new Set()
+    for (const name of names) {
+      if (!name.endsWith('.prompt.txt')) continue
+      ids.add(name.slice(0, -'.prompt.txt'.length))
+    }
+    return ids
+  }
+
   /** Build one grid cell: status, reason, and the markers a director needs. */
-  async buildCell(data, scene, shot, sceneQc) {
+  async buildCell(data, scene, shot, sceneQc, promptExists) {
     const ledger = newestLedgerFor(data.ledger, shot.id)
-    const promptPath = join(data.dir, 'prompts', 'slim', `${shot.id}.prompt.txt`)
-    const promptExists = await isFile(promptPath)
     const report = await this.cachedJson(join(data.dir, 'verify', `${shot.id}.report.json`))
     const markers = []
     let status = 'none'
@@ -748,7 +869,8 @@ export class DramaDeskService {
     const current = typeof data.state?.stage === 'string' ? data.state.stage : undefined
     return {
       workspace: { id: workspace.id, title: workspace.title, dir: workspace.dir },
-      current,
+      revision: await this.revisionOf(workspace.dir),
+      stage: data.state?.stage,
       stages: describeStages(data, spec, current),
       order: stageOrder(spec),
       updatedAt: data.state?.updated_at,
@@ -814,6 +936,15 @@ export class DramaDeskService {
       projectRootReason: locations.project.reason,
       outputRoot: locations.output.path,
       outputRootReason: locations.output.reason,
+      // 同 overview：设置面板几乎不变，版本号让客户端跳过重渲染。
+      revision: [
+        locations.project.path,
+        locations.output.path,
+        this.config.model,
+        adapters.map(adapter => adapter.id).join(','),
+        model === undefined ? 'nomodel' : `${model.provider}/${model.model}/${model.reasoningEffort ?? ''}`,
+        editor !== undefined && entry !== undefined ? 'editable' : 'readonly',
+      ].join('|'),
       onSystemDrive: {
         project: locations.project.onSystemDrive,
         output: locations.output.onSystemDrive,
@@ -834,6 +965,9 @@ export class DramaDeskService {
 
   /** The model adapters shipped in `build/spec/models/`. */
   async listModelAdapters() {
+    const now = Date.now()
+    const cached = this.adapterCache
+    if (cached !== undefined && now - cached.at < DISK_CACHE_MS) return cached.value
     const dir = join(SPEC_DIR, 'models')
     const names = await listDirIfExists(dir)
     const rows = []
@@ -842,6 +976,7 @@ export class DramaDeskService {
       const title = rules === undefined ? undefined : (/^#\s+(.+)$/m.exec(rules)?.[1])
       rows.push({ id: name, title: title ?? name, rules: rules !== undefined })
     }
+    this.adapterCache = { at: now, value: rows }
     return rows
   }
 

@@ -235,12 +235,16 @@ window.__ModuleLoader__.load({
 .dd :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ── ambient light (atmosphere without noise) ─────────────────────────── */
-.dd-ambient{position:absolute;inset:0;overflow:clip;pointer-events:none;z-index:0}
-.dd-ambient i{position:absolute;width:56vmax;height:56vmax;border-radius:50%;filter:blur(70px);opacity:.4;animation:dd-drift 42s ease-in-out infinite alternate}
-.dd-ambient i:nth-child(1){left:-18vmax;top:-24vmax;background:radial-gradient(circle,color-mix(in srgb,#d9e4ff 42%,var(--bg)),transparent 68%)}
-.dd-ambient i:nth-child(2){right:-14vmax;top:-8vmax;background:radial-gradient(circle,color-mix(in srgb,#f6e2ef 42%,var(--bg)),transparent 68%);animation-delay:-14s}
-.dd-ambient i:nth-child(3){left:22vmax;bottom:-34vmax;background:radial-gradient(circle,color-mix(in srgb,#e2f3e0 42%,var(--bg)),transparent 68%);animation-delay:-28s}
-@keyframes dd-drift{to{transform:translate3d(6vmax,4vmax,0) scale(1.12)}}
+ /* 三个 56vmax 的 filter:blur(70px) 光斑曾经让渲染进程常驻一个核以上——
+    每个模糊层都是独立合成层，动画让它每帧重算。改成**直接画径向渐变**：
+    视觉几乎一样（渐变自带柔和衰减），但只是一次光栅化，没有任何逐帧开销。 */
+.dd-ambient{
+  position:absolute;inset:0;overflow:clip;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(58vmax 58vmax at 12% 8%,  color-mix(in srgb,#d9e4ff 34%,transparent), transparent 62%),
+    radial-gradient(48vmax 48vmax at 92% 14%, color-mix(in srgb,#f6e2ef 30%,transparent), transparent 60%),
+    radial-gradient(52vmax 52vmax at 60% 108%,color-mix(in srgb,#e2f3e0 28%,transparent), transparent 62%);
+}
 
 /* ── top bar ─────────────────────────────────────────────────────────── */
 .dd-top{
@@ -624,7 +628,6 @@ window.__ModuleLoader__.load({
 }
 @media (prefers-reduced-motion: reduce){
   .dd *,.dd *::before,.dd *::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
-  .dd-ambient i{animation:none}
 }
 `
 
@@ -1574,6 +1577,13 @@ window.__ModuleLoader__.load({
       const [stagePop, setStagePop] = useState(null)
       const searchRef = useRef(null)
       const toastTimer = useRef(null)
+      /** The last pipeline revision we rendered; unchanged means "don't re-render". */
+      const pipelineRevision = useRef(null)
+      /** The last revision seen per polled view; unchanged means "don't re-render". */
+      const revisions = useRef({})
+      /** Whether the panel is actually on screen. The host may keep it mounted but hidden. */
+      const visibleRef = useRef(true)
+      const rootRef = useRef(null)
 
       const say = useCallback((message, kind) => {
         setToast(message === undefined ? null : { message, kind })
@@ -1585,29 +1595,84 @@ window.__ModuleLoader__.load({
 
       const reload = useCallback(async () => {
         try {
-          const data = await apiGet('overview')
-          setOverview(data)
-          const nextWorkspace = workspaceId || (data.workspaces && data.workspaces[0] ? data.workspaces[0].id : '')
-          if (!workspaceId && nextWorkspace) setWorkspaceId(nextWorkspace)
-          const grid = await apiGet('pipeline', { workspace: nextWorkspace })
-          setPipeline(grid)
-          const rail = await apiGet('stages', { workspace: nextWorkspace })
-          setStages(rail)
-          const config = await apiGet('settings', { workspace: nextWorkspace })
-          setSettings(config)
+          const workspace = workspaceId
+          // **一次往返**：面板每几秒问一次「现在什么样」，
+          // 四个请求就是四倍 HTTP 开销。这里一个端点给全。
+          const snapshot = await apiGet('snapshot', { workspace })
+          const data = snapshot.overview
+          const grid = snapshot.pipeline
+          const rail = snapshot.stages
+          const config = snapshot.settings
+          // **版本号**：数据没变就不重渲染。
+          //
+          // 面板每几秒轮询一次。如果每次都 setState，React 会重建整棵面板树
+          // ——45 个格子销毁再创建、入场动画重播——插件就在给宿主应用收税。
+          // 版本号没变 = 一个字节都没变 = 一个格子都不用动。
+          const apply = (key, value, setter) => {
+            if (value !== null && value !== undefined && typeof value.revision === 'string') {
+              if (revisions.current[key] === value.revision) return
+              revisions.current[key] = value.revision
+            }
+            setter(value)
+          }
+          apply('overview', data, setOverview)
+          apply('pipeline', grid, setPipeline)
+          apply('stages', rail, setStages)
+          apply('settings', config, setSettings)
+          const nextWorkspace = workspace || (data.workspaces && data.workspaces[0] ? data.workspaces[0].id : '')
+          if (!workspace && nextWorkspace) setWorkspaceId(nextWorkspace)
         } catch (problem) {
           say(problem instanceof Error ? problem.message : String(problem), 'err')
         }
       }, [workspaceId, say])
-
       useEffect(() => { reload() }, [reload])
 
+      // 面板是否真的在屏幕上。宿主可能把面板留在 DOM 里只是不显示——
+      // 那样组件不卸载、轮询也不会停。所以要自己判。
+      //
+      // 重新可见时**立刻补一次**刷新：藏了多久，回来就该是当下的状态，
+      // 而不是最多再等一个轮询周期。
       useEffect(() => {
-        const interval = overview && overview.autoRefresh ? overview.autoRefresh : 0
-        if (!interval || interval < 1000) return undefined
-        const timer = setInterval(() => { reload() }, interval)
-        return () => clearInterval(timer)
-      }, [overview && overview.autoRefresh, reload])
+        const root = rootRef.current
+        if (root === null || typeof IntersectionObserver === 'undefined') return undefined
+        let wasVisible = true
+        const observer = new IntersectionObserver(entries => {
+          const visible = entries.some(entry => entry.isIntersecting)
+          const becameVisible = visible && !wasVisible
+          visibleRef.current = visible
+          wasVisible = visible
+          if (becameVisible) reload()
+        }, { threshold: 0 })
+        observer.observe(root)
+        return () => observer.disconnect()
+      }, [reload])
+
+      // 自动刷新：状态从磁盘派生，界面必须自己跟上。
+      //
+      // **红线**：插件嵌在别人的主应用里，后台轮询不能变成对方的负担。
+      // 所以：
+      //   · 面板不可见（切到别的面板 / 窗口最小化）→ 立刻停；
+      //   · 轮询间隔由 Host 配置给出（autoRefresh，0 = 关）；
+      //   · 一次刷新只发**一个**请求（/snapshot 一次给全）。
+      //
+      // 「不可见」用 IntersectionObserver 判：宿主可能把面板留在 DOM 里
+      // 只是不显示（那样组件不卸载，轮询也不会停）——所以不能只靠卸载。
+      const autoRefreshMs = overview && overview.autoRefresh ? overview.autoRefresh : 0
+      useEffect(() => {
+        if (!autoRefreshMs || autoRefreshMs < 1000) return undefined
+        const tick = () => {
+          if (document.visibilityState === 'hidden') return
+          if (!visibleRef.current) return
+          reload()
+        }
+        const timer = setInterval(tick, autoRefreshMs)
+        const onVisible = () => { if (document.visibilityState === 'visible') tick() }
+        document.addEventListener('visibilitychange', onVisible)
+        return () => {
+          clearInterval(timer)
+          document.removeEventListener('visibilitychange', onVisible)
+        }
+      }, [autoRefreshMs, reload])
 
       useEffect(() => {
         if (view === 'spec' && !spec) {
@@ -1770,9 +1835,9 @@ window.__ModuleLoader__.load({
         { id: 'ledger', glyph: 'ledger', label: t('nav.ledger', '台账') },
       ]
 
-      return h('div', { className: 'dd' },
+      return h('div', { className: 'dd', ref: rootRef },
         h('style', null, CSS),
-        h('div', { className: 'dd-ambient', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
+        h('div', { className: 'dd-ambient', 'aria-hidden': 'true' }),
         // ── top bar ───────────────────────────────────────────────────────
         h('div', { className: 'dd-top' },
           h('div', { className: 'dd-mark' },
