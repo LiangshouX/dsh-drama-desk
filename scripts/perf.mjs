@@ -72,11 +72,17 @@ async function main() {
   }
 
   const problems = []
-  console.log('端点                p50     p95     max     体积')
-  console.log('─'.repeat(58))
+  const cold = []
+  console.log('端点                p50     p95     max     体积   冷启动')
+  console.log('─'.repeat(66))
   for (const endpoint of ENDPOINTS) {
+    // **第一轮是冷的**：插件刚装完 / DSH 刚重启时，缓存是空的，
+    // 体检器要起子进程、磁盘要 statfs、抽帧要跑 ffmpeg。
+    // 那一次的成本**不是**用户感知的轮询开销（它发生在面板挂载那一刻），
+    // 把它算进 p95 只会让闸门随机失败。所以单独量、单独报、不计入判定。
+    const warmup = await timed(endpoint.path)
     const times = []
-    let bytes = 0
+    let bytes = warmup.bytes
     for (let round = 0; round < rounds; round++) {
       const result = await timed(endpoint.path)
       times.push(result.elapsed)
@@ -88,8 +94,9 @@ async function main() {
     const kb = (bytes / 1024).toFixed(1)
     const flag = p95 > budget ? ' ← 超预算' : ''
     console.log(
-      `${endpoint.label.padEnd(18)} ${p50.toFixed(1).padStart(5)}  ${p95.toFixed(1).padStart(5)}  ${max.toFixed(1).padStart(5)}  ${kb.padStart(6)} KB${flag}`,
+      `${endpoint.label.padEnd(18)} ${p50.toFixed(1).padStart(5)}  ${p95.toFixed(1).padStart(5)}  ${max.toFixed(1).padStart(5)}  ${kb.padStart(6)} KB  ${warmup.elapsed.toFixed(0).padStart(5)} ms${flag}`,
     )
+    if (warmup.elapsed > budget * 5) cold.push(`${endpoint.label} 冷启动 ${warmup.elapsed.toFixed(0)} ms`)
     if (p95 > budget) {
       problems.push(`${endpoint.label} 的 p95 = ${p95.toFixed(1)} ms > 预算 ${budget} ms`)
     }
@@ -115,6 +122,10 @@ async function main() {
   }
 
   console.log('')
+  if (cold.length > 0) {
+    console.log('  冷启动（不计入判定）：' + cold.join('、'))
+    console.log('  —— 这些发生在插件刚装完 / DSH 刚重启的那一刻，不是轮询开销。')
+  }
   if (problems.length > 0) {
     console.error(`✗ ${problems.length} 项超预算：`)
     for (const problem of problems) console.error(`   ${problem}`)
