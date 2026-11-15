@@ -48,7 +48,7 @@ imagecraft/
 │   ├── 探针方法论.md           A/B 实验设计、读数比对(image_qc)、评分维度、验收清单
 │   ├── 接口速查.md             H3-Image 接口、幂等约束、成本、超分与配套工具
 │   └── 实测案例库.md           14 张探针的对照结论与来源
-└── assets/probe-sheets/        实验证据拼图（**不入库**，在工作区 reference/ 下；⚠️ 不要 read_image，会卡死会话）
+└── assets/probe-sheets/        实验证据拼图（**不入库**，存放在使用者的工作区里；⚠️ 不要 read_image，会卡死会话）
 ```
 
 > ⚠️ **`assets/probe-sheets/` 只作历史存档，不是给模型看的。**

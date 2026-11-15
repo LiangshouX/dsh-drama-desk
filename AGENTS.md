@@ -1,7 +1,7 @@
 # AGENTS.md — dsh-drama-desk 开发规范
 
 > 给在这个仓库里工作的 AI Agent 与人看的**操作纪律**。
-> 产品定位见 `../PRD.md`；插件自己的架构说明见 `README.md`。
+> 产品功能见 `docs/PRD.md`；接口契约见 `docs/API.md`；仓库说明见 `README.md`。
 
 ---
 
@@ -24,10 +24,10 @@ node scripts/build.mjs      # 构建发布态：build/spec + build/skills + buil
 node scripts/pack.mjs       # 打包 → release/dsh-drama-desk-<version>.tgz
 ```
 
-然后用 `plugin_manager` 的 `install_bundle`，`target` 指向那个 `.tgz`：
+然后用 `plugin_manager` 的 `install_bundle`，`target` 指向刚打出来的那个 `.tgz`：
 
 ```
-target: D:\Code\Node\DSH-DRAMA-DESK-ROOT\dsh-drama-desk\release\dsh-drama-desk-0.1.0.tgz
+target: <仓库绝对路径>/release/dsh-drama-desk-<version>.tgz
 ```
 
 ### 为什么
@@ -215,10 +215,11 @@ git status --short                # 不该出现 build/ release/ node_modules/ _
 
 ## 8. 作品数据不在这个仓库
 
-`reference/` 是**参照物**（一个真实作品的全量样例），不在插件仓库里。
-插件只管「读作品目录」与「写真源字段」，不拥有任何作品。
+插件**不拥有任何作品**：它只负责「读作品目录」与「写真源字段」。
+作品住在运行时的总根下（见 §15⑥），**不在这个仓库里**。
 
 **别把作品名写进插件源码或规范** —— `build.mjs` 会拦（`WORK_NAMES` 名单）。
+文档里举例子一律用 `<work-id>` 占位。
 
 ---
 
@@ -535,15 +536,15 @@ PowerShell 5.1 的 `Get-Content -Raw` 把**无 BOM 的 UTF-8** 当 ANSI 读，
 
 > 用户的原话：「工作区太碎了太散了绝对不行……集中是最好的。」
 
-所以默认项目根 = **`「视频」/DSH-DRAMA-DESK`**（`locations.js` 的 `defaultRoot`，
+所以默认项目根 = **`「视频」目录/DSH-DRAMA-DESK`**（`locations.js` 的 `defaultRoot`，
 第一次解析时自动建出来）。所有短剧项目都是它下面的 `workspaces/<work-id>/`：
 
 ```
-D:\Default\Videos\DSH-DRAMA-DESK\          ← 唯一的总根 = 唯一的 DSH 工作区
-└── workspaces\
-    ├── name-pawnshop-20261108\            名字典当行
-    ├── demo-epic\                          潮信
-    └── demo-pawnshop\                      当铺的旧契（demo）
+<「视频」目录>/DSH-DRAMA-DESK/     ← 唯一的总根 = 唯一的 DSH 工作区
+├── workspaces/
+│   ├── <work-id>/                 一部短剧 = 一个自包含目录
+│   └── <work-id>/
+└── （由插件自动创建）
 ```
 
 **不要给每个项目开一个 DSH 工作区。** 侧栏碎成一堆工作区是治理灾难：
@@ -552,7 +553,7 @@ D:\Default\Videos\DSH-DRAMA-DESK\          ← 唯一的总根 = 唯一的 DSH �
 ### ⑦ 共用一个工作区 → 每段对话都要 `@` 锚定项目
 
 共用一个工作区意味着 agent 能看见**别的**项目。所以每段构思对话的开场白
-第一行就是 `@workspaces/<id>/`，并明说「只读写这个目录、不要混用别的项目」——
+第一行就是 `@workspaces/<work-id>/`，并明说「只读写这个目录、不要混用别的项目」——
 这就是「防止串台」。新项目还会有额外一句「这是一个刚建的新项目，目录还是空的」。
 
 ### ⑧ 「新对话」

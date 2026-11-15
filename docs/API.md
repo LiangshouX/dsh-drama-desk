@@ -91,7 +91,7 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
       "bytes": 1234,
       "updatedAt": "2026-11-15T10:00:00Z"
     },
-    "work": { "id": "demo-pawnshop", "title": "演示 · 当铺的旧契",
+    "work": { "id": "<work-id>", "title": "「示例作品」",
               "createdAt": "…", "notes": "" }
   }
 }
@@ -589,9 +589,9 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 `GET /workspaces`，或在 `/snapshot` 的 `overview.workspaces` 里：
 
 ```jsonc
-[ { "id": "demo-pawnshop", "title": "演示 · 当铺的旧契",
+[ { "id": "<work-id>", "title": "「示例作品」",
   "stage": "generate", "scenes": 4, "shots": 7, "seconds": 45,
-  "dir": "D:/…/workspaces/demo-pawnshop",
+  "dir": "D:/…/workspaces/<work-id>",
   "updatedAt": "2026-11-15T10:00:00Z" } ]
 ```
 

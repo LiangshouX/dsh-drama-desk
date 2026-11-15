@@ -6,7 +6,7 @@
 > - 插件（Client UI）—— **给人读**：现在是什么状态、能决定什么
 > - `spec/` 与 `tools/` —— 两者共用的规范真源与可执行形式
 
-包名 `dsh-drama-desk`。产品需求见 `../PRD.md`。**开发纪律见 `AGENTS.md`。**
+包名 `dsh-drama-desk`。**产品说明书见 `docs/PRD.md`；开发纪律见 `AGENTS.md`。**
 
 ---
 
@@ -202,23 +202,25 @@ spec/models/<id>/ 模型专属：规则·提示词写法·体检器·端点
 
 ---
 
-## 配套工作区
+## 工作台管什么
 
-`DSH-DRAMA-DESK-ROOT/`（本仓库的上一级）：
+它管一部 AI 短剧从想法到成片的**九个阶段**，每个阶段有唯一的出口产物与前置条件：
 
-| 目录 | 内容 |
-|---|---|
-| `dsh-drama-desk/` | ★ 本仓库 |
-| `reference/` | 开发参照物（真实样例与全量清单），**不入库** |
-| `PRD.md` | 产品需求文档 |
+```
+创意 → 大纲 → 角色 → 剧本 → 分镜 → 生成 → 验收 → 装配 → 交付
+brief  场次   角色卡  beats   分镜  视频+提示词 验收报告 版本   成片
+```
+
+所有作品放在**一个总根**下（默认是「视频」目录里的 `DSH-DRAMA-DESK/`），
+一部短剧 = 总根下的一个自包含目录 = 一个 DSH 工作区里的一个项目。
+完整的功能说明见 **[`docs/PRD.md`](docs/PRD.md)**。
 
 ---
 
 ## 相关文档
 
-- **PRD**：`../PRD.md` —— 定位、旅程、界面设计规范、技术架构、路线图
+- **产品说明书**：`docs/PRD.md` —— 功能、界面、阶段语义、判定、硬边界（可单独阅读）
 - **开发纪律**：`AGENTS.md` —— 安装方式、硬边界、渲染层教训、提交前检查清单
 - **接口契约**：`docs/API.md` —— Host ⇄ Client 的唯一真源
 - **数据契约**：`src/spec/core/数据契约.md`
 - **铁律**：`src/spec/models/minimax/rules.md`
-- **DSH 插件开发**：`dsh-doc` 技能的 `references/plugin-development.md` 与 `references/ui-plugin.md`
