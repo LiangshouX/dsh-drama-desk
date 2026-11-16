@@ -626,7 +626,7 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
     "live": true,                   // Host 上有活的 agent 才接得住消息
     "cwd": "D:/Default/Videos/drama-desk-demo",
     "workspacePath": "D:/Default/Videos/drama-desk-demo",
-    "seed": "用 `drama-conceive` 技能开始…"   // 开场白，客户端在会话空白时发一次
+    "seed": "用 `drama-conceive` 技能开始…"   // 开场白，客户端随用户的第一条消息送出
   }
 }
 ```
@@ -651,6 +651,16 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 
 一个总根 = 一个 DSH 工作区，所有项目共用它，所以每段对话都要先用 `@路径`
 把「这次只谈哪个项目」钉死——否则会串台。
+
+### 开场白什么时候到
+
+开场白的内容由 Host 单点生成（`src/host/conceive.js` 的 `seedMessage()`），
+客户端**不自造第二份**。它是**上下文**、不是发言：
+
+- 客户端进入阶段**不发送**任何东西——侧栏常驻，会话由用户点「开始对话」发起；
+- 用户主动发出的**第一条**消息会带上这段开场白：用 `<system-reminder>` 框住，
+  一起送出。模型读得到，界面上不显示（客户端在渲染前抹掉这个框）；
+- 已经说过话的会话不再重复带（避免每条消息都拖一段前缀）。
 
 ### 硬规则
 

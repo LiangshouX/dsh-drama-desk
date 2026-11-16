@@ -2456,6 +2456,9 @@ window.__ModuleLoader__.load({
      * DSH 会把 `[system-reminder]`、记忆检索结果这类东西拼进**用户消息**里，
      * 宿主的对话面板会把它们折叠成「上下文」节点；我们这扇小窗没有那套节点，
      * 所以直接抹掉——导演想看的是自己说的话，不是系统提示。
+     *
+     * 同一个框也用来**藏**我们自己的开场白：它跟着用户的第一条消息一起送，
+     * 模型读得到，界面上不显示（见 `ConceiveChat` 里的 `seedPending`）。
      */
     function stripInjected(text) {
       return String(text ?? '')
@@ -2494,10 +2497,12 @@ window.__ModuleLoader__.load({
      * 一个按钮跳回宿主自己的对话面板。
      */
     function ConceiveChat(props) {
-      const { sessionId, seed, onClose, onFresh, busy } = props
+      const { sessionId, seed, onClose, onFresh, onStart, canStart, busy } = props
       const [reference, setReference] = useState(null)
       const [error, setError] = useState(null)
       const [draft, setDraft] = useState('')
+      const [starting, setStarting] = useState(false)
+      /** 这段会话的「开场白」送出去了没有（送过就不再重复）。 */
       const seeded = useRef(false)
       const flowRef = useRef(null)
 
@@ -2531,19 +2536,6 @@ window.__ModuleLoader__.load({
       const binding = reference === null ? undefined : reference.binding
       const snapshot = useStore(binding === undefined ? undefined : binding.session)
       const window_ = useStore(binding === undefined ? undefined : binding.eventSource)
-
-      // 第一次打开且这段会话还是空白 → 把开场白发出去（只发一次）。
-      useEffect(() => {
-        if (binding === undefined || seeded.current) return
-        if (snapshot === undefined || snapshot.blank !== true) return
-        if (typeof seed !== 'string' || seed === '') return
-        seeded.current = true
-        const session = binding.session
-        if (session === undefined || typeof session.prompt !== 'function') return
-        Promise.resolve(session.prompt([{ type: 'text', text: seed }], 'queue')).catch(() => {
-          seeded.current = false
-        })
-      }, [binding, snapshot, seed])
 
       const rows = useMemo(() => {
         const entries = window_ !== undefined && Array.isArray(window_.entries) ? window_.entries : []
@@ -2595,20 +2587,50 @@ window.__ModuleLoader__.load({
         element.scrollTop = element.scrollHeight
       }, [rows])
 
+      /**
+       * 开场白（`@workspaces/<id>/` 锚 + `drama-conceive` 技能 + 防串台约束）
+       * 还没送出去，而且这段会话里**你还没说过话**——那就把它搭在**第一条
+       * 用户消息**上一起送。
+       *
+       * 为什么不是「一开侧栏就自动发」：那是替用户开了个头，看着像 AI 自己
+       * 在跟自己说话。开场白是上下文，不是发言——它该跟着你真正说的第一句走。
+       */
+      const seedPending = seeded.current === false
+        && typeof seed === 'string' && seed !== ''
+        && !rows.some(row => row.kind === 'user')
+
       const send = useCallback(async () => {
         const text = draft.trim()
         if (text === '' || binding === undefined) return
         setDraft('')
         setError(null)
+        // 用 `<system-reminder>` 框住：模型读得到，界面不显示（stripInjected 抹掉）。
+        const payload = seedPending
+          ? '<system-reminder>\n' + seed + '\n</system-reminder>\n\n' + text
+          : text
+        seeded.current = true
         try {
-          const result = await binding.session.prompt([{ type: 'text', text }], 'queue')
+          const result = await binding.session.prompt([{ type: 'text', text: payload }], 'queue')
           if (result !== undefined && result !== null && result.ok === false) {
+            seeded.current = false
             setError(result.error && result.error.message ? result.error.message : '发送失败')
           }
         } catch (problem) {
+          seeded.current = false
           setError(problem instanceof Error ? problem.message : String(problem))
         }
-      }, [draft, binding])
+      }, [draft, binding, seed, seedPending])
+
+      /** 用户主动发起：真的开一段会话（此前没有会话 id）。 */
+      const start = useCallback(async () => {
+        if (starting || typeof onStart !== 'function') return
+        setStarting(true)
+        try {
+          await onStart()
+        } finally {
+          setStarting(false)
+        }
+      }, [starting, onStart])
 
       const stop = useCallback(() => {
         if (binding === undefined) return
@@ -2626,20 +2648,29 @@ window.__ModuleLoader__.load({
         }
       }, [sessionId])
 
+      const hasSession = sessionId !== undefined
+
       const head = h('div', { className: 'dd-chat-head' },
         h(Icon, { name: 'note', size: 14 }),
         h('div', { style: { minWidth: '0' } },
           h('div', { className: 'ch-t' }, '构思会话'),
           h('div', { className: 'ch-sub' },
-            openState === 'open' ? (running ? '正在想…' : '等你说话')
-              : openState === 'loading' ? '正在打开…'
-                : openState === 'error' ? '打不开这段会话'
-                  : '准备中…'),
+            !hasSession ? '还没开始——点下面「开始对话」'
+              : openState === 'open' ? (running ? '正在想…' : '等你说话')
+                : openState === 'loading' ? '正在打开…'
+                  : openState === 'error' ? '打不开这段会话'
+                    : '准备中…'),
         ),
         h('span', { className: 'dd-spacer' }),
-        h('button', { className: 'dd-btn sm', onClick: onFresh, title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）' }, '新对话'),
-        h('button', { className: 'dd-btn sm', onClick: openInPanel, title: '在宿主的对话面板里打开完整聊天' }, '完整对话'),
-        h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起' }, h(Icon, { name: 'close', size: 13 })),
+        h('button', {
+          className: 'dd-btn sm', onClick: onFresh, disabled: !hasSession || busy,
+          title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）',
+        }, '新对话'),
+        h('button', {
+          className: 'dd-btn sm', onClick: openInPanel, disabled: !hasSession,
+          title: '在宿主的对话面板里打开完整聊天',
+        }, '完整对话'),
+        h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起这扇窗（顶栏的图标能再展开）' }, h(Icon, { name: 'close', size: 13 })),
       )
 
       const flow = h('div', { className: 'dd-chat-flow', ref: flowRef },
@@ -2647,7 +2678,18 @@ window.__ModuleLoader__.load({
           ? h('div', { className: 'dd-chat-empty' },
             h('div', null, '这里接的是**真的** DSH 会话：'),
             h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
-            h('div', { style: { marginTop: '8px', color: 'var(--ink4)' } }, '它会把创意写进 creative/brief.md，你改一句它就改一句。'))
+            hasSession
+              ? h('div', { style: { marginTop: '8px', color: 'var(--ink4)' } }, '它会把创意写进 creative/brief.md，你改一句它就改一句。')
+              : h('div', { style: { marginTop: '14px' } },
+                h('button', {
+                  className: 'dd-btn primary', onClick: start,
+                  disabled: starting || busy || !canStart,
+                  title: canStart ? '开一段真的构思会话' : '先选一个作品（构思会话是挂在作品上的）',
+                }, starting ? '正在开…' : '开始对话'),
+                h('div', { style: { marginTop: '10px', color: 'var(--ink4)' } },
+                  canStart
+                    ? '会话由你发起：开好之后你说的话，它会写进 creative/brief.md。'
+                    : '先选一个作品（或新建一个），构思会话是挂在作品上的。')))
           : rows.map(row => h(MsgRow, { key: row.key, kind: row.kind, text: row.text })),
         error !== null
           ? h('div', { className: 'dd-msg err' }, h('div', { className: 'body' }, error))
@@ -2656,7 +2698,10 @@ window.__ModuleLoader__.load({
 
       const composer = h('div', { className: 'dd-chat-composer' },
         h('textarea', {
-          value: draft, placeholder: '跟它说你想拍什么…（Enter 发送，Shift+Enter 换行）',
+          value: draft,
+          placeholder: hasSession
+            ? '跟它说你想拍什么…（Enter 发送，Shift+Enter 换行）'
+            : '先点「开始对话」开一段会话，然后就能跟它说了…',
           disabled: busy || binding === undefined,
           onChange: event => setDraft(event.target.value),
           onKeyDown: event => {
@@ -2669,7 +2714,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'row' },
           running
             ? h('button', { className: 'dd-btn sm danger', onClick: stop }, '停止')
-            : h('button', { className: 'dd-btn sm primary', onClick: send, disabled: draft.trim() === '' }, '发送'),
+            : h('button', { className: 'dd-btn sm primary', onClick: send, disabled: draft.trim() === '' || binding === undefined }, '发送'),
           h('span', { className: 'dd-spacer' }),
           h('span', { className: 'hint' }, sessionId === undefined ? '' : sessionId.slice(0, 8)),
         ),
@@ -2704,8 +2749,8 @@ window.__ModuleLoader__.load({
                   '导演工作台把 AI 短剧的九个阶段摊开：创意、大纲、角色、剧本、分镜、生成、验收、装配、交付。'
                   + '每个阶段有自己的产物与体检线，你随时能改，随时能退回去重做一镜。'),
                 h('div', { className: 'h3' },
-                  '右边那扇窗是一个**真的** AI 会话——加载了 conceive 阶段的技能，'
-                  + '它会把创意写进 creative/brief.md。你可以一直跟它聊，这一阶段是持续的过程。'),
+                  '右边那扇窗**常驻**在这里——是一个**真的** AI 会话，加载了 conceive 阶段的技能，'
+                  + '它会把创意写进 creative/brief.md。点「开始对话」之后你可以一直跟它聊，这一阶段是持续的过程。'),
               ),
               h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', flex: '0 0 auto' } },
                 current !== undefined
@@ -3375,7 +3420,13 @@ window.__ModuleLoader__.load({
       const [browseTarget, setBrowseTarget] = useState(null)
       /** null = 自动（作品还是空的就显示首页）；true / false = 用户自己定的。 */
       const [homeMode, setHomeMode] = useState(null)
-      const [chatOpen, setChatOpen] = useState(false)
+      /**
+       * 构思会话侧栏是否被手动收起。
+       *
+       * **默认 false = 常驻**：创意阶段不需要点顶栏图标才看得见这扇窗。
+       * 收起只是给空间不够时用的，不是「唤起」的前置条件。
+       */
+      const [chatCollapsed, setChatCollapsed] = useState(false)
       const [conceive, setConceive] = useState(null)
       const [workMenu, setWorkMenu] = useState(false)
       const [newWork, setNewWork] = useState(null)
@@ -3682,9 +3733,11 @@ window.__ModuleLoader__.load({
        * 会话由 Host 用 `agents.create()` 开成真的 agent 会话（真模型、真工具、
        * `drama-conceive` 技能），id 记在 `state.json` 上——所以换天回来、
        * 换一台机器，还是同一段构思对话。
+       *
+       * 注意：**进入阶段不会自动走到这里。** 侧栏是常驻的，会话却由用户
+       * 主动发起——点侧栏里的「开始对话」才真的建这段会话。
        */
       const openConceive = useCallback(async fresh => {
-        setChatOpen(true)
         if (!workspaceId) {
           say('先选一个作品，或者新建一个——构思会话是挂在作品上的', 'err')
           return
@@ -3775,7 +3828,9 @@ window.__ModuleLoader__.load({
       const freshWork = currentWork === undefined
         || ((currentWork.shots ?? 0) === 0 && (currentWork.scenes ?? 0) === 0)
       const showHome = view === 'stage' && (homeMode === null ? freshWork : homeMode)
-      const chatVisible = chatOpen && (showHome || (view === 'stage' && viewStage === 'conceive'))
+      // 侧栏**常驻**：创意阶段（含首页）不需要点顶栏图标才看得见这扇窗。
+      // `chatCollapsed` 只在屏幕挤不下时手动收起，不是「唤起」的前置条件。
+      const chatVisible = !chatCollapsed && (showHome || (view === 'stage' && viewStage === 'conceive'))
 
       const stageData = stagePayload ? stagePayload.data : undefined
       // 用**载荷自己的阶段**来选组件：这样即使 viewStage 刚变、请求还在路上，
@@ -3854,8 +3909,8 @@ window.__ModuleLoader__.load({
               : null,
             h('button', {
               className: 'dd-icon-btn' + (chatVisible ? ' on' : ''),
-              onClick: () => { if (chatOpen) setChatOpen(false); else openConceive() },
-              title: chatOpen ? '收起构思会话' : '构思会话（真的 AI，加载 conceive 技能）',
+              onClick: () => setChatCollapsed(collapsed => !collapsed),
+              title: chatVisible ? '收起构思会话' : '展开构思会话',
             }, h(Icon, { name: 'note', size: 14 })),
             h('button', { className: 'dd-icon-btn', onClick: reload, title: t('action.refresh', '刷新') }, h(Icon, { name: 'refresh', size: 14 })),
             h('button', { className: 'dd-icon-btn', onClick: openDrawer, title: t('action.settings', '设置') }, h(Icon, { name: 'settings', size: 14 })),
@@ -3994,7 +4049,9 @@ window.__ModuleLoader__.load({
               sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
               seed: conceive && conceive.seed ? conceive.seed : undefined,
               busy,
-              onClose: () => setChatOpen(false),
+              canStart: workspaceId !== '',
+              onStart: () => openConceive(false),
+              onClose: () => setChatCollapsed(true),
               onFresh: () => openConceive(true),
             })
             : null,
