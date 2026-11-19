@@ -678,6 +678,9 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 5. **技能由插件自己提供**：`ctx.skills.registerProvider()` 把
    `build/skills/*/SKILL.md` 注册进宿主技能目录（否则 `drama-conceive`
    这些名字对任何 agent 都不可达）。
+   注册落在全局层，但 provider 用 `options.cwd` 过闸门：
+   **只有 cwd 落在短剧项目总根之内的会话**能看到这些技能，
+   其他工作区返回空目录。
 
 ---
 

@@ -12,6 +12,7 @@
  *  3. 把同一批操作暴露给 **agent**（`drama_desk_*` 工具）。
  *  4. 把插件自带的 Skill 注册进宿主的技能目录（`skills.js`）——否则
  *     `drama-conceive` 这些名字对任何 agent 都不可达。
+ *     注册只在**插件自己的工作区**（短剧项目总根）里可见：别的会话调不到。
  *
  * 2 和 3 都调用 1 —— 「一个操作，两个调用者」。人和 agent 对「合不合格」的
  * 判断必须一致，否则插件就是新的信息分裂源。
@@ -45,7 +46,9 @@ export function apply(ctx, config) {
 
   // 随包技能：让 `drama-conceive` 这类名字真的能被 agent 调到。
   // 必须在 apply 期间**同步**注册（宿主的要求）。
-  const skills = registerDeskSkills(ctx)
+  // 传入 service：短剧项目总根由它解析，provider 据此判断「这次查找是不是
+  // 发生在插件自己的工作区里」——不在，就不贡献候选项（见 skills.js）。
+  const skills = registerDeskSkills(ctx, service)
   if (skills !== undefined) {
     ctx.effect(() => skills, 'dsh-drama-desk: bundled skills')
   }

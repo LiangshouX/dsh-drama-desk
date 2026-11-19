@@ -519,8 +519,24 @@ Client: ctx.sessions.retain(id, {source:'controllerOperation'})
 `build/skills/` 里躺着 8 份 SKILL.md，但宿主的技能发现只扫
 `<root>/.dsh/skills` / `<root>/.agents/skills`——**`package.json` 里没有
 `bundledSkillDir`、`index.js` 也没注册 provider，这些技能从来没被加载过**。
-现在由 `src/host/skills.js` 用 `ctx.skills.registerProvider()` 注册进全局层。
-验证方式：看本会话的技能目录里有没有 `drama-conceive`。
+现在由 `src/host/skills.js` 用 `ctx.skills.registerProvider()` 注册。
+
+> **注册在全局层，可见性按 cwd 判。**
+>
+> 宿主注册表是「全局层 + scope 层」：插件挂在宿主层 → provider 落进全局层
+> → 对**所有**工作区的会话可见。但这些 Skill 只描述短剧流水线，
+> 只在**短剧项目总根**（§15⑥）里有意义——挂到别处等于往别人的目录里塞方法论。
+>
+> 所以 provider 用 `options.cwd` 过闸门：cwd 落在总根之内才贡献候选项；
+> 其他工作区返回**空目录**（`complete: true`——是「这里没有短剧 Skill」，
+> 不是「发现失败」，注册表因此不会把目录标成不完整、不会反复重试）。
+> 加载正文（`get()`）也过同一道闸门。
+>
+> 总根由 service 解析（§3「规范只有一份」）：`skills.js` 只负责问，
+> 并按 promise 缓存，避免并发查找各跑一次解析。
+
+验证方式：在**短剧工作区**里开会话 → 技能目录里有 `drama-conceive`；
+在**别的**会话里 → 看不到它。
 
 ### ⑤ 一行代码的教训：**不要用 PowerShell 改作品 JSON**
 
