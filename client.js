@@ -506,6 +506,10 @@ body[data-ds-dark-theme] .dd{
   background:linear-gradient(180deg,color-mix(in srgb,var(--hot) 22%,var(--raised)),var(--raised));
   box-shadow:var(--e-2),inset 0 0 0 1px var(--hot-line);color:var(--hot);
 }
+/* 小一号的图标按钮：放在一条紧凑的行里（拍头、卡片角标）。 */
+.dd-icon-btn.sm{width:23px;height:23px;border-radius:var(--rx-1)}
+.dd-icon-btn.ghost{background:transparent;box-shadow:none}
+.dd-icon-btn.ghost:hover:not(:disabled){background:var(--panel-2);box-shadow:none;transform:none}
 
 /* ── stage rail (console track) ──────────────────────────────────────── */
 /* 一条贯穿的轨道 + 九个节点。进度不是「几个彩色圆点」，是**轨道被点亮的那一段**。 */
@@ -741,15 +745,22 @@ select.dd-input{
 .dd-outline-list{display:flex;flex-direction:column;gap:10px}
 .dd-outline-list>*{flex:0 0 auto}
 .dd-outline-row{
-  display:grid;grid-template-columns:132px minmax(0,1fr) 190px;gap:16px;align-items:start;
-  border-radius:var(--rx-3);background:var(--raised);padding:13px 15px;
+  display:grid;grid-template-columns:104px minmax(0,1fr) 236px;gap:18px;align-items:start;
+  border-radius:var(--rx-3);background:var(--raised);padding:12px 14px;
   box-shadow:var(--e-3);transition:box-shadow var(--t-mid) var(--ease);
 }
 .dd-outline-row:hover{box-shadow:var(--e-4)}
-.dd-outline-row .oid{font-family:var(--f-mono);font-size:11px;color:var(--ink3);letter-spacing:.04em;padding-top:3px}
-.dd-outline-row .otitle{font-family:var(--serif);font-size:15.5px;font-weight:600;line-height:1.4}
-.dd-outline-row .osum{font-size:12.5px;color:var(--ink2);line-height:1.7;margin-top:4px}
-.dd-outline-row .ometa{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.dd-outline-row .oid{font-family:var(--f-mono);font-size:11px;color:var(--ink3);letter-spacing:.04em;padding-top:2px}
+.dd-outline-row .ometa{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}
+/* 场次骨架读起来要像**一张分场表**，不是像一排表单：
+   左边是编号，中间是三行「标签 — 内容」，右边是元信息。 */
+.dd-outline-body{display:flex;flex-direction:column;gap:8px;min-width:0}
+.dd-outline-body>*{flex:0 0 auto}
+.dd-outline-body .dd-ed{--ed-lab:104px}
+.dd-outline-meta{display:flex;flex-direction:column;gap:8px;min-width:0}
+.dd-outline-meta>*{flex:0 0 auto}
+.dd-outline-meta .dd-ed{--ed-lab:52px}
+.dd-outline-foot{display:flex;gap:7px;align-items:center;margin-top:1px}
 
 /* ── character cards ─────────────────────────────────────────────────── */
 .dd-cast{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
@@ -773,7 +784,8 @@ select.dd-input{
 .dd-cast-role{font-size:11.5px;color:var(--ink3);margin-top:3px}
 .dd-cast-body{padding:0 15px 14px;display:flex;flex-direction:column;gap:9px}
 .dd-cast-body>*{flex:0 0 auto}
-.dd-cast-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 12px}
+.dd-cast-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:10px 16px}
+.dd-cast-fields .dd-ed{--ed-lab:44px}
 .dd-refgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:9px}
 .dd-refcard{border-radius:var(--rx-2);overflow:hidden;background:var(--panel-2);box-shadow:var(--e-2)}
 .dd-refcard .rhead{display:flex;gap:7px;padding:7px 9px;border-bottom:.5px solid var(--line)}
@@ -989,22 +1001,82 @@ select.dd-input{
 .dd-field .preset button:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
 .dd-field .preset button.on{background:var(--hot);box-shadow:none;color:#fff}
 
+/* ── inline editing（读态是内容，不是表单）──────────────────────────────── */
+/* 读态：**没有** sunken 盒子、**没有**描边、**没有**「保存 / 撤销」按钮行。
+   只有悬停时浮现的一条虚线——那是「这里可以改」的暗示。
+   编辑态把同一块地方换成输入框（位置不变、行高不变），**失焦即存**：
+   Enter 提交（多行是 Ctrl+Enter），Esc 撤销。
+   右上角那两枚小图标只是保险——点了也能存 / 能撤，但不必点。 */
+.dd-ed{display:flex;flex-direction:column;gap:2px;min-width:0;position:relative}
+.dd-ed.row{display:grid;grid-template-columns:var(--ed-lab,116px) minmax(0,1fr);gap:14px;align-items:baseline}
+.dd-ed-lab{
+  font-family:var(--f-gauge);font-size:10px;color:var(--ink3);
+  letter-spacing:.1em;text-transform:uppercase;line-height:1.5;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.dd-ed-val{
+  font-size:12.5px;line-height:1.65;color:var(--ink);
+  padding:2px 6px 3px;margin-left:-6px;
+  min-height:21px;border-radius:var(--rx-1);
+  border-bottom:.5px dashed transparent;cursor:text;
+  white-space:pre-wrap;word-break:break-word;
+  transition:border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease),background var(--t-fast) var(--ease);
+}
+/* 悬停时**看得见**「这里可以改」：一条暖色的虚线 + 一点点底色。
+   以前只有 0.5px 的灰虚线，缩到 1200 宽就彻底看不见了——
+   于是用户只能挨个点过去试。 */
+.dd-ed-val:hover{border-bottom-color:var(--hot-line);background:color-mix(in srgb,var(--hot) 7%,transparent)}
+.dd-ed-val.empty{color:var(--ink4)}
+.dd-ed.readonly .dd-ed-val{cursor:default}
+.dd-ed.readonly .dd-ed-val:hover{border-bottom-color:transparent;background:transparent}
+.dd-ed.serif .dd-ed-val{font-family:var(--serif);font-size:15px;line-height:1.5}
+.dd-ed.mono .dd-ed-val{font-family:var(--f-mono);font-size:11.5px}
+.dd-ed-edit{position:relative;display:block}
+.dd-ed-edit input,.dd-ed-edit textarea{
+  display:block;width:100%;background:var(--sunken);border:none;
+  box-shadow:var(--e-well);border-radius:var(--rx-2);color:var(--ink);
+  font-family:inherit;font-size:12.5px;line-height:1.65;padding:6px 10px;outline:none;
+  transition:box-shadow var(--t-fast) var(--ease);
+}
+.dd-ed-edit input{height:30px;padding-top:0;padding-bottom:0}
+.dd-ed-edit textarea{min-height:66px;resize:vertical}
+.dd-ed-edit.serif input,.dd-ed-edit.serif textarea{font-family:var(--serif);font-size:15px;line-height:1.5}
+.dd-ed-edit.mono input,.dd-ed-edit.mono textarea{font-family:var(--f-mono);font-size:11.5px}
+.dd-ed-edit input:focus,.dd-ed-edit textarea:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
+.dd-ed-edit.acting input,.dd-ed-edit.acting textarea{padding-right:48px}
+.dd-ed-acts{position:absolute;top:4px;right:5px;display:flex;gap:3px}
+.dd-ed-act{
+  width:20px;height:20px;border-radius:var(--rx-1);display:grid;place-items:center;
+  color:var(--ink4);box-shadow:inset 0 0 0 .5px var(--line);
+  transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);
+}
+.dd-ed-act:hover{color:var(--ink);background:var(--panel-2)}
+.dd-ed-act.ok:hover{color:var(--sig-pass);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-pass) 45%,transparent)}
+.dd-ed-act.no:hover{color:var(--sig-fail);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-fail) 45%,transparent)}
+
 .dd-beats{display:flex;flex-direction:column;gap:8px}
 .dd-beats>*{flex:0 0 auto}
 .dd-beat{border-radius:var(--rx-2);background:var(--panel-2);overflow:hidden;box-shadow:var(--e-2)}
-.dd-beat-head{display:flex;align-items:center;gap:9px;padding:8px 11px;font-size:11px;color:var(--ink3);box-shadow:0 1px 0 var(--line)}
+.dd-beat-head{display:flex;align-items:center;gap:9px;padding:7px 11px;font-size:11px;color:var(--ink3);box-shadow:0 1px 0 var(--line)}
 .dd-beat-head .n{font-family:var(--f-mono);color:var(--ink2)}
+.dd-beat-head .who{color:var(--hot);font-size:11.5px}
 .dd-beat-head .sp{font-family:var(--f-mono);font-size:10px;color:var(--sig-pass)}
 .dd-beat.outside{opacity:.6}
-.dd-beat-body{padding:9px 11px;display:flex;flex-direction:column;gap:7px}
-.dd-beat-body textarea{
-  width:100%;min-height:40px;background:var(--sunken);border:none;box-shadow:var(--e-well);
-  border-radius:var(--rx-2);color:var(--ink);padding:8px 10px;font-size:12.5px;
-  resize:vertical;line-height:1.7;outline:none;
-}
-.dd-beat-body textarea:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
+.dd-beat-body{padding:9px 11px 11px;display:flex;flex-direction:column;gap:9px}
+.dd-beat-body>*{flex:0 0 auto}
 .dd-beat-body .lab{font-family:var(--f-gauge);font-size:9px;color:var(--ink3);letter-spacing:.14em;text-transform:uppercase}
-.dd-beat-foot{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+/* 这一拍是：**三个选项**，不是三个长句子。之前这一段没有样式，
+   三个按钮挤成一行「无台词动画内音（要口型）画外音」，看不出哪个是哪个。 */
+.dd-beat-kind{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.dd-beat-kind .preset{display:flex;gap:5px;flex-wrap:wrap}
+.dd-beat-kind .preset button{
+  height:24px;padding:0 10px;border-radius:var(--rx-1);background:var(--raised);
+  box-shadow:inset 0 0 0 .5px var(--line);font-size:11px;color:var(--ink3);white-space:nowrap;
+  transition:color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease),background var(--t-fast) var(--ease);
+}
+.dd-beat-kind .preset button:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-beat-kind .preset button.on{background:var(--hot);box-shadow:none;color:#fff}
+.dd-beat-acts{display:flex;gap:2px;align-items:center}
 
 .dd-metric{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:baseline;font-size:12px;padding:2px 0}
 .dd-metric .n{color:var(--ink2)}
@@ -1019,6 +1091,9 @@ select.dd-input{
   background:var(--sunken);border-radius:var(--rx-2);box-shadow:var(--e-well);padding:12px;
   max-height:320px;overflow:auto;color:var(--ink2);line-height:1.75;
 }
+/* 点一下就能改：产物是**可改的文本**，不是一张只读截图。 */
+.dd-prompt.editable{cursor:text;transition:box-shadow var(--t-fast) var(--ease)}
+.dd-prompt.editable:hover{box-shadow:var(--e-well),0 0 0 1px var(--hot-line)}
 .dd-prompt-sec+.dd-prompt-sec{margin-top:10px;padding-top:10px;box-shadow:0 -1px 0 var(--line)}
 .dd-prompt-sec h5{margin:0 0 5px;font-family:var(--f-gauge);font-size:9.5px;color:var(--hot);letter-spacing:.16em;text-transform:uppercase}
 .dd-prompt-edit{
@@ -1026,6 +1101,10 @@ select.dd-input{
   padding:12px;font-family:var(--f-mono);font-size:11.5px;line-height:1.75;color:var(--ink);resize:vertical;outline:none;
 }
 .dd-prompt-edit:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
+/* 就地编辑提示词：输入框原地接管，右上角两枚小图标是「保险」。 */
+.dd-prompt-edit-wrap{position:relative;display:block}
+.dd-prompt-edit-wrap .dd-prompt-edit{padding-right:44px}
+.dd-prompt-acts{position:absolute;top:8px;right:8px;display:flex;gap:3px}
 
 .dd-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
 .dd-thumb-wrap{position:relative}
@@ -1088,6 +1167,9 @@ select.dd-input{
 
 /* ── doc view ────────────────────────────────────────────────────────── */
 .dd-doc{font-size:13.5px;line-height:1.85;color:var(--ink2);max-width:940px}
+/* 简报也是**可改的文本**：点一下就地编辑，失焦即存。 */
+.dd-doc.editable{cursor:text;border-radius:var(--rx-2);transition:box-shadow var(--t-fast) var(--ease)}
+.dd-doc.editable:hover{box-shadow:0 0 0 1px var(--hot-line)}
 .dd-doc h4{
   margin:22px 0 8px;color:var(--ink);font-family:var(--f-display);font-weight:600;
   font-size:18px;letter-spacing:-.01em;
@@ -1214,6 +1296,7 @@ select.dd-input{
   animation:dd-scan 1.3s var(--ease) infinite;
 }
 @keyframes dd-scan{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+.dd-stagewait-actions{display:flex;gap:7px;margin-top:2px}
 .dd-toast{
   position:absolute;left:50%;bottom:24px;transform:translateX(-50%);z-index:25;
   background:var(--raised);border-radius:var(--rx-2);padding:10px 16px;font-size:12.5px;color:var(--ink);
@@ -1314,12 +1397,16 @@ select.dd-input{
 }
 @container dd-root (max-width: 940px){
   .dd-inspector{width:clamp(300px,34%,420px)}
-  .dd-outline-row{grid-template-columns:112px minmax(0,1fr)}
+  .dd-outline-row{grid-template-columns:96px minmax(0,1fr)}
+  .dd-outline-meta{grid-column:1 / -1;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px 16px;align-items:start}
+  .dd-outline-foot{grid-column:1 / -1}
   .dd-wall{grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
 }
 @container dd-root (max-width: 760px){
   .dd-tally-cell span.lb{display:none}
   .dd-outline-row{grid-template-columns:1fr}
+  .dd-outline-body .dd-ed{--ed-lab:108px}
+  .dd-outline-meta{grid-template-columns:1fr}
   .dd-wall{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
 }
 @container dd-root (max-width: 620px){
@@ -1447,13 +1534,6 @@ select.dd-input{
       )
     }
 
-    function Field(props) {
-      return h('div', { className: 'dd-field' },
-        h('label', null, props.label),
-        props.children,
-      )
-    }
-
     function MetricRow(props) {
       return h('div', { className: 'dd-metric' },
         h('span', { className: 'n' }, props.name),
@@ -1463,62 +1543,153 @@ select.dd-input{
     }
 
     /**
-     * An inline editable value: read mode shows the text, edit mode shows an
-     * input. Every stage view uses it, so 「改东西」在哪个阶段都一样顺手。
+     * An inline editable value — 整个工作台改东西只有这一种手势。
+     *
+     * **读态是内容，不是表单控件。** 没有 sunken 盒子、没有描边、
+     * 没有「保存 / 撤销」按钮行——那三样曾经把一屏大纲吃掉一半。
+     * 读态只有一条悬停才浮现的虚线，意思是「这里可以改」。
+     *
+     * **编辑态是同一块地方。** 输入框原地接管（位置不变、行高不变），
+     * 所以从读到写没有跳动。
+     *
+     * **失焦即存。** Enter 提交（多行是 Ctrl+Enter），Esc 撤销。
+     * 右上角那两枚小图标只是保险：点了也能存 / 能撤，但不必点。
+     *
+     * 只读字段（`readOnly`）不假装可编辑：没有虚线、没有手型光标。
      */
-    function Inline(props) {
-      const { label, value, multiline, disabled, onSave, placeholder, type } = props
+    function Editable(props) {
+      const {
+        label, value, multiline, disabled, onSave, placeholder, type,
+        layout, serif, mono, className, style, title, labelTitle, readOnly,
+      } = props
+      const canEdit = !readOnly && !disabled && typeof onSave === 'function'
       const [editing, setEditing] = useState(false)
       const [draft, setDraft] = useState(value ?? '')
-      useEffect(() => { setDraft(value ?? '') }, [value])
-      const commit = () => {
-        setEditing(false)
-        if (String(draft) !== String(value ?? '')) onSave(draft)
+      const nodeRef = useRef(null)
+      const editingRef = useRef(false)
+      // 服务端最后一次给的值：用来判断「服务器真的变了」，
+      // 而不是「我这边重新渲染了」。
+      const serverRef = useRef(value ?? '')
+
+      useEffect(() => {
+        const incoming = value ?? ''
+        if (String(incoming) !== String(serverRef.current)) {
+          serverRef.current = incoming
+          if (!editingRef.current) setDraft(incoming)
+        }
+      }, [value])
+
+      useEffect(() => {
+        if (!editing || !nodeRef.current) return
+        const node = nodeRef.current
+        try {
+          const end = node.value.length
+          node.setSelectionRange(end, end)
+        } catch { /* 某些 input 类型不支持选区，忽略 */ }
+      }, [editing])
+
+      const current = value === undefined || value === null ? '' : String(value)
+      const empty = current === ''
+      const begin = () => {
+        if (!canEdit || editingRef.current) return
+        editingRef.current = true
+        setEditing(true)
       }
+      const commit = () => {
+        if (!editingRef.current) return
+        editingRef.current = false
+        setEditing(false)
+        if (draft !== current) onSave(draft)
+      }
+      const cancel = () => {
+        if (!editingRef.current) return
+        editingRef.current = false
+        setDraft(current)
+        setEditing(false)
+      }
+      const onKeyDown = event => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          cancel()
+        } else if (event.key === 'Enter' && (!multiline || event.ctrlKey || event.metaKey)) {
+          event.preventDefault()
+          commit()
+        }
+      }
+
+      const cls = 'dd-ed'
+        + (layout === 'row' ? ' row' : '')
+        + (serif ? ' serif' : '')
+        + (mono ? ' mono' : '')
+        + (canEdit ? '' : ' readonly')
+        + (className ? ' ' + className : '')
+      const head = label
+        ? h('div', { className: 'dd-ed-lab', title: labelTitle || undefined }, label)
+        : null
+
       if (!editing) {
-        return h('div', { className: 'dd-field', style: props.style },
-          h('label', null, label),
+        return h('div', { className: cls, style },
+          head,
           h('div', {
-            role: 'button', tabIndex: 0,
-            style: {
-              minHeight: '30px', padding: '6px 10px', borderRadius: 'var(--r-sm)',
-              border: '.5px solid transparent', background: 'var(--card)', color: 'var(--ink)',
-              fontSize: '12.5px', lineHeight: '1.55', cursor: disabled ? 'default' : 'text',
-              whiteSpace: multiline ? 'pre-wrap' : 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              opacity: value === undefined || value === null || value === '' ? '.55' : '1',
-            },
-            title: disabled ? undefined : '点击编辑',
-            onClick: () => { if (!disabled) setEditing(true) },
-          }, value === undefined || value === null || value === '' ? (placeholder ?? '（空）') : String(value)),
+            className: 'dd-ed-val' + (empty ? ' empty' : ''),
+            role: canEdit ? 'button' : undefined,
+            tabIndex: canEdit ? 0 : undefined,
+            title: canEdit ? '点击编辑 · 失焦即存' : (title || undefined),
+            onClick: canEdit ? begin : undefined,
+            onKeyDown: canEdit
+              ? event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  begin()
+                }
+              }
+              : undefined,
+          }, empty ? (placeholder ?? '（空）') : current),
         )
       }
-      return h('div', { className: 'dd-field', style: props.style },
-        h('label', null, label),
-        multiline
-          ? h('textarea', {
-            value: draft, autoFocus: true, placeholder,
-            onChange: event => setDraft(event.target.value),
-            onKeyDown: event => {
-              if (event.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
-              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) commit()
-            },
-          })
-          : h('input', {
-            value: draft, autoFocus: true, type: type ?? 'text', placeholder,
-            onChange: event => setDraft(event.target.value),
-            onKeyDown: event => {
-              if (event.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
-              if (event.key === 'Enter') commit()
-            },
-          }),
-        h('div', { style: { display: 'flex', gap: '6px' } },
-          h('button', { className: 'dd-btn sm primary', onClick: commit }, '保存'),
-          h('button', { className: 'dd-btn sm', onClick: () => { setDraft(value ?? ''); setEditing(false) } }, '撤销'),
+
+      return h('div', { className: cls, style },
+        head,
+        h('div', {
+          className: 'dd-ed-edit acting'
+            + (serif ? ' serif' : '')
+            + (mono ? ' mono' : ''),
+        },
+          multiline
+            ? h('textarea', {
+              ref: nodeRef, value: draft, placeholder, autoFocus: true,
+              onChange: event => setDraft(event.target.value),
+              onKeyDown, onBlur: commit,
+            })
+            : h('input', {
+              ref: nodeRef, type: type ?? 'text', value: draft, placeholder, autoFocus: true,
+              onChange: event => setDraft(event.target.value),
+              onKeyDown, onBlur: commit,
+            }),
+          h('span', { className: 'dd-ed-acts' },
+            h('button', {
+              className: 'dd-ed-act ok', type: 'button', title: '保存（失焦或 Enter）',
+              onMouseDown: event => event.preventDefault(),
+              onClick: commit,
+            }, h(Icon, { name: 'check', size: 11 })),
+            h('button', {
+              className: 'dd-ed-act no', type: 'button', title: '撤销（Esc）',
+              onMouseDown: event => event.preventDefault(),
+              onClick: cancel,
+            }, h(Icon, { name: 'close', size: 11 })),
+          ),
         ),
       )
     }
 
-    /** A row of preset chips + a free-text escape hatch. */
+    /**
+     * A row of preset chips + a free-text escape hatch.
+     *
+     * 预置只是省事：不满足时仍然可以手填。
+     * 手填的那条路**失焦即存**——以前它只在 `custom` 为真时才存，
+     * 于是「值不在预置里」的情况改完一松手就没了。
+     */
     function PresetField(props) {
       const { label, value, options, onSave, disabled, allowCustom, wide } = props
       const [custom, setCustom] = useState(false)
@@ -1526,6 +1697,11 @@ select.dd-input{
       useEffect(() => { setDraft(value ?? '') }, [value])
       const known = options.map(option => String(option))
       const isKnown = known.includes(String(value))
+      const showInput = allowCustom && (custom || !isKnown)
+      const commitCustom = () => {
+        setCustom(false)
+        if (draft !== String(value ?? '')) onSave(draft)
+      }
       return h('div', { className: 'dd-field' + (wide ? ' wide' : '') },
         h('label', null, label),
         h('div', { className: 'preset' },
@@ -1539,18 +1715,20 @@ select.dd-input{
             ? h('button', {
               className: isKnown ? '' : 'on',
               disabled,
+              title: '不满足预置？手填一个',
               onClick: () => setCustom(!custom),
             }, '自定义…')
             : null,
         ),
-        (!isKnown || custom)
+        showInput
           ? h('input', {
             className: 'num', value: draft, disabled, placeholder: '自定义值',
             onChange: event => setDraft(event.target.value),
             onKeyDown: event => {
-              if (event.key === 'Enter') { setCustom(false); if (draft !== String(value ?? '')) onSave(draft) }
+              if (event.key === 'Enter') { event.preventDefault(); commitCustom() }
+              if (event.key === 'Escape') { event.preventDefault(); setDraft(value ?? ''); setCustom(false) }
             },
-            onBlur: () => { if (custom && draft !== String(value ?? '')) { onSave(draft); setCustom(false) } },
+            onBlur: commitCustom,
           })
           : null,
       )
@@ -1689,14 +1867,38 @@ select.dd-input{
       )
     }
 
-    /** The creative brief: a document, and the one thing you can rewrite here. */
+    /**
+     * The creative brief: a document, and the one thing you can rewrite here.
+     *
+     * 简报也是**可就地编辑的文本**：点那段字，textarea 原地接管，
+     * 失焦即存。以前是「编辑简报」按钮 + 整页变 textarea + 「保存简报」按钮。
+     */
     function ConceiveView(props) {
       const { data, busy, actions } = props
       const brief = data.brief || {}
       const work = data.work || {}
       const [editing, setEditing] = useState(false)
       const [draft, setDraft] = useState(brief.text || '')
-      useEffect(() => { setDraft(brief.text || '') }, [brief.text])
+      const editingRef = useRef(false)
+      useEffect(() => { if (!editingRef.current) setDraft(brief.text || '') }, [brief.text])
+      const begin = () => {
+        if (busy || editingRef.current) return
+        editingRef.current = true
+        setDraft(brief.text || '')
+        setEditing(true)
+      }
+      const commit = () => {
+        if (!editingRef.current) return
+        editingRef.current = false
+        setEditing(false)
+        if (draft !== (brief.text || '')) actions.editBrief(draft)
+      }
+      const cancel = () => {
+        if (!editingRef.current) return
+        editingRef.current = false
+        setDraft(brief.text || '')
+        setEditing(false)
+      }
       const meta = [
         h('span', { className: 'dd-chip' }, '作品 ', h('b', null, work.title || '—')),
         h('span', { className: 'dd-chip' }, 'id ', h('b', { className: 'num' }, work.id || '—')),
@@ -1708,31 +1910,50 @@ select.dd-input{
           stage: 'conceive',
           title: '创意简报',
           desc: 'conceive 阶段的唯一产物：creative/brief.md。下游的每一场戏都从这里长出来。',
-          right: [
-            ...meta,
-            editing
-              ? h('button', {
-                className: 'dd-btn primary', disabled: busy,
-                onClick: () => { actions.editBrief(draft); setEditing(false) },
-              }, '保存简报')
-              : h('button', { className: 'dd-btn', disabled: busy, onClick: () => setEditing(true) }, brief.exists ? '编辑简报' : '写第一版简报'),
-          ],
+          right: meta,
         }),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
-            brief.exists
+            brief.exists || editing
               ? h('div', { className: 'dd-doc' },
                 editing
-                  ? h('textarea', {
-                    className: 'dd-prompt-edit', value: draft, autoFocus: true,
-                    placeholder: '# 简报\n\n一句话故事…',
-                    onChange: event => setDraft(event.target.value),
-                  })
-                  : h(MarkdownLite, { text: brief.text || '' }),
+                  ? h('div', { className: 'dd-prompt-edit-wrap' },
+                    h('textarea', {
+                      className: 'dd-prompt-edit', value: draft, autoFocus: true,
+                      placeholder: '# 简报\n\n一句话故事…',
+                      onChange: event => setDraft(event.target.value),
+                      onBlur: commit,
+                      onKeyDown: event => {
+                        if (event.key === 'Escape') { event.preventDefault(); cancel() }
+                        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit() }
+                      },
+                    }),
+                    h('span', { className: 'dd-prompt-acts' },
+                      h('button', {
+                        className: 'dd-ed-act ok', type: 'button', title: '保存（失焦或 Ctrl+Enter）',
+                        onMouseDown: event => event.preventDefault(),
+                        onClick: commit,
+                      }, h(Icon, { name: 'check', size: 11 })),
+                      h('button', {
+                        className: 'dd-ed-act no', type: 'button', title: '撤销（Esc）',
+                        onMouseDown: event => event.preventDefault(),
+                        onClick: cancel,
+                      }, h(Icon, { name: 'close', size: 11 })),
+                    ),
+                  )
+                  : h('div', {
+                    className: 'dd-doc editable', role: 'button', tabIndex: 0,
+                    title: '点击就地编辑 · 失焦即存',
+                    onClick: begin,
+                    onKeyDown: event => { if (event.key === 'Enter') { event.preventDefault(); begin() } },
+                  }, h(MarkdownLite, { text: brief.text || '' })),
               )
               : h('div', { className: 'dd-empty' },
                 h('div', { className: 'dd-empty-title' }, '还没有简报'),
-                h('div', null, 'conceive 的出口是 creative/brief.md。写下来，它就存在了。')),
+                h('div', null, 'conceive 的出口是 creative/brief.md。写下来，它就存在了。'),
+                h('div', { style: { marginTop: '14px' } },
+                  h('button', { className: 'dd-btn primary', disabled: busy, onClick: begin }, '写第一版简报')),
+              ),
           ),
         ),
       )
@@ -1766,42 +1987,50 @@ select.dd-input{
                       scene.act ? h('span', { className: 'dd-badge' }, '第 ' + scene.act + ' 幕') : null,
                     ),
                   ),
-                  h('div', { style: { minWidth: '0' } },
-                    h(Inline, {
+                  h('div', { className: 'dd-outline-body' },
+                    h(Editable, {
+                      layout: 'row', serif: true,
                       label: '场次标题', value: scene.title, disabled: busy,
                       placeholder: '（无标题）',
                       onSave: value => actions.editScene(scene.id, { title: value }),
                     }),
-                    h(Inline, {
+                    h(Editable, {
+                      layout: 'row',
                       label: '这一场发生了什么', value: scene.summary, multiline: true, disabled: busy,
                       placeholder: '一句话说明',
-                      style: { marginTop: '8px' },
                       onSave: value => actions.editScene(scene.id, { summary: value }),
                     }),
-                    h(Inline, {
-                      label: '结束时什么变了（turn）', value: scene.turn, multiline: true, disabled: busy,
+                    h(Editable, {
+                      layout: 'row',
+                      label: '结束时什么变了', labelTitle: '结束时什么变了（TURN）',
+                      value: scene.turn, multiline: true, disabled: busy,
                       placeholder: '（可空）',
-                      style: { marginTop: '8px' },
                       onSave: value => actions.editScene(scene.id, { turn: value }),
                     }),
                   ),
-                  h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-                    h(Inline, {
-                      label: '场次功能', value: scene.function, disabled: busy,
+                  h('div', { className: 'dd-outline-meta' },
+                    h(Editable, {
+                      layout: 'row',
+                      label: '功能', labelTitle: '场次功能',
+                      value: scene.function, disabled: busy,
                       onSave: value => actions.editScene(scene.id, { function: value }),
                     }),
-                    h(Inline, {
-                      label: '时长 (s)', value: scene.duration, type: 'number', disabled: busy,
+                    h(Editable, {
+                      layout: 'row',
+                      label: '时长 s', labelTitle: '时长（秒）',
+                      value: scene.duration, type: 'number', disabled: busy,
                       onSave: value => actions.editScene(scene.id, { duration: Number(value) || 0 }),
                     }),
-                    h(Inline, {
-                      label: '在场角色', value: (scene.characters || []).join(', '), disabled: busy,
+                    h(Editable, {
+                      layout: 'row',
+                      label: '在场', labelTitle: '在场角色',
+                      value: (scene.characters || []).join(', '), disabled: busy,
                       placeholder: '角色 id，逗号分隔',
                       onSave: value => actions.editScene(scene.id, {
                         characters: value.split(/[,，\s]+/).map(entry => entry.trim()).filter(Boolean),
                       }),
                     }),
-                    h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' } },
+                    h('div', { className: 'dd-outline-foot' },
                       h('span', { className: 'dd-note' }, scene.beatCount + ' 拍'),
                       h('button', { className: 'dd-btn sm', onClick: () => onGoto('script') }, '去改表演'),
                     ),
@@ -1846,25 +2075,30 @@ select.dd-input{
           ),
           h('div', { className: 'dd-cast-body' },
             h('div', { className: 'dd-cast-fields' },
-              h(Inline, {
-                label: '外貌', value: entry.appearance, multiline: true, disabled: busy,
+              h(Editable, {
+                layout: 'row', label: '外貌', labelTitle: '外貌',
+                value: entry.appearance, multiline: true, disabled: busy,
                 onSave: value => actions.editCharacter(entry.id, { appearance: value }),
               }),
-              h(Inline, {
-                label: '可被拍到的动作', value: entry.behavior, multiline: true, disabled: busy,
+              h(Editable, {
+                layout: 'row', label: '动作', labelTitle: '可被拍到的动作',
+                value: entry.behavior, multiline: true, disabled: busy,
                 onSave: value => actions.editCharacter(entry.id, { behavior: value }),
               }),
-              h(Inline, {
-                label: '说话方式', value: entry.voice, multiline: true, disabled: busy,
+              h(Editable, {
+                layout: 'row', label: '说话', labelTitle: '说话方式',
+                value: entry.voice, multiline: true, disabled: busy,
                 onSave: value => actions.editCharacter(entry.id, { voice: value }),
               }),
-              h(Inline, {
-                label: '音色（逐字复用）', value: entry.voice_desc, multiline: true, disabled: busy,
+              h(Editable, {
+                layout: 'row', label: '音色', labelTitle: '音色（逐字复用）',
+                value: entry.voice_desc, multiline: true, disabled: busy,
                 placeholder: 'English voice timbre…',
                 onSave: value => actions.editCharacter(entry.id, { voice_desc: value }),
               }),
-              h(Inline, {
-                label: '默认语气', value: entry.delivery_default, multiline: true, disabled: busy,
+              h(Editable, {
+                layout: 'row', label: '语气', labelTitle: '默认语气',
+                value: entry.delivery_default, multiline: true, disabled: busy,
                 onSave: value => actions.editCharacter(entry.id, { delivery_default: value }),
               }),
             ),
@@ -2113,34 +2347,39 @@ select.dd-input{
                       }, shot.verdict || '未判'),
                     ),
                     h('div', { className: 'dd-sec-body' },
+                      /* 机器读数是**读数**，不是可改的字段——
+                         之前它们跟人工判定长得一模一样，点进去才发现改不了。 */
                       h('div', { className: 'dd-grid3' },
-                        h(Inline, {
-                          label: '技术判定', value: tech.pass === true ? 'pass' : tech.pass === false ? 'fail' : '—',
-                          disabled: busy,
+                        h(Editable, {
+                          label: '技术判定', readOnly: true,
+                          value: tech.pass === true ? 'pass' : tech.pass === false ? 'fail' : '—',
                         }),
-                        h(Inline, {
-                          label: '实测时长', value: tech.durationSec ? tech.durationSec + 's' : '—',
-                          disabled: busy,
+                        h(Editable, {
+                          label: '实测时长', readOnly: true,
+                          value: tech.durationSec ? tech.durationSec + 's' : '—',
                         }),
-                        h(Inline, {
-                          label: '分辨率', value: tech.width ? tech.width + '×' + tech.height : '—',
-                          disabled: busy,
+                        h(Editable, {
+                          label: '分辨率', readOnly: true,
+                          value: tech.width ? tech.width + '×' + tech.height : '—',
                         }),
                       ),
                       h('div', { className: 'dd-grid2' },
-                        h(Inline, {
-                          label: '人工判定（verdict）', value: human.verdict || '', disabled: busy,
+                        h(Editable, {
+                          layout: 'row', label: '人工判定', labelTitle: '人工判定（verdict）',
+                          value: human.verdict || '', disabled: busy,
                           placeholder: 'pass / fail / warn',
                           onSave: value => actions.editVerify(shot.id, { verdict: value }),
                         }),
-                        h(Inline, {
-                          label: '复核人', value: human.reviewer || '', disabled: busy,
+                        h(Editable, {
+                          layout: 'row', label: '复核人',
+                          value: human.reviewer || '', disabled: busy,
                           placeholder: '姓名',
                           onSave: value => actions.editVerify(shot.id, { reviewer: value }),
                         }),
                       ),
-                      h(Inline, {
-                        label: '人工发现的问题', value: (human.issues || []).join('；'), multiline: true, disabled: busy,
+                      h(Editable, {
+                        layout: 'row', label: '人工发现的问题',
+                        value: (human.issues || []).join('；'), multiline: true, disabled: busy,
                         placeholder: '用「；」分隔',
                         onSave: value => actions.editVerify(shot.id, { issues: value.split(/[；;]/).map(entry => entry.trim()).filter(Boolean) }),
                       }),
@@ -2528,145 +2767,178 @@ select.dd-input{
           label: '时长 (s)', value: shot.duration, options: DURATIONS, disabled: busy, allowCustom: true,
           onSave: value => save({ duration: Number(value) || 0 }),
         }),
-        h(Field, { label: '光参数 preset' },
-          h('input', {
-            className: 'num', value: shot.lighting ?? '', disabled: busy,
-            placeholder: 'day_interior / night_face …',
-            onChange: event => save({ lighting: event.target.value }),
+        h(Editable, {
+          label: '光参数 preset', mono: true,
+          value: shot.lighting ?? '', disabled: busy,
+          placeholder: 'day_interior / night_face …',
+          onSave: value => save({ lighting: value }),
+        }),
+        h(Editable, {
+          label: '标题',
+          value: shot.title ?? '', disabled: busy,
+          onSave: value => save({ title: value }),
+        }),
+        h('div', { style: { gridColumn: '1 / -1' } },
+          h(Editable, {
+            label: '这一镜要表达什么', title: '这一镜要表达什么（派生摘要 · 只读）',
+            readOnly: true,            value: shot.summary || '',
+            placeholder: '（没有摘要）',
           })),
-        h(Field, { label: '标题' },
-          h('input', {
-            value: shot.title ?? '', disabled: busy,
-            onChange: event => save({ title: event.target.value }),
+        h('div', { style: { gridColumn: '1 / -1' } },
+          h(Editable, {
+            label: '这一镜的动作', title: '这一镜的动作（motion_action · 真源）',
+            value: shot.motion_action ?? '', multiline: true, disabled: busy,
+            placeholder: '这一镜里主体做了什么',
+            onSave: value => save({ motion_action: value }),
           })),
         h('div', { style: { gridColumn: '1 / -1' } },
-          h(Field, { label: '这一镜要表达什么（派生摘要）' },
-            h('div', {
-              style: {
-                minHeight: '30px', padding: '6px 10px', borderRadius: 'var(--r-sm)',
-                background: 'var(--card)', color: 'var(--ink2)', fontSize: '12.5px',
-                lineHeight: '1.55', whiteSpace: 'pre-wrap',
-                opacity: shot.summary ? '1' : '.55',
-              },
-            }, shot.summary || '（没有摘要）'))),
-        h('div', { style: { gridColumn: '1 / -1' } },
-          h(Field, { label: '这一镜的动作（motion_action · 真源）' },
-            h('textarea', {
-              value: shot.motion_action ?? '', disabled: busy,
-              placeholder: '这一镜里主体做了什么',
-              onChange: event => save({ motion_action: event.target.value }),
-            }))),
-        h('div', { style: { gridColumn: '1 / -1' } },
-          h(Field, { label: '备注 / 导演批注' },
-            h('textarea', {
-              value: shot.notes ?? '', disabled: busy,
-              placeholder: '这一镜你想记住什么？',
-              onChange: event => save({ notes: event.target.value }),
-            }))),
+          h(Editable, {
+            label: '备注 / 导演批注',
+            value: shot.notes ?? '', multiline: true, disabled: busy,
+            placeholder: '这一镜你想记住什么？',
+            onSave: value => save({ notes: value }),
+          })),
         h('div', { style: { gridColumn: '1 / -1' } },
           h('span', { className: 'dd-note' }, '派生字段（description_en / dialogue）只读，由编译生成')),
       )
     }
 
+    /**
+     * 一拍 = 动作行 + 这一拍是不是有台词 + 台词 + 语气。
+     *
+     * 改东西只有一种手势：**点那段字，就地编辑，失焦即存**。
+     * 之前这里是三个常驻输入框 + 一对【保存】【撤销】按钮，
+     * 一屏拍位全是框与按钮，读起来像表单而不是剧本。
+     *
+     * `mode` 有个契约上的硬约束（数据契约 §6）：台词拍必须带语气阶梯。
+     * 所以选「画内音 / 画外音」时，若语气还是空的，**mode 先不落盘**——
+     * 等语气填上了，mode 与语气一起存。否则用户会先撞上一句报错，
+     * 而界面又没有地方让他补语气。
+     */
     function BeatEditor(props) {
       const { beat, index, issues, disabled, onSave, onInsert, onDelete, onMove } = props
-      const [action, setAction] = useState(beat.action || '')
-      const [text, setText] = useState(beat.text || '')
-      const [delivery, setDelivery] = useState(beat.delivery || '')
       const [mode, setMode] = useState(beat.mode || '')
-      const dirty = action !== (beat.action || '')
-        || text !== (beat.text || '')
-        || delivery !== (beat.delivery || '')
-        || mode !== (beat.mode || '')
-      useEffect(() => {
-        setAction(beat.action || '')
-        setText(beat.text || '')
-        setDelivery(beat.delivery || '')
-        setMode(beat.mode || '')
-      }, [beat.action, beat.text, beat.delivery, beat.mode])
-      const save = () => {
-        const patch = {}
-        if (action !== (beat.action || '')) patch.action = action
-        if (text !== (beat.text || '')) patch.text = text
-        if (delivery !== (beat.delivery || '')) patch.delivery = delivery
-        if (mode !== (beat.mode || '')) patch.mode = mode === '' ? null : mode
-        if (Object.keys(patch).length > 0) onSave(patch)
+      useEffect(() => { setMode(beat.mode || '') }, [beat.mode])
+
+      const wantsDialogue = mode === 'dialogue' || mode === 'voiceover'
+
+      /**
+       * 把一次编辑落盘。mode 与 delivery **必须同时**满足契约，
+       * 所以这里统一判断：语气齐了才带着 mode 一起写。
+       *
+       * `nextMode` 是给「刚点了选项」用的——那一刻 setState 还没生效，
+       * 直接读 state 会读到旧值。
+       */
+      const commit = (patch, nextMode) => {
+        const wanted = nextMode === undefined ? mode : nextMode
+        const wantsTalk = wanted === 'dialogue' || wanted === 'voiceover'
+        const next = { ...patch }
+        if (wanted !== (beat.mode || '')) {
+          if (!wantsTalk) {
+            next.mode = null
+          } else {
+            const delivery = next.delivery !== undefined ? next.delivery : (beat.delivery || '')
+            if (String(delivery).trim() !== '') next.mode = wanted
+          }
+        }
+        if (Object.keys(next).length === 0) return
+        onSave(next)
       }
-      const hasDialogue = mode === 'dialogue' || mode === 'voiceover'
+
       return h('div', { className: 'dd-beat' },
         h('div', { className: 'dd-beat-head' },
           h('span', { className: 'n' }, '#' + index),
-          beat.speaker ? h('span', { style: { color: 'var(--accent)' } }, beat.speaker) : null,
-          mode ? h('span', null, mode) : null,
+          beat.speaker ? h('span', { className: 'who' }, beat.speaker) : null,
           h('span', { className: 'dd-spacer' }),
-          h('button', { className: 'dd-btn sm ghost', disabled: disabled, title: '上移', onClick: () => onMove(-1) }, h(Icon, { name: 'up', size: 11 })),
-          h('button', { className: 'dd-btn sm ghost', disabled: disabled, title: '下移', onClick: () => onMove(1) }, h(Icon, { name: 'down', size: 11 })),
-          h('button', { className: 'dd-btn sm ghost', disabled: disabled, title: '在后面插入一拍', onClick: onInsert }, h(Icon, { name: 'plus', size: 11 })),
-          h('button', { className: 'dd-btn sm ghost danger', disabled: disabled, title: '删除这一拍', onClick: onDelete }, h(Icon, { name: 'trash', size: 11 })),
+          h('div', { className: 'dd-beat-acts' },
+            h('button', { className: 'dd-icon-btn sm ghost', disabled: disabled, title: '上移这一拍', onClick: () => onMove(-1) }, h(Icon, { name: 'up', size: 12 })),
+            h('button', { className: 'dd-icon-btn sm ghost', disabled: disabled, title: '下移这一拍', onClick: () => onMove(1) }, h(Icon, { name: 'down', size: 12 })),
+            h('button', { className: 'dd-icon-btn sm ghost', disabled: disabled, title: '在后面插入一拍', onClick: onInsert }, h(Icon, { name: 'plus', size: 12 })),
+            h('button', { className: 'dd-icon-btn sm ghost', disabled: disabled, title: '删除这一拍', onClick: onDelete }, h(Icon, { name: 'trash', size: 12 })),
+          ),
         ),
         h('div', { className: 'dd-beat-body' },
-          h('div', { className: 'lab' }, '动作行'),
-          h('textarea', { value: action, disabled: disabled, onChange: event => setAction(event.target.value) }),
-          h('div', { className: 'lab' }, '这一拍是'),
-          h('div', { className: 'preset' },
-            [['', '无台词'], ['dialogue', '画内音（要口型）'], ['voiceover', '画外音']].map(option =>
-              h('button', {
-                key: option[0],
-                className: (beat.mode || '') === option[0] ? 'on' : '',
-                disabled,
-                onClick: () => setMode(option[0]),
-              }, option[1]))),
-          hasDialogue
-            ? h('div', null,
-              h('div', { className: 'lab' }, '台词'),
-              h('textarea', { value: text, disabled: disabled, onChange: event => setText(event.target.value) }),
-              h('div', { className: 'lab', style: { marginTop: '2px' } }, '语气 delivery（本句的情绪 + 语速 + 气口）'),
-              h('textarea', { value: delivery, disabled: disabled, onChange: event => setDelivery(event.target.value) }),
-            )
+          h(Editable, {
+            label: '动作行', value: beat.action || '', multiline: true, disabled,
+            placeholder: '这一拍主体做了什么',
+            onSave: value => commit({ action: value }),
+          }),
+          h('div', { className: 'dd-beat-kind' },
+            h('span', { className: 'lab' }, '这一拍是'),
+            h('div', { className: 'preset' },
+              [['', '无台词'], ['dialogue', '画内音（要口型）'], ['voiceover', '画外音']].map(option =>
+                h('button', {
+                  key: option[0],
+                  className: mode === option[0] ? 'on' : '',
+                  disabled,
+                  onClick: () => {
+                    if (mode === option[0]) return
+                    setMode(option[0])
+                    commit({}, option[0])
+                  },
+                }, option[1]))),
+          ),
+          wantsDialogue
+            ? h(Editable, {
+              label: '台词', value: beat.text || '', multiline: true, disabled,
+              placeholder: '这一拍说出口的话',
+              onSave: value => commit({ text: value }),
+            })
+            : null,
+          wantsDialogue
+            ? h(Editable, {
+              label: '语气', labelTitle: '语气 delivery（本句的情绪 + 语速 + 气口）',
+              value: beat.delivery || '', multiline: true, disabled,
+              placeholder: '本句的情绪 + 语速 + 气口',
+              onSave: value => commit({ delivery: value }),
+            })
             : null,
           issues && issues.length > 0
             ? h('div', null, issues.map((issue, i) => h('div', { className: 'dd-issue', key: i }, '· ' + issue)))
-            : null,
-          dirty
-            ? h('div', { className: 'dd-beat-foot' },
-              h('button', { className: 'dd-btn sm primary', disabled: disabled, onClick: save }, '保存'),
-              h('button', {
-                className: 'dd-btn sm', disabled: disabled,
-                onClick: () => {
-                  setAction(beat.action || '')
-                  setText(beat.text || '')
-                  setDelivery(beat.delivery || '')
-                  setMode(beat.mode || '')
-                },
-              }, '撤销'),
-            )
             : null,
         ),
       )
     }
 
-    /** The prompt: an artifact you can read, edit, and re-run. */
+    /**
+     * 提示词是**产物**，但它也是**可改的文本**。
+     *
+     * 以前是「编辑」按钮 → 整块变textarea → 「保存提示词」按钮。
+     * 现在是：点那些字，就地编辑，失焦即存。
+     * 「重新编译 / 校验过期 / 丢弃手工改写」是**动作**，留在工具条上；
+     * 「编辑」不是动作，是**另一种看法**，所以它不该占一个按钮位。
+     */
     function PromptEditor(props) {
       const { shot, prompt, busy, actions } = props
       const [editing, setEditing] = useState(false)
       const [draft, setDraft] = useState('')
+      const editingRef = useRef(false)
       useEffect(() => {
-        setDraft(prompt ? prompt.text || '' : '')
+        if (!editingRef.current) setDraft(prompt ? prompt.text || '' : '')
       }, [prompt ? prompt.text : ''])
       const words = prompt && prompt.text ? prompt.text.trim().split(/\s+/).length : 0
+      const begin = () => {
+        if (busy || editingRef.current) return
+        editingRef.current = true
+        setDraft(prompt ? prompt.text || '' : '')
+        setEditing(true)
+      }
+      const commit = () => {
+        if (!editingRef.current) return
+        editingRef.current = false
+        setEditing(false)
+        actions.savePrompt(shot.id, draft)
+      }
+      const cancel = () => {
+        if (!editingRef.current) return
+        editingRef.current = false
+        setDraft(prompt ? prompt.text || '' : '')
+        setEditing(false)
+      }
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '9px' } },
         h('div', { style: { display: 'flex', gap: '7px', flexWrap: 'wrap', alignItems: 'center' } },
           h('button', { className: 'dd-btn sm', disabled: busy, onClick: () => actions.compileShot(shot.id, true) }, '校验过期'),
           h('button', { className: 'dd-btn sm', disabled: busy, onClick: () => actions.compileShot(shot.id, false) }, '重新编译'),
-          editing
-            ? h('button', {
-              className: 'dd-btn sm primary', disabled: busy,
-              onClick: () => { actions.savePrompt(shot.id, draft); setEditing(false) },
-            }, '保存提示词')
-            : h('button', {
-              className: 'dd-btn sm', disabled: busy || !prompt,
-              onClick: () => { setDraft(prompt ? prompt.text || '' : ''); setEditing(true) },
-            }, '编辑'),
           prompt && prompt.overridden
             ? h('button', {
               className: 'dd-btn sm danger', disabled: busy,
@@ -2683,12 +2955,38 @@ select.dd-input{
           ? h('div', { className: 'dd-okbox' }, '这一镜的提示词有人工改写。重新编译会保留你的版本；要回到自动生成，点「丢弃手工改写」。')
           : null,
         editing
-          ? h('textarea', {
-            className: 'dd-prompt-edit', value: draft, autoFocus: true,
-            onChange: event => setDraft(event.target.value),
-          })
+          ? h('div', { className: 'dd-prompt-edit-wrap' },
+            h('textarea', {
+              className: 'dd-prompt-edit', value: draft, autoFocus: true,
+              onChange: event => setDraft(event.target.value),
+              onBlur: commit,
+              onKeyDown: event => {
+                if (event.key === 'Escape') { event.preventDefault(); cancel() }
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit() }
+              },
+            }),
+            h('span', { className: 'dd-prompt-acts' },
+              h('button', {
+                className: 'dd-ed-act ok', type: 'button', title: '保存（失焦或 Ctrl+Enter）',
+                onMouseDown: event => event.preventDefault(),
+                onClick: commit,
+              }, h(Icon, { name: 'check', size: 11 })),
+              h('button', {
+                className: 'dd-ed-act no', type: 'button', title: '撤销（Esc）',
+                onMouseDown: event => event.preventDefault(),
+                onClick: cancel,
+              }, h(Icon, { name: 'close', size: 11 })),
+            ),
+          )
           : prompt && prompt.text
-            ? h('div', { className: 'dd-prompt' }, prompt.text)
+            ? h('div', {
+              className: 'dd-prompt editable', role: 'button', tabIndex: 0,
+              title: '点击就地编辑 · 失焦即存',
+              onClick: begin,
+              onKeyDown: event => {
+                if (event.key === 'Enter') { event.preventDefault(); begin() }
+              },
+            }, prompt.text)
             : h('div', { className: 'dd-note' }, '还没有提示词产物。点「重新编译」按真源生成。'),
       )
     }
@@ -2827,7 +3125,7 @@ select.dd-input{
               ),
             ),
           h(Section, { title: t('section.note', '批注'), tag: t('tag.source', '真源'), tagKind: 'src', defaultOpen: false },
-            h(Inline, {
+            h(Editable, {
               label: '这一镜你想记住什么？', value: shot.notes, multiline: true, disabled: busy,
               placeholder: '（空）',
               onSave: value => actions.annotate(shot.id, value),
@@ -3920,6 +4218,14 @@ select.dd-input{
        * 现在这个空档由「**正在切换**」接管，只有真的失败了才走错误态。
        */
       const [stageError, setStageError] = useState(null)
+      /**
+       * 阶段载荷**迟迟不来**（请求丢了 / 被掐了）。
+       *
+       * 没有它，一次没回来的请求就让面板永远停在「正在读取」——
+       * 用户看到的是一个转圈的面板，既没有内容也没有退路。
+       * 超过两秒还没拿到，就把「重新读取」摆出来，并自动补一次请求。
+       */
+      const [stageStalled, setStageStalled] = useState(false)
       const [detail, setDetail] = useState(null)
       const [detailLoading, setDetailLoading] = useState(false)
       const [spec, setSpec] = useState(null)
@@ -4358,6 +4664,39 @@ select.dd-input{
       const shownStage = stagePayload ? (stagePayload.stage || stagePayload.kind) : viewStage
       const switching = stagePayload !== null && shownStage !== viewStage
 
+      /**
+       * 阶段视图的**看门狗**。
+       *
+       * 请求会丢：浏览器掐掉后台标签的请求、网络抖一下、宿主刚好在忙。
+       * 没有看门狗，丢一次请求面板就永远停在「正在读取」——
+       * 用户面前是一个转圈的页面，既没有内容也没有退路。
+       *
+       * 所以：两秒还没拿到载荷，就把「重新读取」摆出来，并**自动补一次**。
+       *
+       * （这两个 effect 必须放在 `showHome` **之后**——effect 的依赖数组
+       * 在渲染时求值，而 `showHome` 是后面才声明的 const。
+       * 放在前面会撞上「Cannot access 'showHome' before initialization」，
+       * 整个面板直接崩掉。）
+       */
+      useEffect(() => {
+        if (view !== 'stage' || showHome || viewStage === '') {
+          setStageStalled(false)
+          return
+        }
+        if (stagePayload !== null || stageError) {
+          setStageStalled(false)
+          return
+        }
+        const timer = setTimeout(() => setStageStalled(true), 2000)
+        return () => clearTimeout(timer)
+      }, [view, showHome, viewStage, stagePayload, stageError])
+
+      // 看门狗响了：补一次请求（载荷到了就自己回到正常态）。
+      useEffect(() => {
+        if (!stageStalled) return
+        loadStage(viewStage)
+      }, [stageStalled, viewStage, loadStage])
+
       // 右栏没有选中镜头时显示什么。
       //
       // 以前这里写的是「在网格里点一镜」——一句说明书，占掉半屏。
@@ -4478,10 +4817,23 @@ select.dd-input{
           busy,
           onPick: stage => {
             // **点节点 = 切视图。** 不确认、不改状态。
-            setViewStage(stage)
             setView('stage')
             setHomeMode(false)
+            // **点当前所在的阶段，不许清载荷。**
+            //
+            // 清了载荷就得有人补回来，而补载荷的 effect 只在
+            // `viewStage` **变了**的时候才跑。点同一个节点 = 没变 =
+            // 永远不补 —— 于是面板卡在「正在读取」直到天荒地老。
+            //
+            // 这条坑踩过一次：探针连点两下阶段节点，第二下就白了。
+            if (stage === viewStage) {
+              // 载荷真的不在（刚才那次请求丢了），补一次；否则什么都不做。
+              if (!stagePayload) loadStage(stage)
+              return
+            }
+            setViewStage(stage)
             setStagePayload(null)
+            setStageError(null)
             stageRevision.current = null
           },
         }),
@@ -4550,6 +4902,15 @@ select.dd-input{
                         ? '正在切换到 ' + (STAGE_LABEL[viewStage] || viewStage)
                         : '正在读取 ' + (STAGE_LABEL[viewStage] || viewStage)),
                     h('div', { className: 'dd-stagewait-bar' }, h('span', null)),
+                    // 载荷迟迟不来：给一条**退路**。否则用户面前只有一个
+                    // 永远转圈的页面，既没有内容也没有按钮。
+                    stageStalled && !switching
+                      ? h('div', { className: 'dd-stagewait-actions' },
+                        h('button', {
+                          className: 'dd-btn sm',
+                          onClick: () => { setStagePayload(null); setStageError(null); stageRevision.current = null; loadStage(viewStage) },
+                        }, '重新读取'))
+                      : null,
                   )
                   : null)
               : null,
@@ -4557,7 +4918,14 @@ select.dd-input{
                 ? (shownStage === 'conceive'
                   ? h(ConceiveView, { data: stageData, busy, actions })
                   : shownStage === 'outline'
-                    ? h(OutlineView, { data: stageData, busy, actions, onGoto: stage => { setViewStage(stage); setStagePayload(null); stageRevision.current = null } })
+                    ? h(OutlineView, { data: stageData, busy, actions, onGoto: stage => {
+                      // 「去改表演」：换阶段。同样地，**没换就不清载荷**。
+                      if (stage === viewStage) return
+                      setViewStage(stage)
+                      setStagePayload(null)
+                      setStageError(null)
+                      stageRevision.current = null
+                    } })
                     : shownStage === 'characters'
                       ? h(CharactersView, { data: stageData, busy, actions, workspaceId, onOpenImage: asset => setViewer(asset) })
                       : shownStage === 'script'
