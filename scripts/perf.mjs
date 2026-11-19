@@ -32,7 +32,16 @@ const base = baseIndex >= 0 ? args[budgetIndex >= 0 ? budgetIndex + 1 : baseInde
 const budget = budgetIndex >= 0 ? Number(args[budgetIndex + 1]) : 60
 const rounds = 12
 
-/** The read endpoints the workbench polls, and how much of them it asks for. */
+/**
+ * The read endpoints the workbench polls, and how much of them it asks for.
+ *
+ * `budget` 可以按端点单独定：被**轮询**的端点必须快到可以忽略（60 ms）；
+ * 被**点击**触发的端点（阶段视图）慢一点没关系，但不能慢到让人等。
+ *
+ * 阶段视图以前**不在这个表里**——于是它 350 毫秒的成本（其中 268 毫秒
+ * 是每次开阶段都起一个 Python 子进程）从来没被量过。加进来，是为了让它
+ * 也有一道闸门。
+ */
 const ENDPOINTS = [
   { path: '/drama-desk/api/snapshot', label: 'snapshot' },
   { path: '/drama-desk/api/overview', label: 'overview' },
@@ -42,6 +51,8 @@ const ENDPOINTS = [
   { path: '/drama-desk/api/rules', label: 'rules' },
   { path: '/drama-desk/api/assets', label: 'assets' },
   { path: '/drama-desk/api/ledger', label: 'ledger' },
+  // 打开「生成」阶段时面板真正调用的那一个——最重的一个阶段视图。
+  { path: '/drama-desk/api/stage?stage=generate', label: 'stage(generate)', budget: 400 },
 ]
 
 /** One timed request. */
@@ -92,13 +103,14 @@ async function main() {
     const p95 = percentile(times, 95)
     const max = Math.max(...times)
     const kb = (bytes / 1024).toFixed(1)
-    const flag = p95 > budget ? ' ← 超预算' : ''
+    const limit = endpoint.budget ?? budget
+    const flag = p95 > limit ? ' ← 超预算' : ''
     console.log(
       `${endpoint.label.padEnd(18)} ${p50.toFixed(1).padStart(5)}  ${p95.toFixed(1).padStart(5)}  ${max.toFixed(1).padStart(5)}  ${kb.padStart(6)} KB  ${warmup.elapsed.toFixed(0).padStart(5)} ms${flag}`,
     )
-    if (warmup.elapsed > budget * 5) cold.push(`${endpoint.label} 冷启动 ${warmup.elapsed.toFixed(0)} ms`)
-    if (p95 > budget) {
-      problems.push(`${endpoint.label} 的 p95 = ${p95.toFixed(1)} ms > 预算 ${budget} ms`)
+    if (warmup.elapsed > limit * 5) cold.push(`${endpoint.label} 冷启动 ${warmup.elapsed.toFixed(0)} ms`)
+    if (p95 > limit) {
+      problems.push(`${endpoint.label} 的 p95 = ${p95.toFixed(1)} ms > 预算 ${limit} ms`)
     }
     if (bytes > 512 * 1024) {
       problems.push(`${endpoint.label} 的响应体 ${kb} KB 过大（> 512 KB）`)

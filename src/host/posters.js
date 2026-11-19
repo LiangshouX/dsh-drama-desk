@@ -19,7 +19,7 @@
 import { execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { isFile, resolveWithin } from './fsx.js'
+import { isFile, resolveWithin, listFilesIfExists } from './fsx.js'
 
 /** 允许出现在镜头 id 里的字符（防目录穿越）。 */
 const SAFE_ID = /^[A-Za-z0-9_-]+$/
@@ -120,6 +120,70 @@ export async function resolvePosterSource(work, shotId) {
     ?? referenced.find(asset => asset?.type === 'keyframe')
   if (image === undefined) return undefined
   return { kind: 'asset', assetId: image.id }
+}
+
+/**
+ * 一批镜的封面来源——**三个目录各列一次**。
+ *
+ * 逐镜找封面是 72 镜 × 5 次串行探测（关键帧三种扩展名 + 帧目录 +
+ * 抽帧缓存）= **360 次往返**，而那三个目录里根本没有几个文件。
+ * 列一次目录就知道谁在：3 次往返回答 360 个问题。
+ *
+ * 优先级与 `resolvePosterSource` 完全一致（关键帧 → 帧目录 → 抽帧缓存
+ * → 参考图资产），所以两者的答案不会打架。
+ *
+ * @param {any} work
+ * @param {string[]} shotIds
+ * @returns {Promise<Map<string, {kind:'file', path:string}|{kind:'asset', assetId:string}|undefined>>}
+ */
+export async function posterSourcesFor(work, shotIds) {
+  const sources = new Map()
+  const dir = work?.dir
+  if (typeof dir !== 'string' || dir === '') return sources
+  const ids = (Array.isArray(shotIds) ? shotIds : []).filter(id => typeof id === 'string' && id !== '')
+  if (ids.length === 0) return sources
+
+  const [keyframeNames, frameNames, cacheNames] = await Promise.all([
+    listFilesIfExists(join(dir, KEYFRAME_DIR)),
+    listFilesIfExists(join(dir, FRAME_DIR)),
+    listFilesIfExists(join(dir, CACHE_DIR)),
+  ])
+  const keyframes = new Set(keyframeNames)
+  const frames = new Set(frameNames)
+  const caches = new Set(cacheNames)
+
+  const assets = Array.isArray(work?.assets) ? work.assets : []
+  const shotById = new Map((Array.isArray(work?.shots) ? work.shots : []).map(entry => [entry?.id, entry]))
+
+  for (const id of ids) {
+    if (!isSafeId(id)) {
+      sources.set(id, undefined)
+      continue
+    }
+    let found
+    for (const extension of IMAGE_EXTENSIONS) {
+      if (keyframes.has(`${id}.${extension}`)) {
+        found = { kind: 'file', path: join(dir, KEYFRAME_DIR, `${id}.${extension}`) }
+        break
+      }
+    }
+    if (found === undefined && frames.has(`${id}.jpg`)) {
+      found = { kind: 'file', path: join(dir, FRAME_DIR, `${id}.jpg`) }
+    }
+    if (found === undefined && caches.has(`${id}.jpg`)) {
+      found = { kind: 'file', path: join(dir, CACHE_DIR, `${id}.jpg`) }
+    }
+    if (found === undefined) {
+      const shot = shotById.get(id)
+      const references = Array.isArray(shot?.references) ? shot.references : []
+      const referenced = assets.filter(asset => typeof asset?.id === 'string' && references.includes(asset.id))
+      const image = referenced.find(asset => asset?.type === 'reference_image')
+        ?? referenced.find(asset?.type === 'keyframe')
+      if (image !== undefined) found = { kind: 'asset', assetId: image.id }
+    }
+    sources.set(id, found)
+  }
+  return sources
 }
 
 /**

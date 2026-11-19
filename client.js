@@ -230,724 +230,1108 @@ window.__ModuleLoader__.load({
     // ── design tokens ──────────────────────────────────────────────────────
     // 颜色全部走宿主的语义 token，插件不发明品牌色——它要和宿主一起亮/暗切换。
     // 卡片与背景同色，区分靠 0.5px 发丝描边 + 分层 elevation。
+// ── design tokens ──────────────────────────────────────────────────────
+    //
+    // 一套为「导播台」量身定制的物质语言。四件事决定它长什么样：
+    //
+    //  ① **字分四份，各司其职。**
+    //     仪表（Bahnschrift，DIN 骨架）只出现在纯拉丁的编号与微标签上；
+    //     正文与中文标题交给 Noto Sans SC / Segoe UI Variable；
+    //     读数用 Cascadia Mono（等宽＝仪表读数）；只有「简报、台词、镜名」
+    //     这类文学内容才配衬线。中英混排时 Latin 与 CJK 各取所长。
+    //
+    //  ② **深浅不是「亮一点」。**
+    //     每一层都带**顶光**（inset 1px 高光）与**落影**，才像一块被加工过的
+    //     金属面板，而不是一张画在纸上的卡片。
+    //
+    //  ③ **信号盘是导播台自有的。**
+    //     红＝FAIL，琥珀＝WARN，绿＝PASS，青＝在途，空＝未生成。
+    //     它们**刻意不与宿主 UI 的强调色同族**——信号灯是给人从远处一眼读的，
+    //     不能和链接、悬停、选中混在一起。
+    //
+    //  ④ **能用形与位说清的，不写小字说明。**
+    //
     const CSS = `
 .dd{
+  /* ══ signal palette（导播台自有信号灯）══════════════════════════════ */
+  --sig-fail:#e8535c;
+  --sig-warn:#d99328;
+  --sig-pass:#2aa06b;
+  --sig-fly:#3aa2cf;
+  --sig-none:#798294;
+
+  /* ══ ink ═════════════════════════════════════════════════════════════ */
   --ink:var(--dsw-alias-label-primary,#e8ecf3);
   --ink2:var(--dsw-alias-label-secondary,#98a1b3);
   --ink3:var(--dsw-alias-label-tertiary,#6b7488);
   --ink4:var(--dsw-alias-label-caption,#8b93a4);
   --on-primary:var(--dsw-alias-label-primary-inverted,#0b0e13);
-  --primary:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#3d9be9));
-  --primary-hover:var(--dsw-alias-button-primary-hover,#5aacf0);
-  --accent:var(--dsw-alias-link,#7aaaff);
-  --line:var(--dsw-alias-border-l2,rgba(255,255,255,.12));
-  --line-strong:var(--dsw-alias-border-l4,rgba(255,255,255,.2));
-  --hover:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));
-  --active:var(--dsw-alias-interactive-bg-active,rgba(255,255,255,.14));
-  --bg:var(--dsw-alias-bg-base,#0b0e13);
-  --card:var(--dsw-alias-bg-layer-2,#181d26);
-  --glass:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 72%,transparent);
-  --danger:var(--dsw-alias-state-error-primary,#ef4d52);
-  --ok:var(--dsw-alias-state-success-primary,#31b272);
-  --warn:var(--dsw-alias-state-warn-primary,#e0a23c);
-  --draft:var(--dsw-alias-state-idle-primary,#4c8dff);
-  --r-xs:var(--dsw-radius-xs,4px);
-  --r-sm:var(--dsw-radius-sm,8px);
-  --r-md:var(--dsw-radius-md,12px);
-  --r-lg:var(--dsw-radius-lg,16px);
-  --r-xl:var(--dsw-radius-xl,20px);
-  --r-panel:var(--dsw-radius-panel,28px);
-  --ease:cubic-bezier(.2,.8,.2,1);
-  --pop:cubic-bezier(.2,1.3,.4,1);
-  --serif:"Songti SC","STSong","Noto Serif SC","Source Han Serif SC",Georgia,serif;
-  --latin-serif:"Iowan Old Style","Palatino",Georgia,"Songti SC",serif;
-  --elev:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-elevation-stroke-color,var(--line-strong))),0 4px 16px 0 rgba(0,0,0,.03),0 0 24px 0 rgba(0,0,0,.03);
-  --elev-panel:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-elevation-stroke-color,var(--line-strong))),0 3px 8px 0 rgba(0,0,0,.03);
-  --elev-prominent:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-elevation-stroke-color,var(--line-strong))),0 3px 8px 0 rgba(0,0,0,.04),0 0 20px 0 rgba(0,0,0,.05);
-  font-family:var(--dsw-font-family,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif);
-  font-size:13px;line-height:20px;
+  --hot:var(--dsw-alias-link,#7aaaff);
+  --hot-2:color-mix(in srgb,var(--hot) 16%,transparent);
+  --hot-line:color-mix(in srgb,var(--hot) 52%,transparent);
+
+  /* ══ surfaces ════════════════════════════════════════════════════════ */
+  --bg:var(--dsw-alias-bg-base,#ffffff);
+  --panel:color-mix(in srgb,var(--ink) 1.5%,var(--bg));
+  --panel-2:color-mix(in srgb,var(--ink) 3.2%,var(--bg));
+  --raised:color-mix(in srgb,var(--ink) 4.8%,var(--bg));
+  --sunken:color-mix(in srgb,var(--ink) 7%,var(--bg));
+  --line:color-mix(in srgb,var(--ink) 10%,transparent);
+  --line-2:color-mix(in srgb,var(--ink) 17%,transparent);
+  --hl:rgba(255,255,255,.9);
+  --sh:color-mix(in srgb,var(--ink) 13%,transparent);
+  --sh-soft:color-mix(in srgb,var(--ink) 6%,transparent);
+  --key:#c8d9ff;
+  --ember:#ffd7a3;
+
+  /* ══ type ════════════════════════════════════════════════════════════ */
+  --f-ui:"Segoe UI Variable Text","Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei UI",system-ui,sans-serif;
+  --f-display:"Noto Sans SC","Segoe UI Variable Display","PingFang SC","Microsoft YaHei UI",system-ui,sans-serif;
+  --f-gauge:"Bahnschrift","Segoe UI Variable Display","DIN Alternate","Noto Sans SC",system-ui,sans-serif;
+  --f-mono:"Cascadia Mono","Cascadia Code","SF Mono","JetBrains Mono",Consolas,ui-monospace,monospace;
+  --serif:"Noto Serif SC","Source Han Serif SC",Georgia,"Songti SC",serif;
+  --latin-serif:var(--f-mono);
+
+  /* ══ geometry ═════════════════════════════════════════════════════════ */
+  --rx-1:6px; --rx-2:10px; --rx-3:14px; --rx-4:18px; --rx-5:24px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:34px;
+
+  /* ══ elevation ════════════════════════════════════════════════════════ */
+  --e-1:0 1px 2px var(--sh-soft);
+  --e-2:0 0 0 .5px var(--line),inset 0 1px 0 var(--hl);
+  --e-3:0 2px 6px -1px var(--sh-soft),0 0 0 .5px var(--line),inset 0 1px 0 var(--hl);
+  --e-4:0 12px 28px -14px var(--sh),0 2px 6px -2px var(--sh-soft),0 0 0 .5px var(--line-2),inset 0 1px 0 var(--hl);
+  --e-pop:0 28px 64px -22px rgba(0,0,0,.6),0 0 0 .5px var(--line-2),inset 0 1px 0 var(--hl);
+  --e-well:inset 0 1px 3px var(--sh-soft),inset 0 0 0 .5px var(--line);
+
+  /* ══ motion ═══════════════════════════════════════════════════════════ */
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --spring:cubic-bezier(.34,1.42,.64,1);
+  --t-fast:120ms; --t-mid:200ms; --t-slow:360ms;
+
+  font-family:var(--f-ui);
+  font-size:13px;line-height:1.55;
   -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
   color:var(--ink);background:var(--bg);
-  border:.5px solid var(--line);border-radius:var(--r-lg);
+  border:.5px solid var(--line);
+  border-radius:var(--rx-4);
   overflow:hidden;display:flex;flex-direction:column;
   width:100%;height:100%;min-height:0;box-sizing:border-box;
   position:relative;isolation:isolate;
   container:dd-root / inline-size;
 }
+/* 兼容别名：少量行内样式还在用旧名字。把它们指到新体系上，
+   这样「只有一套 token」这条纪律不会被一行漏改破坏。 */
+.dd{
+  --r-xs:var(--rx-1); --r-sm:var(--rx-2); --r-md:var(--rx-3);
+  --r-lg:var(--rx-4); --r-xl:var(--rx-5); --r-panel:var(--rx-5);
+  --card:var(--raised);
+  --glass:var(--panel-2);
+  --accent:var(--hot);
+  --draft:var(--sig-fly);
+  --primary:var(--dsw-alias-button-primary-fill,#3d9be9);
+  --primary-hover:var(--dsw-alias-button-primary-hover,#5aacf0);
+  --elev:var(--e-3); --elev-panel:var(--e-2); --elev-prominent:var(--e-4);
+}
+/* 暗色主题：顶光变成一线冷白，落影变深——同一块板子，换一种打光。 */
+body[data-ds-dark-theme] .dd{
+  --bg:var(--dsw-alias-bg-base,#151517);
+  --panel:color-mix(in srgb,var(--ink) 2.4%,var(--bg));
+  --panel-2:color-mix(in srgb,var(--ink) 5%,var(--bg));
+  --raised:color-mix(in srgb,var(--ink) 7.5%,var(--bg));
+  --sunken:color-mix(in srgb,#000 46%,var(--bg));
+  --line:color-mix(in srgb,var(--ink) 9%,transparent);
+  --line-2:color-mix(in srgb,var(--ink) 16%,transparent);
+  --hl:rgba(255,255,255,.062);
+  --sh:rgba(0,0,0,.62);
+  --sh-soft:rgba(0,0,0,.42);
+  --key:#9fbcff;
+  --ember:#ffc98d;
+  --sig-fail:#f4606a; --sig-warn:#e3a13a; --sig-pass:#38bd85; --sig-fly:#4fb6e2; --sig-none:#6d7585;
+  /* 暗处更要靠光影分层：落影更深、顶光更亮、发丝线更清楚。 */
+  --e-3:0 4px 12px -4px rgba(0,0,0,.62),0 0 0 .5px var(--line-2),inset 0 1px 0 var(--hl);
+  --e-4:0 18px 40px -18px rgba(0,0,0,.86),0 4px 10px -4px rgba(0,0,0,.55),0 0 0 .5px var(--line-2),inset 0 1px 0 var(--hl);
+  /* 暗处才看得见颗粒；亮色下重了就成脏纸。 */
+  --grain:.038;
+}
+.dd{--grain:.016}
+.dd::after{opacity:var(--grain)}
 .dd *{box-sizing:border-box}
 .dd button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
-.dd button:disabled{opacity:.4;cursor:not-allowed}
+.dd button:disabled{opacity:.36;cursor:not-allowed}
 .dd input,.dd textarea,.dd select{font:inherit;color:inherit}
-.dd .num{font-family:var(--latin-serif);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-.dd .display{font-family:var(--dsw-font-family-brand,"Montserrat",system-ui,sans-serif);font-weight:300;letter-spacing:-.015em}
-.dd :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dd .num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+/* 仪表微标签：纯拉丁、全大写、宽字距。中文不用它——那是另一种排版。 */
+.dd .gauge{
+  font-family:var(--f-gauge);font-weight:500;font-size:9.5px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink3);
+}
+.dd :focus-visible{outline:2px solid var(--hot);outline-offset:2px;border-radius:var(--rx-1)}
 
-/* ── ambient light (atmosphere without noise) ─────────────────────────── */
- /* 三个 56vmax 的 filter:blur(70px) 光斑曾经让渲染进程常驻一个核以上——
-    每个模糊层都是独立合成层，动画让它每帧重算。改成**直接画径向渐变**：
-    视觉几乎一样（渐变自带柔和衰减），但只是一次光栅化，没有任何逐帧开销。 */
+/* ── atmosphere ───────────────────────────────────────────────────────── */
+/* 两盏灯：左上一道冷的主光，右下一抹钨丝的暖反射。再加一层极细的网格，
+   像校准过的台面。全部是**静态渐变**——一次光栅化，没有逐帧开销。 */
 .dd-ambient{
   position:absolute;inset:0;overflow:clip;pointer-events:none;z-index:0;
   background:
-    radial-gradient(58vmax 58vmax at 12% 8%,  color-mix(in srgb,#d9e4ff 34%,transparent), transparent 62%),
-    radial-gradient(48vmax 48vmax at 92% 14%, color-mix(in srgb,#f6e2ef 30%,transparent), transparent 60%),
-    radial-gradient(52vmax 52vmax at 60% 108%,color-mix(in srgb,#e2f3e0 28%,transparent), transparent 62%);
+    radial-gradient(105% 78% at 4% -14%, color-mix(in srgb,var(--key) 22%,transparent), transparent 56%),
+    radial-gradient(78% 66% at 106% 112%, color-mix(in srgb,var(--ember) 13%,transparent), transparent 60%),
+    linear-gradient(180deg, color-mix(in srgb,var(--key) 6%,transparent), transparent 30%);
+}
+.dd-texture{
+  position:absolute;inset:0;z-index:0;pointer-events:none;opacity:.55;
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size:56px 56px;
+  -webkit-mask-image:radial-gradient(130% 105% at 50% -8%,#000 0%,transparent 70%);
+  mask-image:radial-gradient(130% 105% at 50% -8%,#000 0%,transparent 70%);
+}
+/* 胶片颗粒：给整块面板一层极细的噪点，避免大面积渐变显得「塑料」。
+   亮色主题下要更轻——重了就变成脏纸。 */
+.dd::after{
+  content:'';position:absolute;inset:0;z-index:60;pointer-events:none;opacity:var(--grain);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  background-size:140px 140px;
 }
 
-/* ── top bar ─────────────────────────────────────────────────────────── */
-.dd-top{
-  display:flex;align-items:center;gap:16px;padding:0 18px;height:56px;flex:none;z-index:3;
-  /* 这里**不用 backdrop-filter**：.dd-ambient 里有 56vmax 的大模糊层，
-     Chromium 在同一层叠上下文里做 backdrop 采样时会把该元素的内容层整个丢掉
-     （DOM 在、几何对、就是不画）。半透明纯色是可靠的等价做法。 */
-  background:color-mix(in srgb,var(--card) 88%,transparent);
-  border-bottom:.5px solid var(--line);
+/* ── masthead ────────────────────────────────────────────────────────── */
+.dd-mast{
+  display:flex;align-items:center;gap:14px;padding:0 16px;height:54px;flex:none;z-index:3;
+  /* 顶栏**不用 backdrop-filter**：同层叠上下文里有大模糊层时，Chromium
+     会把这个元素的内容层整个丢掉（DOM 在、几何对、就是不画）。 */
+  background:linear-gradient(180deg,var(--panel-2),var(--panel));
+  box-shadow:0 1px 0 var(--hl) inset,0 1px 0 var(--line),0 6px 18px -12px var(--sh);
 }
-.dd-mark{display:flex;align-items:center;gap:10px;flex:none}
-.dd-mark-glyph{
-  width:30px;height:30px;border-radius:var(--r-md);display:grid;place-items:center;flex:none;
-  background:color-mix(in srgb,var(--card) 86%,transparent);box-shadow:var(--elev-panel);
-  color:var(--accent);
+.dd-brand{display:flex;align-items:center;gap:10px;flex:none}
+.dd-brand-mark{
+  width:30px;height:30px;border-radius:var(--rx-2);display:grid;place-items:center;flex:none;
+  background:linear-gradient(160deg,var(--raised),var(--sunken));
+  box-shadow:var(--e-3);color:var(--hot);
 }
-.dd-mark-title{font-family:var(--dsw-font-family-brand,"Montserrat",system-ui,sans-serif);font-weight:500;font-size:15px;letter-spacing:-.01em;line-height:1.15}
-.dd-mark-sub{font-size:10px;color:var(--ink3);letter-spacing:.14em;text-transform:uppercase;margin-top:1px}
-.dd-tally{display:flex;align-items:center;gap:14px;flex:none}
-.dd-tally-item{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink3);white-space:nowrap}
-.dd-led{width:8px;height:8px;border-radius:50%;flex:none;background:var(--ink3)}
-.dd-led.fail{background:var(--danger);box-shadow:0 0 8px color-mix(in srgb,var(--danger) 55%,transparent)}
-.dd-led.warn{background:var(--warn);box-shadow:0 0 8px color-mix(in srgb,var(--warn) 50%,transparent)}
-.dd-led.gen{background:var(--draft)}
-.dd-led.pass{background:var(--ok)}
-.dd-tally-item b{font-family:var(--latin-serif);font-size:15px;color:var(--ink);font-weight:400;font-variant-numeric:tabular-nums}
-.dd-top-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
-.dd-chip{
-  display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;border-radius:var(--r-md);
-  background:color-mix(in srgb,var(--card) 72%,transparent);border:.5px solid var(--line);
-  font-size:11.5px;color:var(--ink3);max-width:280px;overflow:hidden;white-space:nowrap;
+.dd-brand-mark svg{filter:none}
+.dd-brand-name{
+  font-family:var(--f-display);font-weight:600;font-size:14.5px;
+  letter-spacing:.01em;line-height:1.15;color:var(--ink);
 }
-.dd-chip b{color:var(--ink);font-weight:500}
-.dd-chip.click{cursor:pointer;transition:border-color .18s var(--ease),color .18s var(--ease)}
-.dd-chip.click:hover{border-color:var(--accent);color:var(--ink)}
-.dd-icon-btn{
-  width:30px;height:30px;border-radius:var(--r-md);display:grid;place-items:center;flex:none;
-  border:.5px solid var(--line);background:color-mix(in srgb,var(--card) 72%,transparent);color:var(--ink2);
-  transition:color .18s var(--ease),border-color .18s var(--ease),background .18s var(--ease);
+.dd-brand-sub{
+  font-size:9.5px;letter-spacing:.2em;color:var(--ink3);margin-top:2px;line-height:1;
 }
-.dd-icon-btn:hover{color:var(--accent);border-color:var(--accent)}
-.dd-icon-btn:active{transform:scale(.96)}
-.dd-icon-btn.on{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.dd-mast-sep{width:1px;height:22px;background:var(--line);flex:none}
 
-/* ── workspace picker (top bar) ─────────────────────────────────────── */
+/* 作品牌：像监视器上贴的场次条 */
 .dd-work{
-  position:relative;display:flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 11px;
-  border-radius:var(--r-md);background:var(--glass);border:.5px solid var(--line);box-shadow:var(--elev-panel);
-  transition:border-color .18s var(--ease),background .18s var(--ease);
+  position:relative;display:flex;align-items:center;gap:9px;height:36px;padding:0 9px 0 11px;
+  border-radius:var(--rx-2);background:var(--raised);box-shadow:var(--e-2);
+  flex:0 1 auto;min-width:148px;
+  transition:box-shadow var(--t-mid) var(--ease),transform var(--t-mid) var(--ease);
 }
-.dd-work:hover{border-color:var(--accent)}
-.dd-work-trigger{display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0}
-.dd-work-label{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);flex:none}
-.dd-work-title{font-size:13px;font-weight:500;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-work-sub{font-size:10.5px;color:var(--ink3);font-family:var(--latin-serif)}
-.dd-work-caret{color:var(--ink3);flex:none}
+.dd-work:hover{box-shadow:var(--e-4);transform:translateY(-1px)}
+.dd-work-trigger{display:flex;align-items:baseline;gap:8px;cursor:pointer;min-width:0}
+.dd-work-label{
+  font-family:var(--f-gauge);font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ink3);flex:none;align-self:center;
+}
+.dd-work-title{
+  font-family:var(--f-display);font-size:13.5px;font-weight:600;letter-spacing:.01em;
+  max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dd-work-sub{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);letter-spacing:-.02em;white-space:nowrap;flex:none}
+.dd-work-caret{color:var(--ink3);flex:none;align-self:center}
 .dd-menu{
-  position:absolute;top:calc(100% + 6px);left:0;z-index:40;min-width:330px;max-width:440px;
-  background:var(--card);border:.5px solid var(--line-strong);border-radius:var(--r-md);
-  box-shadow:var(--elev-prominent);padding:6px;animation:dd-pop .18s var(--pop) both;
+  position:absolute;top:calc(100% + 7px);left:0;z-index:40;min-width:330px;max-width:440px;
+  background:var(--raised);border-radius:var(--rx-3);box-shadow:var(--e-pop);padding:6px;
+  animation:dd-pop var(--t-mid) var(--spring) both;
 }
+@keyframes dd-pop{from{opacity:0;transform:translateY(-6px) scale(.98)}}
 .dd-menu-item{
-  display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-sm);cursor:pointer;
-  transition:background .14s var(--ease);
+  display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--rx-1);cursor:pointer;
+  transition:background var(--t-fast) var(--ease);
 }
 .dd-menu-item:hover{background:var(--hover)}
-.dd-menu-item.on{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.dd-menu-item.on{background:var(--hot-2)}
 .dd-menu-item .mi-title{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-menu-item .mi-sub{font-size:10.5px;color:var(--ink3);font-family:var(--latin-serif);margin-top:1px}
+.dd-menu-item .mi-sub{font-size:10.5px;color:var(--ink3);font-family:var(--f-mono);margin-top:2px}
 .dd-menu-sep{height:.5px;background:var(--line);margin:5px 4px}
-.dd-menu-label{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);padding:6px 10px 3px}
+.dd-menu-label{font-family:var(--f-gauge);font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink3);padding:7px 10px 4px}
 
-/* ── stage rail ──────────────────────────────────────────────────────── */
+/* ── tally instrument ────────────────────────────────────────────────── */
+/* 一块内嵌的灯条：四段灯 + 读数。这是导演唯一需要「一眼扫到」的东西。 */
+.dd-tally{
+  display:flex;align-items:stretch;gap:1px;height:32px;padding:3px;flex:none;
+  border-radius:var(--rx-2);background:var(--sunken);box-shadow:var(--e-well);
+}
+.dd-tally-cell{
+  display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:var(--rx-1);
+  transition:background var(--t-fast) var(--ease);
+}
+.dd-tally-cell:hover{background:var(--panel-2)}
+.dd-tally-cell b{
+  font-family:var(--f-mono);font-size:13px;font-weight:600;color:var(--ink);
+  font-variant-numeric:tabular-nums;letter-spacing:-.03em;line-height:1;
+}
+.dd-tally-cell span.lb{
+  font-family:var(--f-gauge);font-size:9px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink3);line-height:1;
+}
+.dd-led{width:7px;height:7px;border-radius:50%;flex:none;background:var(--sig-none);position:relative}
+.dd-led.fail{background:var(--sig-fail);box-shadow:0 0 9px color-mix(in srgb,var(--sig-fail) 62%,transparent)}
+.dd-led.warn{background:var(--sig-warn);box-shadow:0 0 9px color-mix(in srgb,var(--sig-warn) 52%,transparent)}
+.dd-led.gen{background:var(--sig-fly);box-shadow:0 0 8px color-mix(in srgb,var(--sig-fly) 44%,transparent)}
+.dd-led.pass{background:var(--sig-pass);box-shadow:0 0 8px color-mix(in srgb,var(--sig-pass) 44%,transparent)}
+
+.dd-mast-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+/* 读数条：顶栏的路径/磁盘/各阶段计数都走它——安静、内嵌、不抢戏。 */
+.dd-readout,.dd-chip{
+  display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:var(--rx-2);
+  font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);letter-spacing:-.01em;
+  background:var(--sunken);box-shadow:var(--e-well);max-width:250px;white-space:nowrap;
+}
+.dd-readout b,.dd-chip b{color:var(--ink2);font-weight:600}
+.dd-readout.click,.dd-chip.click{cursor:pointer;transition:color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.dd-readout.click:hover,.dd-chip.click:hover{color:var(--ink);box-shadow:var(--e-well),0 0 0 1px var(--hot-line)}
+.dd-readout .path,.dd-chip .path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+
+/* ── icon buttons ────────────────────────────────────────────────────── */
+.dd-icon-btn{
+  width:30px;height:30px;border-radius:var(--rx-2);display:grid;place-items:center;flex:none;
+  background:var(--raised);box-shadow:var(--e-2);color:var(--ink2);
+  transition:color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease),transform var(--t-fast) var(--ease);
+}
+.dd-icon-btn:hover:not(:disabled){color:var(--hot);box-shadow:var(--e-4);transform:translateY(-1px)}
+.dd-icon-btn:active:not(:disabled){transform:translateY(0) scale(.97);box-shadow:var(--e-1)}
+.dd-icon-btn.on{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--hot) 22%,var(--raised)),var(--raised));
+  box-shadow:var(--e-2),inset 0 0 0 1px var(--hot-line);color:var(--hot);
+}
+
+/* ── stage rail (console track) ──────────────────────────────────────── */
+/* 一条贯穿的轨道 + 九个节点。进度不是「几个彩色圆点」，是**轨道被点亮的那一段**。 */
 .dd-rail{
-  display:flex;align-items:center;gap:0;padding:9px 18px;flex:none;z-index:2;
-  background:var(--bg);border-bottom:.5px solid var(--line);overflow-x:auto;scrollbar-width:none;
+  display:flex;align-items:stretch;gap:14px;padding:0 16px;height:54px;flex:none;z-index:2;
+  background:var(--panel);box-shadow:0 1px 0 var(--line),0 6px 16px -14px var(--sh);
 }
-.dd-rail::-webkit-scrollbar{display:none}
-.dd-stage{
-  display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:var(--r-sm);flex:none;
-  font-size:12px;color:var(--ink3);border:.5px solid transparent;cursor:pointer;white-space:nowrap;
-  transition:color .18s var(--ease),background .18s var(--ease),border-color .18s var(--ease);
+.dd-rail-id{
+  display:flex;flex-direction:column;justify-content:center;gap:3px;flex:none;padding-right:14px;
+  border-right:.5px solid var(--line);
 }
-.dd-stage:hover{color:var(--ink);background:var(--hover)}
-.dd-stage i{width:9px;height:9px;border-radius:50%;background:transparent;box-shadow:inset 0 0 0 1px var(--line-strong);transition:background .3s var(--ease),box-shadow .3s var(--ease);flex:none}
-.dd-stage .sn{font-family:var(--latin-serif);font-size:11px}
-.dd-stage .sl{font-family:var(--dsw-font-family-brand,"Montserrat",system-ui,sans-serif);font-size:11px;letter-spacing:.04em}
-.dd-stage.done{color:var(--ink2)}
-.dd-stage.done i{background:var(--ok);box-shadow:none}
-.dd-stage.ready{color:var(--ink)}
-.dd-stage.ready i{background:var(--accent);box-shadow:0 0 9px color-mix(in srgb,var(--accent) 55%,transparent);animation:dd-breathe 1.4s ease-in-out infinite}
-.dd-stage.current{background:color-mix(in srgb,var(--primary) 18%,transparent);border-color:var(--primary);color:var(--ink);font-weight:500}
-.dd-stage.current i{background:var(--primary);box-shadow:0 0 9px color-mix(in srgb,var(--primary) 55%,transparent);animation:none}
-.dd-stage.preview{border-color:var(--accent);border-style:dashed;color:var(--accent)}
-.dd-stage.preview i{background:var(--accent);box-shadow:none}
-.dd-stage.blocked{color:var(--ink3)}
-.dd-stage.blocked i{background:var(--danger);opacity:.5;box-shadow:none}
-.dd-rail-sep{width:14px;height:1px;background:var(--line);flex:none}
-@keyframes dd-breathe{50%{opacity:.5}}
+.dd-rail-id .idx{
+  font-family:var(--f-mono);font-size:15px;font-weight:600;letter-spacing:-.04em;
+  color:var(--ink);line-height:1;font-variant-numeric:tabular-nums;
+}
+.dd-rail-id .idx em{font-style:normal;color:var(--ink3);font-size:10px;letter-spacing:0}
+.dd-rail-id .en{font-family:var(--f-gauge);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink3);line-height:1}
+.dd-rail-track{
+  position:relative;flex:1 1 auto;min-width:0;display:flex;align-items:flex-start;
+  padding:9px 0 0;overflow-x:auto;scrollbar-width:none;
+}
+.dd-rail-track::-webkit-scrollbar{display:none}
+.dd-nodes{position:relative;display:flex;align-items:flex-start;gap:0;padding:0 2px;width:100%;min-width:max-content}
+/* 连接段：轨道上被点亮的那些短线。 */
+.dd-link{flex:1 1 0;min-width:16px;height:36px;position:relative}
+.dd-link::before{
+  content:'';position:absolute;left:0;right:0;top:4.5px;height:1px;background:var(--line-2);
+  transition:background var(--t-slow) var(--ease),box-shadow var(--t-slow) var(--ease);
+}
+.dd-link.lit::before{
+  background:var(--hot);box-shadow:0 0 9px color-mix(in srgb,var(--hot) 46%,transparent);
+}
+.dd-node{
+  display:flex;flex-direction:column;align-items:center;gap:7px;height:36px;padding:0 11px;flex:none;
+  background:none;cursor:pointer;
+  transition:color var(--t-mid) var(--ease);
+}
+.dd-node .dot{
+  width:10px;height:10px;border-radius:50%;flex:none;background:transparent;
+  box-shadow:inset 0 0 0 1.5px var(--line-2);
+  transition:background var(--t-mid) var(--ease),box-shadow var(--t-mid) var(--ease),transform var(--t-mid) var(--ease);
+}
+.dd-node .lb{
+  font-size:12px;color:var(--ink3);letter-spacing:.02em;white-space:nowrap;line-height:1.5;
+  transition:color var(--t-mid) var(--ease);
+}
+.dd-node:hover .lb{color:var(--ink2)}
+.dd-node:hover .dot{box-shadow:inset 0 0 0 1.5px var(--ink3)}
+.dd-node.done .dot{background:var(--hot);box-shadow:0 0 8px color-mix(in srgb,var(--hot) 40%,transparent)}
+.dd-node.done .lb{color:var(--ink2)}
+.dd-node.ready .dot{background:var(--sig-fly);box-shadow:0 0 8px color-mix(in srgb,var(--sig-fly) 44%,transparent)}
+.dd-node.ready .lb{color:var(--ink)}
+.dd-node.current .dot{
+  background:var(--hot);transform:scale(1.25);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--hot) 20%,transparent),0 0 14px color-mix(in srgb,var(--hot) 62%,transparent);
+}
+.dd-node.current .lb{color:var(--ink);font-weight:600}
+.dd-node.preview .dot{
+  background:transparent;box-shadow:inset 0 0 0 1.5px var(--hot);
+  animation:dd-pulse 1.8s var(--ease) infinite;
+}
+.dd-node.preview .lb{color:var(--hot);font-weight:600}
+.dd-node.blocked .dot{background:transparent;box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--sig-fail) 60%,transparent)}
+@keyframes dd-pulse{50%{box-shadow:inset 0 0 0 1.5px var(--hot),0 0 12px color-mix(in srgb,var(--hot) 60%,transparent)}}
+.dd-rail-note{
+  display:flex;align-items:center;gap:8px;flex:none;padding-left:14px;
+  border-left:.5px solid var(--line);
+}
+.dd-rail-note .pill{
+  display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:var(--rx-1);
+  font-size:11px;color:var(--hot);background:var(--hot-2);
+  box-shadow:inset 0 0 0 1px var(--hot-line);
+}
+.dd-rail-note .pill b{color:var(--ink);font-weight:600}
 
-/* ── preview banner ──────────────────────────────────────────────────── */
-.dd-previewbar{
-  display:flex;align-items:center;gap:10px;padding:6px 18px;flex:none;z-index:2;
-  background:color-mix(in srgb,var(--accent) 9%,var(--bg));
-  border-bottom:.5px solid var(--line);font-size:11.5px;color:var(--ink2);
-}
-.dd-previewbar .tag{
-  font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);
-  border:.5px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:999px;padding:1px 8px;
-}
-.dd-previewbar b{color:var(--ink);font-weight:500}
-
-/* ── body ────────────────────────────────────────────────────────────── */
+/* ── body shell ──────────────────────────────────────────────────────── */
 .dd-body{display:flex;min-height:0;flex:1 1 auto;overflow:hidden;position:relative;z-index:1}
 .dd-nav{
-  width:60px;flex:0 0 60px;border-right:.5px solid var(--line);background:color-mix(in srgb,var(--bg) 70%,transparent);
-  display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 0;
+  width:58px;flex:0 0 58px;box-shadow:1px 0 0 var(--line);
+  background:linear-gradient(180deg,var(--panel),var(--bg));
+  display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0;
 }
 .dd-nav-btn{
-  width:48px;height:48px;border-radius:var(--r-md);display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:3px;color:var(--ink3);position:relative;
-  transition:color .18s var(--ease),background .18s var(--ease);
+  width:46px;height:46px;border-radius:var(--rx-2);display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:4px;color:var(--ink3);position:relative;
+  transition:color var(--t-mid) var(--ease),background var(--t-mid) var(--ease),box-shadow var(--t-mid) var(--ease);
 }
-.dd-nav-btn:hover{color:var(--ink);background:var(--hover)}
-.dd-nav-btn.on{color:var(--accent);background:var(--hover)}
+.dd-nav-btn:hover{color:var(--ink2);background:var(--panel-2)}
+.dd-nav-btn.on{
+  color:var(--hot);background:var(--raised);box-shadow:var(--e-2);
+}
 .dd-nav-btn.on::before{
-  content:'';position:absolute;left:-6px;top:13px;bottom:13px;width:2px;border-radius:2px;
-  background:var(--accent);box-shadow:0 0 9px var(--accent);
+  content:'';position:absolute;left:-6px;top:12px;bottom:12px;width:2.5px;border-radius:2px;
+  background:var(--hot);box-shadow:0 0 10px var(--hot);
 }
-.dd-nav-btn .lbl{font-size:9.5px;letter-spacing:.06em;line-height:1}
+.dd-nav-btn .lbl{font-size:9.5px;letter-spacing:.04em;line-height:1}
 .dd-nav-btn .badge{
-  position:absolute;top:3px;right:3px;min-width:15px;height:15px;border-radius:8px;padding:0 4px;
-  background:var(--danger);color:#fff;font-size:9.5px;font-family:var(--latin-serif);
-  display:grid;place-items:center;
+  position:absolute;top:2px;right:2px;min-width:15px;height:15px;border-radius:8px;padding:0 4px;
+  background:var(--sig-fail);color:#fff;font-size:9px;font-family:var(--f-mono);
+  display:grid;place-items:center;box-shadow:0 0 0 2px var(--bg);
 }
 .dd-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 
-/* ── toolbar ─────────────────────────────────────────────────────────── */
+/* ── filter band（规范 / 资产 / 台账的次级筛选条）───────────────────── */
 .dd-toolbar{
-  display:flex;align-items:center;gap:10px;padding:9px 18px;flex:none;flex-wrap:wrap;
-  border-bottom:.5px solid var(--line);background:var(--bg);
+  display:flex;align-items:center;gap:10px;padding:10px 20px;flex:none;flex-wrap:wrap;
+  box-shadow:0 1px 0 var(--line);background:var(--panel);
 }
-.dd-seg{display:inline-flex;border:.5px solid var(--line);border-radius:var(--r-sm);overflow:hidden;flex:none;background:var(--glass)}
-.dd-seg button{padding:4px 11px;font-size:11.5px;color:var(--ink3);border-right:.5px solid var(--line);white-space:nowrap;transition:background .15s,color .15s}
-.dd-seg button:last-child{border-right:none}
-.dd-seg button:hover{color:var(--ink);background:var(--hover)}
-.dd-seg button.on{background:var(--primary);color:var(--on-primary);font-weight:500}
+
+/* ── deck (stage header + controls, fused into one band) ─────────────── */
+.dd-deck{
+  display:flex;align-items:center;gap:16px;padding:13px 20px;flex:none;flex-wrap:wrap;
+  border-bottom:.5px solid var(--line);
+  background:linear-gradient(180deg,var(--panel),transparent);
+}
+.dd-deck-id{display:flex;align-items:baseline;gap:10px;min-width:0;flex:1 1 auto;flex-wrap:wrap}
+.dd-deck-id .sn3{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);letter-spacing:.06em;flex:none}
+.dd-deck-id .st3{
+  font-family:var(--f-display);font-size:21px;font-weight:600;letter-spacing:.01em;
+  line-height:1.2;white-space:nowrap;
+}
+.dd-deck-id .deck-left{display:inline-flex;align-items:center;gap:6px;flex:none}
+.dd-deck-id .deck-left .dd-readout{height:26px}
+.dd-deck-id .sd3{
+  font-size:12.5px;color:var(--ink2);line-height:1.6;flex:1 1 260px;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dd-deck-tools{display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;flex-wrap:wrap;justify-content:flex-end}
+
+/* ── filmstrip (scene timeline) ──────────────────────────────────────── */
+/* 一条真的胶片：上下有齿孔，中间是格子。选中的一格抬起并亮起。 */
+.dd-strip{
+  display:flex;align-items:stretch;gap:0;padding:8px 20px 10px;flex:none;
+  overflow-x:auto;scrollbar-width:none;
+  background:
+    repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 14px) top/auto 3px no-repeat,
+    repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 14px) bottom/auto 3px no-repeat,
+    linear-gradient(180deg,var(--panel),transparent);
+  border-bottom:.5px solid var(--line);
+}
+.dd-strip::-webkit-scrollbar{display:none}
+.dd-scene-cell{
+  display:flex;align-items:center;gap:9px;padding:7px 13px;flex:none;cursor:pointer;
+  border-radius:var(--rx-2);background:var(--raised);box-shadow:var(--e-2);
+  transition:box-shadow var(--t-mid) var(--ease),transform var(--t-mid) var(--ease),color var(--t-mid) var(--ease);
+  margin-right:6px;color:var(--ink3);
+}
+.dd-scene-cell:hover{color:var(--ink2);box-shadow:var(--e-4);transform:translateY(-1px)}
+.dd-scene-cell.on{
+  color:var(--ink);box-shadow:var(--e-4),inset 0 0 0 1px var(--hot-line);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--hot) 12%,var(--raised)),var(--raised));
+}
+.dd-scene-cell .sid{
+  font-family:var(--f-mono);font-size:10.5px;letter-spacing:.02em;color:var(--ink3);
+}
+.dd-scene-cell.on .sid{color:var(--hot)}
+.dd-scene-cell .nm{
+  font-family:var(--f-display);font-size:12.5px;font-weight:500;max-width:150px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dd-scene-cell .ct{font-family:var(--f-mono);font-size:10px;color:var(--ink3)}
+.dd-scene-cell .dot{width:6px;height:6px;border-radius:50%;flex:none}
+.dd-scene-cell .dot.fail{background:var(--sig-fail);box-shadow:0 0 7px color-mix(in srgb,var(--sig-fail) 55%,transparent)}
+.dd-scene-cell .dot.warn{background:var(--sig-warn);box-shadow:0 0 7px color-mix(in srgb,var(--sig-warn) 50%,transparent)}
+.dd-scene-cell .dot.ok{background:var(--sig-pass)}
+.dd-strip-nav{display:flex;align-items:center;gap:6px;flex:none;padding:8px 20px;background:var(--panel)}
+
+/* ── segmented control ───────────────────────────────────────────────── */
+.dd-seg{
+  display:inline-flex;padding:2px;border-radius:var(--rx-2);flex:none;
+  background:var(--sunken);box-shadow:var(--e-well);gap:2px;
+}
+.dd-seg button{
+  height:24px;padding:0 11px;border-radius:var(--rx-1);font-size:11.5px;color:var(--ink3);
+  white-space:nowrap;transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);
+}
+.dd-seg button:hover{color:var(--ink2)}
+.dd-seg button.on{
+  color:var(--ink);background:var(--raised);box-shadow:var(--e-2);font-weight:500;
+}
+
+/* ── inputs ──────────────────────────────────────────────────────────── */
 .dd-input{
-  height:30px;padding:0 11px;border-radius:var(--r-sm);background:var(--glass);border:.5px solid var(--line);
-  color:var(--ink);font-size:12.5px;outline:none;transition:border-color .18s var(--ease),box-shadow .18s var(--ease);
+  height:30px;padding:0 11px;border-radius:var(--rx-2);background:var(--sunken);
+  border:none;box-shadow:var(--e-well);color:var(--ink);font-size:12.5px;outline:none;
+  min-width:150px;flex:1 1 180px;max-width:260px;
+  transition:box-shadow var(--t-fast) var(--ease);
 }
-.dd-input:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--ink)}
-.dd-input option{background:var(--card)}
+.dd-input::placeholder{color:var(--ink3)}
+.dd-input:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
+.dd-input option{background:var(--raised);color:var(--ink)}
+/* 原生下拉框自带一套外观（箭头、圆角、内边距），跟这块板子不是一个世界。
+   换成自己画的小箭头，它才像面板的一部分。 */
+select.dd-input{
+  appearance:none;-webkit-appearance:none;padding-right:28px;cursor:pointer;
+  background-image:
+    linear-gradient(45deg,transparent 50%,var(--ink3) 50%),
+    linear-gradient(135deg,var(--ink3) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 13px,calc(100% - 10px) 13px;
+  background-size:5px 5px,5px 5px;
+  background-repeat:no-repeat;
+}
+
+/* ── buttons ─────────────────────────────────────────────────────────── */
 .dd-btn{
-  height:30px;padding:0 13px;border-radius:var(--r-sm);border:.5px solid var(--line);background:var(--glass);
+  height:30px;padding:0 13px;border-radius:var(--rx-2);background:var(--raised);box-shadow:var(--e-2);
   font-size:12.5px;color:var(--ink2);white-space:nowrap;
-  transition:color .16s var(--ease),border-color .16s var(--ease),background .16s var(--ease);
+  transition:color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease),transform var(--t-fast) var(--ease);
 }
-.dd-btn:hover:not(:disabled){color:var(--ink);border-color:var(--accent)}
-.dd-btn:active:not(:disabled){transform:scale(.97)}
-.dd-btn.sm{height:26px;padding:0 10px;font-size:11.5px;border-radius:var(--r-xs)}
-.dd-btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary);font-weight:500}
-.dd-btn.primary:hover:not(:disabled){background:var(--primary-hover);border-color:var(--primary-hover)}
-.dd-btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
-.dd-btn.danger:hover:not(:disabled){background:color-mix(in srgb,var(--danger) 12%,transparent);border-color:var(--danger)}
-.dd-btn.ghost{background:transparent}
+.dd-btn:hover:not(:disabled){color:var(--ink);box-shadow:var(--e-4);transform:translateY(-1px)}
+.dd-btn:active:not(:disabled){transform:translateY(0) scale(.985);box-shadow:var(--e-1)}
+.dd-btn.sm{height:25px;padding:0 10px;font-size:11.5px;border-radius:var(--rx-1)}
+.dd-btn.primary{
+  background:linear-gradient(180deg,var(--dsw-alias-button-primary-fill,var(--primary,#3d9be9)),var(--dsw-alias-button-primary-fill,var(--primary,#3d9be9)));
+  color:var(--on-primary);font-weight:600;
+  box-shadow:0 1px 0 rgba(255,255,255,.16) inset,0 0 0 .5px var(--line-2),0 2px 8px -2px var(--sh);
+}
+.dd-btn.primary:hover:not(:disabled){
+  background:linear-gradient(180deg,var(--dsw-alias-button-primary-hover,var(--primary-hover,#5aacf0)),var(--dsw-alias-button-primary-hover,var(--primary-hover,#5aacf0)));
+  color:var(--on-primary);box-shadow:0 1px 0 rgba(255,255,255,.2) inset,0 0 0 .5px var(--line-2),0 8px 20px -8px var(--sh);
+}
+.dd-btn.danger{color:var(--sig-fail);box-shadow:var(--e-2),inset 0 0 0 1px color-mix(in srgb,var(--sig-fail) 32%,transparent)}
+.dd-btn.danger:hover:not(:disabled){color:var(--sig-fail);box-shadow:var(--e-4),inset 0 0 0 1px color-mix(in srgb,var(--sig-fail) 55%,transparent)}
+.dd-btn.ghost{background:transparent;box-shadow:none}
+.dd-btn.ghost:hover:not(:disabled){background:var(--panel-2);box-shadow:none;transform:none}
 .dd-spacer{flex:1}
 
-/* ── scene strip (film perforations) ─────────────────────────────────── */
-.dd-strip{display:flex;align-items:center;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0;max-width:100%}
-.dd-strip::-webkit-scrollbar{display:none}
-.dd-strip-chip{
-  display:flex;align-items:center;gap:7px;padding:4px 10px;border-radius:var(--r-xs);flex:none;cursor:pointer;
-  border:.5px solid var(--line);background:var(--card);font-size:11.5px;color:var(--ink3);
-  transition:border-color .16s var(--ease),color .16s var(--ease),background .16s var(--ease);
-}
-.dd-strip-chip:hover{color:var(--ink);border-color:var(--line-strong)}
-.dd-strip-chip.on{border-color:var(--accent);color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
-.dd-strip-chip .sid{font-family:var(--latin-serif);font-size:10.5px;letter-spacing:.04em}
-.dd-strip-chip .sn2{font-family:var(--latin-serif);font-size:10px;color:var(--ink3)}
-.dd-strip-chip .dot{width:6px;height:6px;border-radius:50%;flex:none}
-.dd-strip-chip .dot.fail{background:var(--danger)}
-.dd-strip-chip .dot.warn{background:var(--warn)}
-.dd-strip-chip .dot.ok{background:var(--ok)}
-
-/* ── stage view shell ────────────────────────────────────────────────── */
+/* ── scroll & stage floor ────────────────────────────────────────────── */
 .dd-scroll{overflow:auto;flex:1 1 auto;min-height:0}
-.dd-grid{padding:16px 20px 34px;max-width:1560px;margin:0 auto}
-.dd-stagehead{
-  display:flex;align-items:flex-start;gap:16px;padding:16px 20px 14px;border-bottom:.5px solid var(--line);
-  background:linear-gradient(180deg,color-mix(in srgb,var(--card) 55%,transparent),transparent);
-  /* 标题这一侧**不许被挤成竖排**：中文的最小内容宽度是 1 个字，
-     一旦被压窄，整段话会一个字一行。给它一个下限，挤不下就换行。 */
-  flex-wrap:wrap;
-}
-.dd-stagehead > div:first-child{flex:1 1 auto;min-width:300px}
-.dd-stagehead .sn3{font-family:var(--latin-serif);font-size:11px;letter-spacing:.16em;color:var(--ink3);text-transform:uppercase}
-.dd-stagehead .st3{font-family:var(--serif);font-size:21px;font-weight:600;letter-spacing:.01em;margin-top:2px}
-.dd-stagehead .sd3{font-size:12px;color:var(--ink3);margin-top:4px;max-width:760px;line-height:1.65}
-.dd-stagehead .sr3{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;min-width:0;max-width:100%}
+.dd-grid{padding:18px 20px 40px;max-width:1680px;margin:0 auto}
+
+/* ── outline ─────────────────────────────────────────────────────────── */
 .dd-outline-list{display:flex;flex-direction:column;gap:10px}
+.dd-outline-list>*{flex:0 0 auto}
 .dd-outline-row{
   display:grid;grid-template-columns:132px minmax(0,1fr) 190px;gap:16px;align-items:start;
-  border:.5px solid var(--line);border-radius:var(--r-lg);background:var(--card);padding:12px 14px;
-  box-shadow:var(--elev-panel);
+  border-radius:var(--rx-3);background:var(--raised);padding:13px 15px;
+  box-shadow:var(--e-3);transition:box-shadow var(--t-mid) var(--ease);
 }
-.dd-outline-row .oid{font-family:var(--latin-serif);font-size:12px;color:var(--ink3);letter-spacing:.06em}
-.dd-outline-row .otitle{font-family:var(--serif);font-size:15px;font-weight:600}
-.dd-outline-row .osum{font-size:12.5px;color:var(--ink2);line-height:1.65;margin-top:3px}
-.dd-outline-row .ometa{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}
+.dd-outline-row:hover{box-shadow:var(--e-4)}
+.dd-outline-row .oid{font-family:var(--f-mono);font-size:11px;color:var(--ink3);letter-spacing:.04em;padding-top:3px}
+.dd-outline-row .otitle{font-family:var(--serif);font-size:15.5px;font-weight:600;line-height:1.4}
+.dd-outline-row .osum{font-size:12.5px;color:var(--ink2);line-height:1.7;margin-top:4px}
+.dd-outline-row .ometa{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
 
 /* ── character cards ─────────────────────────────────────────────────── */
 .dd-cast{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
 .dd-cast-card{
-  border:.5px solid var(--line);border-radius:var(--r-lg);background:var(--card);overflow:hidden;
-  box-shadow:var(--elev-panel);display:flex;flex-direction:column;
+  border-radius:var(--rx-3);background:var(--raised);overflow:hidden;
+  box-shadow:var(--e-3);display:flex;flex-direction:column;
+  transition:box-shadow var(--t-mid) var(--ease),transform var(--t-mid) var(--ease);
 }
-.dd-cast-top{display:flex;gap:12px;padding:13px 14px;align-items:flex-start}
+.dd-cast-card:hover{box-shadow:var(--e-4);transform:translateY(-2px)}
+.dd-cast-top{display:flex;gap:13px;padding:14px 15px;align-items:flex-start}
 .dd-cast-portrait{
-  width:76px;height:96px;border-radius:var(--r-md);overflow:hidden;flex:none;background:var(--bg);
-  border:.5px solid var(--line);position:relative;
+  width:76px;height:96px;border-radius:var(--rx-2);overflow:hidden;flex:none;background:var(--sunken);
+  box-shadow:var(--e-2);position:relative;
 }
 .dd-cast-portrait img{width:100%;height:100%;object-fit:cover;display:block}
 .dd-cast-portrait .ph{
   width:100%;height:100%;display:grid;place-items:center;font-size:10px;color:var(--ink3);
-  background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--ink4) 9%,transparent) 6px 7px);
+  background:repeating-linear-gradient(135deg,transparent 0 6px,var(--line) 6px 7px);
 }
-.dd-cast-name{font-family:var(--serif);font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
-.dd-cast-role{font-size:11.5px;color:var(--ink3);margin-top:2px}
-.dd-cast-body{padding:0 14px 13px;display:flex;flex-direction:column;gap:9px}
+.dd-cast-name{font-family:var(--serif);font-size:16.5px;font-weight:600;display:flex;align-items:center;gap:8px;line-height:1.35}
+.dd-cast-role{font-size:11.5px;color:var(--ink3);margin-top:3px}
+.dd-cast-body{padding:0 15px 14px;display:flex;flex-direction:column;gap:9px}
 .dd-cast-body>*{flex:0 0 auto}
 .dd-cast-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 12px}
 .dd-refgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:9px}
-.dd-refcard{border:.5px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--bg)}
-.dd-refcard .rhead{display:flex;align-items:center;gap:7px;padding:6px 8px;border-bottom:.5px solid var(--line)}
-.dd-refcard .rhead .rid{font-family:var(--latin-serif);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-refcard .rbody{padding:7px 8px;font-size:11px;color:var(--ink3);line-height:1.6}
-.dd-refcard .rbody .rp{font-family:var(--latin-serif);font-size:10.5px;color:var(--ink3);word-break:break-word;max-height:110px;overflow:auto;white-space:pre-wrap}
+.dd-refcard{border-radius:var(--rx-2);overflow:hidden;background:var(--panel-2);box-shadow:var(--e-2)}
+.dd-refcard .rhead{display:flex;gap:7px;padding:7px 9px;border-bottom:.5px solid var(--line)}
+.dd-refcard .rhead .rid{font-family:var(--f-mono);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-refcard .rbody{padding:8px 9px;font-size:11.5px;color:var(--ink3);line-height:1.65}
+.dd-refcard .rbody .rp{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);word-break:break-word;max-height:110px;overflow:auto;white-space:pre-wrap}
 
-/* ── generate grid ───────────────────────────────────────────────────── */
-.dd-wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:14px}
-.dd-wall.dense{grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:10px}
-.dd-shotcard{
-  position:relative;border-radius:var(--r-lg);overflow:hidden;cursor:pointer;
-  border:.5px solid var(--line-strong);background:var(--card);box-shadow:var(--elev-panel);
-  transition:transform .22s var(--pop),box-shadow .22s var(--ease),border-color .22s var(--ease);
+/* ── the wall（监视器墙）────────────────────────────────────────────── */
+.dd-wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(208px,1fr));gap:14px}
+.dd-wall.dense{grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px}
+.dd-monitor{
+  position:relative;border-radius:var(--rx-3);overflow:hidden;cursor:pointer;text-align:left;
+  background:var(--raised);box-shadow:var(--e-3);
   display:flex;flex-direction:column;
+  transition:transform var(--t-mid) var(--ease-out),box-shadow var(--t-mid) var(--ease),outline-color var(--t-mid) var(--ease);
+  outline:.5px solid transparent;outline-offset:-.5px;
+  animation:dd-rise var(--t-slow) var(--ease-out) both;
 }
-.dd-shotcard:hover{transform:translateY(-4px);box-shadow:var(--elev-prominent);border-color:var(--accent);z-index:2}
-.dd-shotcard.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 0 22px color-mix(in srgb,var(--accent) 30%,transparent);z-index:3}
-.dd-shotcard .poster{
-  position:relative;aspect-ratio:16/9;overflow:hidden;background:var(--bg);
-  border-bottom:.5px solid var(--line);
+@keyframes dd-rise{from{opacity:0;transform:translateY(10px)}}
+.dd-monitor:hover{
+  transform:translateY(-4px);box-shadow:var(--e-4),0 0 0 1px var(--hot-line);
+  outline-color:var(--hot-line);z-index:2;
 }
-.dd-shotcard .poster img{width:100%;height:100%;object-fit:cover;display:block}
-/* 排版封面：没有静帧时，一个镜头仍然要说清「它是什么」。
-   斜向网点 + 巨大镜号 + 中文标题 —— 这是导演纵览时唯一读到的两件事。 */
-.dd-shotcard .typo{
+.dd-monitor.on{
+  outline-color:var(--hot);outline-width:1.5px;
+  box-shadow:var(--e-4),0 0 0 3px color-mix(in srgb,var(--hot) 16%,transparent),0 0 30px -6px color-mix(in srgb,var(--hot) 40%,transparent);
+  z-index:3;
+}
+/* 画面：像监视器——内陷的边框 + 一点点暗角 */
+.dd-monitor .screen{
+  position:relative;aspect-ratio:16/9;overflow:hidden;background:var(--sunken);
+  box-shadow:inset 0 0 0 .5px var(--line),inset 0 1px 10px rgba(0,0,0,.28);
+}
+.dd-monitor .screen img{
+  width:100%;height:100%;object-fit:cover;display:block;
+  transition:transform var(--t-slow) var(--ease-out);
+}
+.dd-monitor:hover .screen img{transform:scale(1.035)}
+.dd-monitor .veil{
+  position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 100% at 50% 40%,transparent 52%,rgba(0,0,0,.22) 100%);
+}
+/* 排版封面：没有静帧时，一个镜头仍然要说清「它是什么」。 */
+.dd-monitor .typo{
   position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;
-  padding:9px 11px;
+  padding:10px 12px;
   background:
-    repeating-linear-gradient(135deg,transparent 0 7px,color-mix(in srgb,var(--ink) 5%,transparent) 7px 8px),
-    radial-gradient(120% 120% at 88% 6%,color-mix(in srgb,var(--accent) 22%,transparent),transparent 60%),
-    var(--bg);
+    repeating-linear-gradient(135deg,transparent 0 8px,var(--line) 8px 9px),
+    radial-gradient(120% 120% at 88% 4%,var(--hot-2),transparent 58%),
+    var(--sunken);
 }
-.dd-shotcard .typo .big{
-  font-family:var(--latin-serif);font-size:34px;line-height:1;font-weight:400;
-  color:color-mix(in srgb,var(--ink) 46%,transparent);letter-spacing:-.02em;
+.dd-monitor .typo .big{
+  font-family:var(--f-mono);font-size:30px;line-height:1;font-weight:600;
+  color:color-mix(in srgb,var(--ink) 42%,transparent);letter-spacing:-.04em;
 }
-.dd-shotcard .typo .cam{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-family:var(--latin-serif)}
-.dd-shotcard .topline{
-  position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:7px;padding:7px 9px;
-  font-size:10.5px;
+.dd-monitor .typo .cam{
+  font-family:var(--f-gauge);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3);
 }
-/* 角标自带底色，**不靠压在图片上的黑色渐变**：
-   亮色主题下那个渐变会让「深色字压深色底」，编号直接看不见。 */
-.dd-shotcard .topline .sid{
-  font-family:var(--latin-serif);letter-spacing:.06em;color:var(--ink);
-  padding:1px 7px;border-radius:999px;
-  background:color-mix(in srgb,var(--bg) 88%,transparent);
-  border:.5px solid color-mix(in srgb,var(--line-strong) 70%,transparent);
+.dd-monitor .topline{
+  position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:7px;padding:8px 9px;
+  font-size:10.5px;pointer-events:none;
 }
-.dd-shotcard .topline .pill{
-  margin-left:auto;font-size:9.5px;letter-spacing:.06em;padding:1px 8px;border-radius:999px;
-  border:.5px solid currentColor;
-  background:color-mix(in srgb,var(--bg) 88%,transparent);
+.dd-monitor .topline .sid{
+  font-family:var(--f-mono);letter-spacing:.02em;color:var(--ink);
+  padding:2px 7px;border-radius:var(--rx-1);
+  background:color-mix(in srgb,var(--bg) 86%,transparent);
+  box-shadow:inset 0 0 0 .5px var(--line-2),0 1px 4px rgba(0,0,0,.3);
 }
-.dd-shotcard .pill.none{color:var(--ink3)}
-.dd-shotcard .pill.generated{color:var(--draft)}
-.dd-shotcard .pill.warn{color:var(--warn)}
-.dd-shotcard .pill.fail{color:var(--danger)}
-.dd-shotcard .pill.pass{color:var(--ok)}
-.dd-shotcard .cap{padding:9px 11px 10px;display:flex;flex-direction:column;gap:4px}
-.dd-shotcard .cap .t{font-family:var(--serif);font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-shotcard .cap .s{
-  font-size:11.5px;color:var(--ink2);line-height:1.55;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px;
+.dd-monitor .topline .pill{
+  margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:9.5px;
+  letter-spacing:.04em;padding:2px 8px;border-radius:999px;
+  background:color-mix(in srgb,var(--bg) 86%,transparent);
+  box-shadow:inset 0 0 0 .5px currentColor;
 }
-.dd-shotcard .cap .m{display:flex;gap:9px;font-size:10.5px;color:var(--ink3);font-family:var(--latin-serif)}
-.dd-shotcard .marks{position:absolute;left:9px;bottom:52px;display:flex;gap:4px}
-.dd-shotcard .mark{
-  font-size:9px;padding:1px 6px;border-radius:999px;
-  background:color-mix(in srgb,var(--bg) 88%,transparent);border:.5px solid var(--line-strong);
+.dd-monitor .pill.none{color:var(--sig-none)}
+.dd-monitor .pill.generated{color:var(--sig-fly)}
+.dd-monitor .pill.warn{color:var(--sig-warn)}
+.dd-monitor .pill.fail{color:var(--sig-fail)}
+.dd-monitor .pill.pass{color:var(--sig-pass)}
+.dd-monitor .topline .pill i{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+.dd-monitor .marks{position:absolute;left:9px;bottom:9px;display:flex;gap:4px;pointer-events:none}
+.dd-monitor .mark{
+  font-size:9px;padding:1px 6px;border-radius:var(--rx-1);
+  background:color-mix(in srgb,var(--bg) 86%,transparent);box-shadow:inset 0 0 0 .5px var(--line-2);
   color:var(--ink2);
 }
-.dd-shotcard .mark.beat{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 50%,transparent)}
-.dd-shotcard .mark.notes{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,transparent)}
-.dd-shotcard .mark.prompt{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dd-monitor .mark.beat{color:var(--sig-fail);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-fail) 52%,transparent)}
+.dd-monitor .mark.notes{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-monitor .mark.prompt{color:var(--sig-warn);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-warn) 52%,transparent)}
+.dd-monitor .cap{padding:11px 12px 12px;display:flex;flex-direction:column;gap:5px}
+.dd-monitor .cap .t{
+  font-family:var(--serif);font-size:14.5px;font-weight:600;line-height:1.35;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dd-monitor .cap .s{
+  font-size:12px;color:var(--ink2);line-height:1.6;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:38px;
+}
+.dd-monitor .cap .m{
+  display:flex;gap:10px;font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);
+  letter-spacing:-.02em;padding-top:3px;
+}
+.dd-monitor .cap .m b{color:var(--ink2);font-weight:500}
 
-/* ── detail column ───────────────────────────────────────────────────── */
-.dd-detail{
-  width:clamp(360px,40%,560px);flex:0 0 auto;border-left:.5px solid var(--line);
-  background:color-mix(in srgb,var(--bg) 88%,transparent);
+/* ── scene plate（一场的门牌）────────────────────────────────────────── */
+.dd-sceneplate{
+  display:flex;align-items:flex-start;gap:15px;margin-bottom:16px;padding:15px 17px;
+  border-radius:var(--rx-3);background:var(--raised);box-shadow:var(--e-3);
+  position:relative;overflow:hidden;flex-wrap:wrap;
+}
+.dd-sceneplate::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--hot),color-mix(in srgb,var(--hot) 18%,transparent));
+}
+.dd-sceneplate .sp-id{
+  font-family:var(--f-mono);font-size:11px;color:var(--hot);letter-spacing:.06em;
+  padding-top:5px;flex:none;
+}
+.dd-sceneplate .sp-main{flex:1 1 260px;min-width:0}
+.dd-sceneplate .sp-title{font-family:var(--serif);font-size:19px;font-weight:600;line-height:1.35}
+.dd-sceneplate .sp-sum{font-size:12.5px;color:var(--ink2);line-height:1.7;margin-top:5px;max-width:780px}
+.dd-sceneplate .sp-meta{display:flex;align-items:center;gap:10px;flex:none;padding-top:4px;margin-left:auto}
+.dd-sceneplate .sp-meta .num{font-size:11px;color:var(--ink3)}
+
+/* ── inspector ───────────────────────────────────────────────────────── */
+.dd-inspector{
+  width:clamp(300px,32%,480px);flex:0 0 auto;box-shadow:-1px 0 0 var(--line);
+  background:linear-gradient(180deg,var(--panel),var(--bg));
   display:flex;flex-direction:column;min-height:0;
 }
-.dd-detail-head{
-  padding:11px 16px;border-bottom:.5px solid var(--line);display:flex;align-items:center;gap:10px;flex:none;
+.dd-inspector-head{
+  padding:12px 16px;box-shadow:0 1px 0 var(--line);display:flex;align-items:center;gap:10px;flex:none;
 }
-.dd-detail-head .id{font-family:var(--latin-serif);font-size:13px;font-weight:600}
-.dd-detail-head .ttl{font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-detail-body{overflow:auto;padding:14px 16px 30px;display:flex;flex-direction:column;gap:11px}
-/* 关键：纵向 flex 容器里，子项默认可压缩 —— 内容比容器高时它们会被压扁
-   （而不是溢出滚动）。详情面板的每一段都必须保持自己的高度。 */
-.dd-detail-body>*{flex:0 0 auto}
-.dd-sec{border:.5px solid var(--line);border-radius:var(--r-lg);background:var(--bg);overflow:hidden;box-shadow:var(--elev-panel)}
+.dd-inspector-head .id{font-family:var(--f-mono);font-size:12.5px;font-weight:600;letter-spacing:.02em}
+.dd-inspector-head .ttl{
+  font-family:var(--serif);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+.dd-inspector-body{overflow:auto;padding:14px 16px 34px;display:flex;flex-direction:column;gap:12px}
+.dd-inspector-body>*{flex:0 0 auto}
+
+/* 场次概览（没有选中镜头时的默认内容——不给「点一镜」这种说明书） */
+.dd-sheet{border-radius:var(--rx-3);background:var(--raised);box-shadow:var(--e-3);overflow:hidden}
+.dd-sheet-head{padding:14px 15px 13px;box-shadow:0 1px 0 var(--line)}
+.dd-sheet-head .sid{font-family:var(--f-mono);font-size:10.5px;color:var(--hot);letter-spacing:.06em}
+.dd-sheet-head .ttl{font-family:var(--serif);font-size:17px;font-weight:600;margin-top:4px;line-height:1.35}
+.dd-sheet-head .sum{font-size:12.5px;color:var(--ink2);line-height:1.7;margin-top:7px}
+.dd-sheet-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:1px;background:var(--line)}
+.dd-sheet-stat{background:var(--raised);padding:10px 12px}
+.dd-sheet-stat .v{font-family:var(--f-mono);font-size:17px;font-weight:600;letter-spacing:-.04em;color:var(--ink);line-height:1.1}
+.dd-sheet-stat .k{font-family:var(--f-gauge);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3);margin-top:4px}
+.dd-sheet-list{display:flex;flex-direction:column}
+.dd-sheet-row{
+  display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;
+  padding:9px 14px;box-shadow:0 1px 0 var(--line);cursor:pointer;
+  transition:background var(--t-fast) var(--ease);
+}
+.dd-sheet-row:hover{background:var(--panel-2)}
+.dd-sheet-row.on{background:var(--hot-2)}
+.dd-sheet-row .id{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3)}
+.dd-sheet-row .nm{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-sheet-row .st{width:7px;height:7px;border-radius:50%;flex:none}
+.dd-sheet-row .st.fail{background:var(--sig-fail)}
+.dd-sheet-row .st.warn{background:var(--sig-warn)}
+.dd-sheet-row .st.pass{background:var(--sig-pass)}
+.dd-sheet-row .st.none{background:var(--sig-none)}
+.dd-sheet-row .st.generated{background:var(--sig-fly)}
+
+/* ── sections ────────────────────────────────────────────────────────── */
+.dd-sec{border-radius:var(--rx-3);background:var(--raised);overflow:hidden;box-shadow:var(--e-3)}
 .dd-sec-head{
-  display:flex;align-items:center;gap:9px;padding:9px 13px;cursor:pointer;user-select:none;
-  background:color-mix(in srgb,var(--card) 62%,transparent);transition:background .16s var(--ease);
-}.dd-sec-head:hover{background:var(--card)}
-.dd-sec-head .t{font-size:12.5px;font-weight:500}
+  display:flex;align-items:center;gap:9px;padding:10px 13px;cursor:pointer;user-select:none;
+  box-shadow:0 1px 0 var(--line);
+  transition:background var(--t-fast) var(--ease);
+}
+.dd-sec-head:hover{background:var(--panel-2)}
+.dd-sec-head .t{font-size:12.5px;font-weight:600;letter-spacing:.01em}
 .dd-sec-head .sp{flex:1}
-.dd-tag{font-size:10px;padding:2px 8px;border-radius:999px;border:.5px solid var(--line);color:var(--ink3);letter-spacing:.05em}
-.dd-tag.src{border-color:color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent)}
-.dd-tag.out{border-color:color-mix(in srgb,var(--ok) 40%,transparent);color:var(--ok)}
-.dd-sec-body{padding:11px 13px;display:flex;flex-direction:column;gap:10px}
+.dd-sec-head .chev{
+  color:var(--ink3);display:grid;place-items:center;
+  transition:transform var(--t-mid) var(--ease);
+}
+.dd-tag{
+  font-family:var(--f-gauge);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  padding:2px 8px;border-radius:999px;color:var(--ink3);box-shadow:inset 0 0 0 .5px var(--line-2);
+}
+.dd-tag.src{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-tag.out{color:var(--sig-pass);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-pass) 42%,transparent)}
+.dd-sec-body{padding:12px 13px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 0 var(--line)}
 .dd-sec-body>*{flex:0 0 auto}
 
-.dd-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
-.dd-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
-.dd-field{display:flex;flex-direction:column;gap:4px;min-width:0}
-.dd-field label{font-size:10px;color:var(--ink3);letter-spacing:.07em;text-transform:uppercase}
-.dd-field input,.dd-field select,.dd-field textarea{
-  height:30px;padding:0 10px;border-radius:var(--r-sm);background:var(--card);border:.5px solid var(--line);
-  color:var(--ink);font-size:12.5px;outline:none;width:100%;
-  transition:border-color .18s var(--ease),box-shadow .18s var(--ease);
+.dd-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.dd-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.dd-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.dd-field.wide{grid-column:1 / -1}
+.dd-field label{
+  font-family:var(--f-gauge);font-size:10px;color:var(--ink3);letter-spacing:.1em;text-transform:uppercase;
+  line-height:1.4;
 }
-.dd-field textarea{height:auto;min-height:64px;padding:8px 10px;resize:vertical;line-height:1.65}
-.dd-field input:focus,.dd-field select:focus,.dd-field textarea:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--ink)}
-.dd-field select option{background:var(--card)}
+.dd-field input,.dd-field select,.dd-field textarea{
+  height:31px;padding:0 11px;border-radius:var(--rx-2);background:var(--sunken);
+  border:none;box-shadow:var(--e-well);color:var(--ink);font-size:12.5px;outline:none;width:100%;
+  transition:box-shadow var(--t-fast) var(--ease);
+}
+.dd-field textarea{height:auto;min-height:64px;padding:9px 11px;resize:vertical;line-height:1.7}
+.dd-field input:focus,.dd-field select:focus,.dd-field textarea:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
+.dd-field select option{background:var(--raised);color:var(--ink)}
 .dd-field .preset{display:flex;gap:5px;flex-wrap:wrap}
 .dd-field .preset button{
-  height:26px;padding:0 9px;border-radius:var(--r-xs);border:.5px solid var(--line);background:var(--card);
-  font-size:11px;color:var(--ink3);font-family:var(--latin-serif);
-  transition:color .15s var(--ease),border-color .15s var(--ease),background .15s var(--ease);
+  height:26px;padding:0 9px;border-radius:var(--rx-1);background:var(--panel-2);box-shadow:inset 0 0 0 .5px var(--line);
+  font-size:11px;color:var(--ink3);font-family:var(--f-mono);
+  transition:color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);
 }
-.dd-field .preset button:hover{color:var(--ink);border-color:var(--accent)}
-.dd-field .preset button.on{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.dd-field .preset button:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-field .preset button.on{background:var(--hot);box-shadow:none;color:#fff}
 
 .dd-beats{display:flex;flex-direction:column;gap:8px}
 .dd-beats>*{flex:0 0 auto}
-.dd-beat{border:.5px solid var(--line);border-radius:var(--r-md);background:var(--card);overflow:hidden;box-shadow:var(--elev-panel)}
-.dd-beat-head{display:flex;align-items:center;gap:9px;padding:7px 11px;font-size:11px;color:var(--ink3);border-bottom:.5px solid var(--line)}
-.dd-beat-head .n{font-family:var(--latin-serif)}
-.dd-beat-head .sp{font-size:10px;color:var(--ok)}
-.dd-beat.outside{opacity:.62}
+.dd-beat{border-radius:var(--rx-2);background:var(--panel-2);overflow:hidden;box-shadow:var(--e-2)}
+.dd-beat-head{display:flex;align-items:center;gap:9px;padding:8px 11px;font-size:11px;color:var(--ink3);box-shadow:0 1px 0 var(--line)}
+.dd-beat-head .n{font-family:var(--f-mono);color:var(--ink2)}
+.dd-beat-head .sp{font-family:var(--f-mono);font-size:10px;color:var(--sig-pass)}
+.dd-beat.outside{opacity:.6}
 .dd-beat-body{padding:9px 11px;display:flex;flex-direction:column;gap:7px}
 .dd-beat-body textarea{
-  width:100%;min-height:40px;background:var(--bg);border:.5px solid var(--line);border-radius:var(--r-sm);
-  color:var(--ink);padding:7px 9px;font-size:12.5px;resize:vertical;line-height:1.65;outline:none;
-  transition:border-color .18s var(--ease);
+  width:100%;min-height:40px;background:var(--sunken);border:none;box-shadow:var(--e-well);
+  border-radius:var(--rx-2);color:var(--ink);padding:8px 10px;font-size:12.5px;
+  resize:vertical;line-height:1.7;outline:none;
 }
-.dd-beat-body textarea:focus{border-color:var(--accent)}
-.dd-beat-body .lab{font-size:10px;color:var(--ink3);letter-spacing:.07em;text-transform:uppercase}
+.dd-beat-body textarea:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
+.dd-beat-body .lab{font-family:var(--f-gauge);font-size:9px;color:var(--ink3);letter-spacing:.14em;text-transform:uppercase}
 .dd-beat-foot{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 
-.dd-metric{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:baseline;font-size:12px;padding:1px 0}
+.dd-metric{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:baseline;font-size:12px;padding:2px 0}
 .dd-metric .n{color:var(--ink2)}
-.dd-metric .v{font-family:var(--latin-serif);font-size:13.5px;font-variant-numeric:tabular-nums}
-.dd-metric .th{font-family:var(--latin-serif);font-size:11px;color:var(--ink3)}
-.dd-issue{font-size:12px;color:var(--danger);display:flex;gap:7px;line-height:1.55}
-.dd-issue.warn{color:var(--warn)}
+.dd-metric .v{font-family:var(--f-mono);font-size:13px;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+.dd-metric .th{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3)}
+.dd-issue{font-size:12px;color:var(--sig-fail);display:flex;gap:7px;line-height:1.6}
+.dd-issue.warn{color:var(--sig-warn)}
 .dd-issue.info{color:var(--ink2)}
 
 .dd-prompt{
-  font-family:var(--latin-serif);font-size:12px;white-space:pre-wrap;word-break:break-word;
-  background:var(--card);border:.5px solid var(--line);border-radius:var(--r-md);padding:12px;
-  max-height:320px;overflow:auto;color:var(--ink2);line-height:1.7;
+  font-family:var(--f-mono);font-size:11.5px;white-space:pre-wrap;word-break:break-word;
+  background:var(--sunken);border-radius:var(--rx-2);box-shadow:var(--e-well);padding:12px;
+  max-height:320px;overflow:auto;color:var(--ink2);line-height:1.75;
 }
-.dd-prompt-sec+.dd-prompt-sec{margin-top:10px;padding-top:10px;border-top:.5px dashed var(--line)}
-.dd-prompt-sec h5{margin:0 0 5px;font-size:10.5px;color:var(--accent);font-family:var(--latin-serif);letter-spacing:.06em}
+.dd-prompt-sec+.dd-prompt-sec{margin-top:10px;padding-top:10px;box-shadow:0 -1px 0 var(--line)}
+.dd-prompt-sec h5{margin:0 0 5px;font-family:var(--f-gauge);font-size:9.5px;color:var(--hot);letter-spacing:.16em;text-transform:uppercase}
 .dd-prompt-edit{
-  width:100%;min-height:260px;background:var(--card);border:.5px solid var(--line);border-radius:var(--r-md);
-  padding:12px;font-family:var(--latin-serif);font-size:12px;line-height:1.7;color:var(--ink);resize:vertical;outline:none;
+  width:100%;min-height:260px;background:var(--sunken);border-radius:var(--rx-2);box-shadow:var(--e-well);
+  padding:12px;font-family:var(--f-mono);font-size:11.5px;line-height:1.75;color:var(--ink);resize:vertical;outline:none;
 }
-.dd-prompt-edit:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--ink)}
+.dd-prompt-edit:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
 
 .dd-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
 .dd-thumb-wrap{position:relative}
 .dd-thumb{
-  border-radius:var(--r-md);overflow:hidden;border:.5px solid var(--line);background:var(--card);
-  cursor:pointer;box-shadow:var(--elev-panel);
-  transition:transform .3s var(--pop),box-shadow .25s var(--ease),border-color .25s var(--ease);
+  border-radius:var(--rx-2);overflow:hidden;background:var(--panel-2);box-shadow:var(--e-2);
+  cursor:pointer;
+  transition:transform var(--t-slow) var(--ease-out),box-shadow var(--t-mid) var(--ease);
 }
-.dd-thumb:hover{transform:translateY(-3px) rotate(-.6deg);box-shadow:var(--elev-prominent);border-color:var(--accent);z-index:2}
-/* 关键：这里**不能有 filter**。
-   Chromium 在「overflow:hidden 的祖先 + 自身带 filter 的 img」上会丢掉图片的内容层
-   —— DOM 在、几何对、就是不画（参考图一片空白）。淡入只用 opacity。 */
-.dd-thumb img{display:block;width:100%;height:88px;object-fit:cover;animation:dd-fadein .28s var(--ease) both}
+.dd-thumb:hover{transform:translateY(-3px) rotate(-.5deg);box-shadow:var(--e-4);z-index:2}
+/* 关键：图片动画里**不能有 filter**。Chromium 在「overflow:hidden 的祖先 +
+   自身带 filter 的 img」上会丢掉图片的内容层——DOM 在、几何对、就是不画。
+   淡入只用 opacity。 */
+.dd-thumb img{display:block;width:100%;height:88px;object-fit:cover;animation:dd-fadein var(--t-slow) var(--ease) both}
 @keyframes dd-fadein{from{opacity:0}to{opacity:1}}
-.dd-thumb .cap{font-size:10px;padding:5px 7px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-thumb.dep{border-color:color-mix(in srgb,var(--warn) 55%,transparent)}
+.dd-thumb .cap{font-size:10px;padding:6px 8px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-thumb.dep{box-shadow:var(--e-2),inset 0 0 0 1px color-mix(in srgb,var(--sig-warn) 55%,transparent)}
 .dd-thumb .dep-mark{
-  position:absolute;top:6px;left:6px;background:var(--warn);color:#161006;
+  position:absolute;top:6px;left:6px;background:var(--sig-warn);color:#161006;
   font-size:9.5px;padding:1px 6px;border-radius:999px;font-weight:600;z-index:2;
 }
 .dd-thumb.missing{opacity:.4;cursor:not-allowed}
 .dd-thumb .ph{
   height:88px;display:grid;place-items:center;font-size:10.5px;color:var(--ink3);
-  background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--ink4) 10%,transparent) 6px 7px);
+  background:repeating-linear-gradient(135deg,transparent 0 6px,var(--line) 6px 7px);
 }
-.dd-video{width:100%;border-radius:var(--r-md);background:#000;border:.5px solid var(--line);display:block;box-shadow:var(--elev-panel)}
+.dd-video{width:100%;border-radius:var(--rx-2);background:#000;box-shadow:var(--e-3);display:block}
 
-.dd-rule{border:.5px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--card)}
-.dd-rule.on{border-color:color-mix(in srgb,var(--accent) 50%,transparent)}
-.dd-rule-head{display:flex;align-items:center;gap:10px;padding:8px 11px;cursor:pointer;user-select:none;font-size:12.5px}
-.dd-rule-head .rid{font-family:var(--latin-serif);font-size:11.5px;color:var(--accent);min-width:32px}
+.dd-rule{border-radius:var(--rx-2);overflow:hidden;background:var(--panel-2);box-shadow:var(--e-2)}
+.dd-rule.on{box-shadow:var(--e-2),inset 0 0 0 1px var(--hot-line)}
+.dd-rule-head{display:flex;align-items:center;gap:10px;padding:9px 11px;cursor:pointer;user-select:none;font-size:12.5px}
+.dd-rule-head .rid{font-family:var(--f-mono);font-size:11.5px;color:var(--hot);min-width:34px}
 .dd-rule.on .rid{font-weight:700}
-.dd-rule-head .st{margin-left:auto;font-size:10.5px;color:var(--ink3);font-family:var(--latin-serif);white-space:nowrap}
-.dd-rule-body{padding:9px 12px;font-size:12px;color:var(--ink2);white-space:pre-wrap;line-height:1.7;background:var(--bg)}
+.dd-rule-head .st{margin-left:auto;font-size:10.5px;color:var(--ink3);font-family:var(--f-mono);white-space:nowrap}
+.dd-rule-body{padding:10px 12px;font-size:12px;color:var(--ink2);white-space:pre-wrap;line-height:1.75;background:var(--sunken)}
 .dd-rule-body .ev{color:var(--ink)}
 
 /* ── tables ──────────────────────────────────────────────────────────── */
 .dd-table{width:100%;border-collapse:collapse;font-size:12px}
 .dd-table th{
-  text-align:left;font-weight:400;color:var(--ink3);padding:9px 12px;
-  border-bottom:.5px solid var(--line-strong);position:sticky;top:0;background:var(--card);z-index:1;
+  text-align:left;font-weight:500;color:var(--ink3);padding:9px 12px;
+  box-shadow:0 1px 0 var(--line-2);position:sticky;top:0;background:var(--panel-2);z-index:1;
+  font-family:var(--f-gauge);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
 }
-.dd-table td{padding:7px 12px;border-bottom:.5px solid var(--line);vertical-align:middle}
-.dd-table tbody tr{transition:background .12s}
-.dd-table tbody tr:hover{background:var(--hover)}
-.dd-table td.n{font-family:var(--latin-serif);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;font-size:12.5px}
+.dd-table td{padding:8px 12px;box-shadow:0 1px 0 var(--line);vertical-align:middle}
+.dd-table tbody tr{transition:background var(--t-fast) var(--ease)}
+.dd-table tbody tr:hover{background:var(--panel-2)}
+.dd-table td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;font-size:12px;letter-spacing:-.03em}
 .dd-table td.path{color:var(--ink3);font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-table tr.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.dd-table tr.on{background:var(--hot-2)}
+.dd-badge{
+  display:inline-flex;align-items:center;gap:5px;font-family:var(--f-gauge);font-size:9.5px;
+  letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:999px;
+  box-shadow:inset 0 0 0 .5px currentColor;color:var(--ink3);
+}
+.dd-badge.fail{color:var(--sig-fail)}
+.dd-badge.warn{color:var(--sig-warn)}
+.dd-badge.pass{color:var(--sig-pass)}
+.dd-badge.generated{color:var(--sig-fly)}
+.dd-badge.none{color:var(--sig-none)}
 
 /* ── doc view ────────────────────────────────────────────────────────── */
-.dd-doc{font-size:13px;line-height:1.8;color:var(--ink2);max-width:920px}
-.dd-doc h4{margin:20px 0 7px;color:var(--ink);font-family:var(--dsw-font-family-brand,"Montserrat",system-ui,sans-serif);font-weight:300;font-size:17px;letter-spacing:-.015em}
-.dd-doc h5{margin:13px 0 4px;color:var(--ink);font-size:13px}
-.dd-doc ul{margin:6px 0;padding-left:19px}
-.dd-doc li{margin:2px 0}
-.dd-doc code{font-family:var(--latin-serif);font-size:11.5px;background:var(--card);padding:1px 6px;border-radius:var(--r-xs)}
-.dd-doc p{margin:6px 0}
-.dd-rule-list{border:.5px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--bg);box-shadow:var(--elev-panel)}
-.dd-rule-row{
-  display:grid;grid-template-columns:46px 1fr auto;gap:14px;align-items:start;
-  padding:11px 14px;border-bottom:.5px solid var(--line);cursor:pointer;
-  transition:background .14s var(--ease);
+.dd-doc{font-size:13.5px;line-height:1.85;color:var(--ink2);max-width:940px}
+.dd-doc h4{
+  margin:22px 0 8px;color:var(--ink);font-family:var(--f-display);font-weight:600;
+  font-size:18px;letter-spacing:-.01em;
 }
-.dd-rule-row:hover{background:var(--hover)}
-.dd-rule-row .rid{font-family:var(--latin-serif);font-size:12px;color:var(--accent);font-weight:600}
+.dd-doc h5{margin:14px 0 5px;color:var(--ink);font-size:13.5px;font-weight:600}
+.dd-doc ul{margin:7px 0;padding-left:20px}
+.dd-doc li{margin:3px 0}
+.dd-doc code{font-family:var(--f-mono);font-size:11.5px;background:var(--panel-2);padding:2px 6px;border-radius:var(--rx-1)}
+.dd-doc p{margin:7px 0}
+.dd-rule-list{border-radius:var(--rx-3);overflow:hidden;background:var(--raised);box-shadow:var(--e-3)}
+.dd-rule-row{
+  display:grid;grid-template-columns:48px 1fr auto;gap:14px;align-items:start;
+  padding:12px 15px;box-shadow:0 1px 0 var(--line);cursor:pointer;
+  transition:background var(--t-fast) var(--ease);
+}
+.dd-rule-row:hover{background:var(--panel-2)}
+.dd-rule-row .rid{font-family:var(--f-mono);font-size:12px;color:var(--hot);font-weight:600}
 .dd-rule-row .ti{font-size:13px}
 .dd-rule-row .st{font-size:11px;color:var(--ink3);text-align:right;white-space:nowrap}
 
-/* ── drawer (settings) ───────────────────────────────────────────────── */
+/* ── drawer ──────────────────────────────────────────────────────────── */
 .dd-drawer{
   position:absolute;top:0;right:0;bottom:0;width:min(460px,90%);z-index:20;
-  background:color-mix(in srgb,var(--card) 97%,transparent);
-  border-left:.5px solid var(--line-strong);box-shadow:-24px 0 60px rgba(0,0,0,.28);
-  display:flex;flex-direction:column;animation:dd-dock-in .3s cubic-bezier(.2,1,.3,1) both;
+  background:var(--raised);
+  box-shadow:-1px 0 0 var(--line-2),-30px 0 70px -20px rgba(0,0,0,.55);
+  display:flex;flex-direction:column;animation:dd-dock-in var(--t-slow) var(--ease-out) both;
 }
-@keyframes dd-dock-in{from{opacity:0;transform:translateX(20px)}}
-.dd-drawer-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:.5px solid var(--line);flex:none}
-.dd-drawer-body{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:18px}
+@keyframes dd-dock-in{from{opacity:0;transform:translateX(24px)}}
+.dd-drawer-head{display:flex;align-items:center;gap:10px;padding:14px 16px;box-shadow:0 1px 0 var(--line);flex:none}
+.dd-drawer-body{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:20px}
 .dd-drawer-body>*{flex:0 0 auto}
-.dd-drawer h4{margin:0;font-size:10.5px;font-family:var(--dsw-font-family-brand,"Montserrat",system-ui,sans-serif);font-weight:500;letter-spacing:.12em;color:var(--ink3);text-transform:uppercase}
-.dd-note{font-size:11.5px;color:var(--ink3);line-height:1.65}
+.dd-drawer h4{
+  margin:0;font-family:var(--f-gauge);font-size:9.5px;font-weight:500;letter-spacing:.18em;
+  color:var(--ink3);text-transform:uppercase;
+}
+.dd-note{font-size:11.5px;color:var(--ink3);line-height:1.7}
 .dd-warnbox{
-  background:color-mix(in srgb,var(--warn) 10%,transparent);
-  border:.5px solid color-mix(in srgb,var(--warn) 40%,transparent);
-  color:var(--warn);border-radius:var(--r-md);padding:9px 11px;font-size:12px;line-height:1.65;
+  background:color-mix(in srgb,var(--sig-warn) 10%,transparent);
+  box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-warn) 40%,transparent);
+  color:var(--sig-warn);border-radius:var(--rx-2);padding:10px 12px;font-size:12px;line-height:1.7;
 }
 .dd-errorbox{
-  background:color-mix(in srgb,var(--danger) 10%,transparent);
-  border:.5px solid color-mix(in srgb,var(--danger) 40%,transparent);
-  color:var(--danger);border-radius:var(--r-md);padding:9px 11px;font-size:12px;line-height:1.65;
+  background:color-mix(in srgb,var(--sig-fail) 10%,transparent);
+  box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-fail) 40%,transparent);
+  color:var(--sig-fail);border-radius:var(--rx-2);padding:10px 12px;font-size:12px;line-height:1.7;
 }
 .dd-okbox{
-  background:color-mix(in srgb,var(--ok) 10%,transparent);
-  border:.5px solid color-mix(in srgb,var(--ok) 40%,transparent);
-  color:var(--ok);border-radius:var(--r-md);padding:9px 11px;font-size:12px;line-height:1.65;
+  background:color-mix(in srgb,var(--sig-pass) 10%,transparent);
+  box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-pass) 40%,transparent);
+  color:var(--sig-pass);border-radius:var(--rx-2);padding:10px 12px;font-size:12px;line-height:1.7;
 }
-.dd-kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12px;align-items:baseline}
+.dd-kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12px;align-items:baseline}
 .dd-kv .k{color:var(--ink3);white-space:nowrap}
-.dd-kv .v{font-family:var(--latin-serif);font-size:11.5px;word-break:break-all}
+.dd-kv .v{font-family:var(--f-mono);font-size:11px;word-break:break-all}
 /* 拖动把手：抽屉宽度可调。宽度记在 localStorage 里，下次还在。 */
-.dd-resize{
-  position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:21;
-}
+.dd-resize{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:21}
 .dd-resize::after{
   content:'';position:absolute;left:3px;top:50%;transform:translateY(-50%);width:1px;height:44px;
-  background:var(--line-strong);border-radius:1px;transition:background .16s var(--ease),height .16s var(--ease);
+  background:var(--line-2);border-radius:1px;transition:background var(--t-fast) var(--ease),height var(--t-fast) var(--ease);
 }
-.dd-resize:hover::after,.dd-resize.active::after{background:var(--accent);height:84px}
+.dd-resize:hover::after,.dd-resize.active::after{background:var(--hot);height:84px}
 .dd-pathrow{display:grid;grid-template-columns:1fr auto;gap:7px;align-items:center}
 
-/* ── modal (lightbox) ────────────────────────────────────────────────── */
+/* ── modal ───────────────────────────────────────────────────────────── */
 .dd-modal-backdrop{
   position:fixed;inset:0;z-index:2147483000;
-  /* 遮罩跟着主题走：写死近黑在亮色主题下会把整页压成一块石头。 */
-  background:color-mix(in srgb,var(--bg) 42%,rgba(0,0,0,.9));
-  display:grid;place-items:center;padding:28px;animation:dd-fade .16s var(--ease) both;
+  background:color-mix(in srgb,var(--bg) 38%,rgba(0,0,0,.88));
+  display:grid;place-items:center;padding:28px;animation:dd-fade var(--t-mid) var(--ease) both;
 }
 @keyframes dd-fade{from{opacity:0}}
 .dd-modal{
   position:relative;display:flex;flex-direction:column;max-width:min(1180px,94vw);max-height:88vh;
-  background:var(--card);border:.5px solid var(--line-strong);border-radius:var(--r-xl);
-  box-shadow:0 30px 90px rgba(0,0,0,.55);overflow:hidden;animation:dd-rise .22s var(--pop) both;
+  background:var(--raised);border-radius:var(--rx-4);box-shadow:var(--e-pop);overflow:hidden;
+  animation:dd-rise var(--t-mid) var(--spring) both;
 }
-@keyframes dd-rise{from{opacity:0;transform:translateY(10px) scale(.985)}}
-.dd-modal-head{display:flex;align-items:center;gap:10px;padding:10px 13px;border-bottom:.5px solid var(--line);flex:none}
+.dd-modal-head{display:flex;align-items:center;gap:10px;padding:10px 13px;box-shadow:0 1px 0 var(--line);flex:none}
 .dd-modal-stage{
   flex:1 1 auto;min-height:120px;overflow:hidden;position:relative;cursor:grab;
-  display:flex;align-items:center;justify-content:center;background:var(--bg);
+  display:flex;align-items:center;justify-content:center;background:var(--sunken);
 }
 .dd-modal-stage.drag{cursor:grabbing}
 .dd-modal-stage img{max-width:100%;max-height:100%;object-fit:contain;display:block;user-select:none}
 .dd-modal-foot{
-  padding:9px 13px;border-top:.5px solid var(--line);font-size:11.5px;color:var(--ink3);
+  padding:10px 13px;box-shadow:0 -1px 0 var(--line);font-size:11.5px;color:var(--ink3);
   display:flex;gap:14px;align-items:center;flex-wrap:wrap;max-height:120px;overflow:auto;flex:none;
 }
 .dd-modal-foot .mf{white-space:nowrap}
-.dd-modal-foot .mf b{color:var(--ink);font-weight:500;font-family:var(--latin-serif)}
+.dd-modal-foot .mf b{color:var(--ink);font-weight:500;font-family:var(--f-mono)}
 .dd-modal-prompt{
-  font-family:var(--latin-serif);font-size:11px;color:var(--ink3);white-space:pre-wrap;word-break:break-word;
-  width:100%;line-height:1.6;max-height:190px;overflow:auto;
+  font-family:var(--f-mono);font-size:11px;color:var(--ink3);white-space:pre-wrap;word-break:break-word;
+  width:100%;line-height:1.65;max-height:190px;overflow:auto;
 }
 
-/* ── folder browser (in-drawer) ──────────────────────────────────────── */
-.dd-browser{border:.5px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--bg)}
-.dd-browser-path{padding:6px 9px;border-bottom:.5px solid var(--line);font-family:var(--latin-serif);font-size:11px;color:var(--ink3);word-break:break-all}
+/* ── folder browser ──────────────────────────────────────────────────── */
+.dd-browser{border-radius:var(--rx-2);overflow:hidden;background:var(--sunken);box-shadow:var(--e-2)}
+.dd-browser-path{padding:7px 10px;box-shadow:0 1px 0 var(--line);font-family:var(--f-mono);font-size:11px;color:var(--ink3);word-break:break-all}
 .dd-browser-list{max-height:230px;overflow:auto}
-.dd-browser-item{padding:5px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px}
+.dd-browser-item{padding:6px 11px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px}
 .dd-browser-item:hover{background:var(--hover)}
 .dd-browser-item .bi-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── empty / toast ───────────────────────────────────────────────────── */
-.dd-empty{padding:56px 20px;text-align:center;color:var(--ink3);font-size:13px}
-.dd-empty-title{font-size:17px;color:var(--ink2);margin-bottom:5px}
+.dd-empty{padding:64px 20px;text-align:center;color:var(--ink3);font-size:13px;line-height:1.8}
+.dd-empty-title{font-family:var(--f-display);font-size:17px;color:var(--ink2);margin-bottom:6px;font-weight:600}
+/* 切阶段时的那一帧。安静、居中、有呼吸感——不要在这一帧里
+   冒出任何内部状态名（阶段 id、载荷状态）。 */
+.dd-stagewait{
+  margin:auto;display:flex;flex-direction:column;align-items:center;gap:12px;
+  padding:60px 20px;color:var(--ink3);
+}
+.dd-stagewait-mark{
+  width:44px;height:44px;border-radius:var(--rx-3);display:grid;place-items:center;
+  background:var(--raised);box-shadow:var(--e-3);color:var(--ink3);
+  animation:dd-breathe 1.6s var(--ease) infinite;
+}
+@keyframes dd-breathe{50%{opacity:.45}}
+.dd-stagewait-title{font-size:13.5px;color:var(--ink2);letter-spacing:.02em}
+.dd-stagewait-bar{
+  width:180px;height:2px;border-radius:2px;overflow:hidden;background:var(--sunken);
+  box-shadow:inset 0 0 0 .5px var(--line);
+}
+.dd-stagewait-bar span{
+  display:block;width:40%;height:100%;border-radius:2px;background:var(--hot);
+  animation:dd-scan 1.3s var(--ease) infinite;
+}
+@keyframes dd-scan{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
 .dd-toast{
-  position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:25;
-  background:var(--card);border:.5px solid var(--line-strong);border-radius:var(--r-md);
-  padding:9px 15px;font-size:12.5px;color:var(--ink);box-shadow:var(--elev-prominent);
-  animation:dd-toast .25s var(--ease) both;max-width:82%;
+  position:absolute;left:50%;bottom:24px;transform:translateX(-50%);z-index:25;
+  background:var(--raised);border-radius:var(--rx-2);padding:10px 16px;font-size:12.5px;color:var(--ink);
+  box-shadow:var(--e-pop);animation:dd-toast var(--t-mid) var(--ease-out) both;max-width:82%;
 }
 @keyframes dd-toast{from{opacity:0;transform:translate(-50%,14px) scale(.96)}}
-.dd-toast.err{border-color:var(--danger);color:var(--danger)}
-.dd-toast.ok{border-color:var(--ok);color:var(--ok)}
+.dd-toast.err{box-shadow:var(--e-pop),inset 0 0 0 1px var(--sig-fail);color:var(--sig-fail)}
+.dd-toast.ok{box-shadow:var(--e-pop),inset 0 0 0 1px var(--sig-pass);color:var(--sig-pass)}
 
-/* ── 首页 / 作品卡 ───────────────────────────────────────────────────── */
-.dd-home{padding:26px 22px 40px;max-width:1280px;margin:0 auto}
+/* ── home ────────────────────────────────────────────────────────────── */
+.dd-home{padding:28px 24px 44px;max-width:1320px;margin:0 auto}
 .dd-home-hero{
-  display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;
-  padding:22px 24px;border:.5px solid var(--line);border-radius:var(--r-xl);
-  background:
-    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb,var(--accent) 14%,transparent), transparent 62%),
-    color-mix(in srgb,var(--card) 70%,transparent);
-  box-shadow:var(--elev-panel);
+  display:flex;align-items:flex-start;gap:22px;flex-wrap:wrap;
+  padding:26px 26px;border-radius:var(--rx-4);background:var(--raised);box-shadow:var(--e-3);
+  position:relative;overflow:hidden;
 }
-.dd-home-hero .h1{font-family:var(--serif);font-size:26px;font-weight:600;letter-spacing:.01em}
-.dd-home-hero .h2{font-size:13px;color:var(--ink2);line-height:1.75;margin-top:8px;max-width:640px}
-.dd-home-hero .h3{font-size:11.5px;color:var(--ink3);margin-top:10px;line-height:1.7}
-.dd-home-sec{margin-top:22px}
+.dd-home-hero::before{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(110% 130% at 100% 0%,var(--hot-2),transparent 58%);
+}
+.dd-home-hero .h1{
+  font-family:var(--f-display);font-size:27px;font-weight:600;letter-spacing:.01em;line-height:1.25;
+  position:relative;
+}
+.dd-home-hero .h2{font-size:13.5px;color:var(--ink2);line-height:1.8;margin-top:9px;max-width:660px;position:relative}
+.dd-home-hero .h3{font-size:12.5px;color:var(--ink3);line-height:1.75;margin-top:7px;max-width:620px;position:relative}
+.dd-home-sec{margin-top:24px}
 .dd-home-sec h4{
-  margin:0 0 10px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);
-  font-family:var(--dsw-font-family-brand,"Montserrat",system-ui,sans-serif);font-weight:500;
+  margin:0 0 11px;font-family:var(--f-gauge);font-size:9.5px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--ink3);font-weight:500;
 }
-.dd-works{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:12px}
+.dd-works{display:grid;grid-template-columns:repeat(auto-fill,minmax(262px,1fr));gap:13px}
 .dd-work-card{
-  position:relative;text-align:left;padding:13px 15px;border:.5px solid var(--line);border-radius:var(--r-lg);
-  background:var(--card);box-shadow:var(--elev-panel);cursor:pointer;
-  transition:transform .2s var(--pop),box-shadow .2s var(--ease),border-color .2s var(--ease);
+  position:relative;text-align:left;padding:14px 16px;border-radius:var(--rx-3);
+  background:var(--raised);box-shadow:var(--e-3);cursor:pointer;
+  transition:transform var(--t-mid) var(--ease-out),box-shadow var(--t-mid) var(--ease);
 }
-.dd-work-card:hover{transform:translateY(-3px);box-shadow:var(--elev-prominent);border-color:var(--accent)}
-.dd-work-card.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.dd-work-card .wt{font-family:var(--serif);font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-work-card .wi{font-family:var(--latin-serif);font-size:10.5px;color:var(--ink3);margin-top:3px}
-.dd-work-card .wm{display:flex;gap:9px;margin-top:9px;font-size:11px;color:var(--ink3);font-family:var(--latin-serif)}
+.dd-work-card:hover{transform:translateY(-3px);box-shadow:var(--e-4),0 0 0 1px var(--hot-line)}
+.dd-work-card.on{box-shadow:var(--e-4),0 0 0 1.5px var(--hot)}
+.dd-work-card .wt{font-family:var(--serif);font-size:15.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-work-card .wi{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);margin-top:4px}
+.dd-work-card .wm{display:flex;gap:10px;margin-top:10px;font-size:11px;color:var(--ink3);font-family:var(--f-mono)}
 .dd-work-card.new{
-  display:flex;align-items:center;justify-content:center;gap:8px;min-height:96px;
-  border-style:dashed;color:var(--ink3);background:transparent;
+  display:flex;align-items:center;justify-content:center;gap:8px;min-height:100px;
+  background:transparent;box-shadow:inset 0 0 0 1px var(--line-2);color:var(--ink3);
 }
-.dd-work-card.new:hover{color:var(--accent)}
+.dd-work-card.new:hover{color:var(--hot);box-shadow:inset 0 0 0 1px var(--hot-line)}
 
-/* ── 构思会话（右栏） ─────────────────────────────────────────────────── */
+/* ── conceive chat ───────────────────────────────────────────────────── */
 .dd-chat{
-  width:clamp(340px,34%,460px);flex:0 0 auto;border-left:.5px solid var(--line);
-  background:color-mix(in srgb,var(--bg) 90%,transparent);
+  width:clamp(340px,32%,460px);flex:0 0 auto;box-shadow:-1px 0 0 var(--line);
+  background:linear-gradient(180deg,var(--panel),var(--bg));
   display:flex;flex-direction:column;min-height:0;
 }
-.dd-chat-head{
-  display:flex;align-items:center;gap:9px;padding:10px 13px;border-bottom:.5px solid var(--line);flex:none;
-}
+.dd-chat-head{display:flex;align-items:center;gap:9px;padding:11px 14px;box-shadow:0 1px 0 var(--line);flex:none}
 .dd-chat-head .ch-t{font-size:12.5px;font-weight:600}
-.dd-chat-head .ch-sub{font-size:10.5px;color:var(--ink3);font-family:var(--latin-serif)}
-.dd-chat-flow{flex:1 1 auto;overflow:auto;padding:13px;display:flex;flex-direction:column;gap:11px;min-height:0}
+.dd-chat-head .ch-sub{font-size:10.5px;color:var(--ink3);font-family:var(--f-mono)}
+.dd-chat-flow{flex:1 1 auto;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;min-height:0}
 .dd-chat-flow>*{flex:0 0 auto}
-.dd-msg{display:flex;flex-direction:column;gap:4px;max-width:100%}
-.dd-msg .who{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+.dd-msg{display:flex;flex-direction:column;gap:5px;max-width:100%}
+.dd-msg .who{font-family:var(--f-gauge);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3)}
 .dd-msg .body{
-  font-size:12.5px;line-height:1.72;white-space:pre-wrap;word-break:break-word;
-  padding:9px 12px;border-radius:var(--r-md);border:.5px solid var(--line);background:var(--card);color:var(--ink);
+  font-size:13px;line-height:1.78;white-space:pre-wrap;word-break:break-word;
+  padding:10px 13px;border-radius:var(--rx-3);background:var(--raised);box-shadow:var(--e-2);color:var(--ink);
 }
 .dd-msg.user{align-items:flex-end}
-.dd-msg.user .body{background:color-mix(in srgb,var(--accent) 16%,var(--card));border-color:color-mix(in srgb,var(--accent) 34%,transparent)}
+.dd-msg.user .body{background:linear-gradient(180deg,color-mix(in srgb,var(--hot) 16%,var(--raised)),var(--raised));box-shadow:var(--e-2),inset 0 0 0 1px var(--hot-line)}
 .dd-msg.tool .body{
-  font-family:var(--latin-serif);font-size:11px;color:var(--ink3);background:transparent;
-  border-style:dashed;padding:5px 9px;
+  font-family:var(--f-mono);font-size:11px;color:var(--ink3);background:transparent;
+  box-shadow:inset 0 0 0 .5px var(--line-2);padding:6px 10px;
 }
-.dd-msg.err .body{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 9%,transparent)}
-.dd-chat-empty{
-  margin:auto;text-align:center;color:var(--ink3);font-size:12px;line-height:1.8;padding:20px 12px;max-width:300px;
-}
-.dd-chat-composer{
-  flex:none;border-top:.5px solid var(--line);padding:10px 11px 11px;display:flex;flex-direction:column;gap:7px;
-}
+.dd-msg.err .body{box-shadow:var(--e-2),inset 0 0 0 1px color-mix(in srgb,var(--sig-fail) 55%,transparent);color:var(--sig-fail)}
+.dd-chat-empty{margin:auto;text-align:center;color:var(--ink3);font-size:12.5px;line-height:1.85;padding:20px 14px;max-width:300px}
+.dd-chat-composer{flex:none;box-shadow:0 -1px 0 var(--line);padding:11px 12px 12px;display:flex;flex-direction:column;gap:8px}
 .dd-chat-composer textarea{
-  width:100%;min-height:64px;max-height:170px;resize:vertical;padding:9px 11px;
-  border-radius:var(--r-md);border:.5px solid var(--line);background:var(--card);color:var(--ink);
-  font-size:12.5px;line-height:1.65;outline:none;
+  width:100%;min-height:64px;max-height:170px;resize:vertical;padding:10px 12px;
+  border-radius:var(--rx-3);background:var(--sunken);border:none;box-shadow:var(--e-well);color:var(--ink);
+  font-size:13px;line-height:1.7;outline:none;
 }
-.dd-chat-composer textarea:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--ink)}
+.dd-chat-composer textarea:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
 .dd-chat-composer .row{display:flex;gap:7px;align-items:center}
 .dd-chat-composer .hint{font-size:10.5px;color:var(--ink3);line-height:1.5}
 
-/* ── narrow panel ─────────────────────────────────────────────────────── */
-@container dd-root (max-width: 1080px){
-  .dd-home{padding:18px 16px 30px}
-  .dd-home-hero{padding:16px 18px;gap:14px}
-  .dd-home-hero .h1{font-size:21px}
-  .dd-home-hero .h2{font-size:12.5px}
-  .dd-works{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
-  .dd-chat{width:clamp(320px,40%,420px)}
+/* ── responsive ──────────────────────────────────────────────────────── */
+@container dd-root (max-width: 1240px){
+  .dd-home{padding:20px 18px 32px}
+  .dd-home-hero{padding:18px 20px;gap:16px}
+  .dd-home-hero .h1{font-size:22px}
+  .dd-works{grid-template-columns:repeat(auto-fill,minmax(214px,1fr))}
+  .dd-chat{width:clamp(320px,38%,420px)}
+  /* 窄台面时台头折成两行：上是「这是什么阶段」，下边是「此刻能做什么」。 */
+  .dd-deck{flex-direction:column;align-items:stretch;gap:11px}
+  .dd-deck-tools{justify-content:flex-start}
+  .dd-deck-id .sd3{display:none}
+  /* 产物路径与磁盘余量是次要信息（设置里都有）：窄台面时先让位，
+     把宽度留给作品名与灯条——那两样是导演真正在看的。 */
+  .dd-readout-path,.dd-readout-disk{display:none}
 }
-@container dd-root (max-width: 900px){
-  .dd-detail{width:clamp(320px,46%,460px)}
+@container dd-root (max-width: 940px){
+  .dd-inspector{width:clamp(300px,34%,420px)}
   .dd-outline-row{grid-template-columns:112px minmax(0,1fr)}
+  .dd-wall{grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
 }
-@container dd-root (max-width: 700px){
-  .dd-tally{display:none}
+@container dd-root (max-width: 760px){
+  .dd-tally-cell span.lb{display:none}
   .dd-outline-row{grid-template-columns:1fr}
+  .dd-wall{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
 }
+@container dd-root (max-width: 620px){
+  .dd-tally{display:none}
+  .dd-inspector{width:clamp(300px,58%,400px)}
+}
+
 @media (prefers-reduced-motion: reduce){
   .dd *,.dd *::before,.dd *::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
 }
 `
+
     // ── helpers ────────────────────────────────────────────────────────────
     const STATUS_TEXT = {
       none: '未生成',
@@ -955,6 +1339,33 @@ window.__ModuleLoader__.load({
       warn: 'WARN',
       fail: 'FAIL',
       pass: '通过',
+    }
+
+    /**
+     * 一格镜头的**信号灯**。
+     *
+     * 这里其实有两套词，混在一起界面就成了乱的：
+     *
+     *  · **生产状态**（真源）：pending / submitted / succeeded / failed /
+     *    verified / deprecated —— 这一镜到底做出来没有。
+     *  · **体检判定**（体检器）：PASS / WARN / FAIL —— 这一镜拍得好不好。
+     *
+     * 灯的颜色跟**判定**走（导播台的颜色就是判定），生产状态只决定
+     * 「还没拍」还是「拍了还没验」。两者分开，格子才不会说谎。
+     */
+    function shotSignal(shot) {
+      const verdict = shot && shot.qc && shot.qc.verdict
+        ? String(shot.qc.verdict).toUpperCase()
+        : ''
+      const status = String((shot && shot.status) || '')
+      if (verdict === 'FAIL') return { key: 'fail', label: 'FAIL' }
+      if (verdict === 'WARN') return { key: 'warn', label: 'WARN' }
+      if (verdict === 'PASS') return { key: 'pass', label: '通过' }
+      if (status === 'failed') return { key: 'fail', label: '生成失败' }
+      if (status === 'deprecated') return { key: 'none', label: '已作废' }
+      if (status === 'submitted') return { key: 'generated', label: '生成中' }
+      if (status === 'succeeded' || status === 'verified') return { key: 'generated', label: '未体检' }
+      return { key: 'none', label: '未生成' }
     }
 
     function formatBytes(bytes) {
@@ -1002,6 +1413,8 @@ window.__ModuleLoader__.load({
         copy: 'M8 8h11v12H8zM5 16V4h11',
         star: 'M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.9l6-.8z',
         back: 'M20 12H4M10 6l-6 6 6 6',
+        // 光圈：六片叶子。这枚印记是工作台的脸——远看就知道是「镜头」。
+        aperture: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM14.31 8 20.05 17.94M9.69 8h11.48M7.38 12 13.12 2.06M9.69 16 3.95 6.06M14.31 16H2.83M16.62 12 10.88 21.94',
       }
       const d = paths[props.name] ?? paths.grid
       const filled = props.name === 'play' || props.name === 'star'
@@ -1107,13 +1520,13 @@ window.__ModuleLoader__.load({
 
     /** A row of preset chips + a free-text escape hatch. */
     function PresetField(props) {
-      const { label, value, options, onSave, disabled, allowCustom } = props
+      const { label, value, options, onSave, disabled, allowCustom, wide } = props
       const [custom, setCustom] = useState(false)
       const [draft, setDraft] = useState(value ?? '')
       useEffect(() => { setDraft(value ?? '') }, [value])
       const known = options.map(option => String(option))
       const isKnown = known.includes(String(value))
-      return h('div', { className: 'dd-field' },
+      return h('div', { className: 'dd-field' + (wide ? ' wide' : '') },
         h('label', null, label),
         h('div', { className: 'preset' },
           options.map(option => h('button', {
@@ -1143,49 +1556,72 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // ── stage rail (preview semantics) ─────────────────────────────────────
+    // ── stage rail (console track) ────────────────────────────────────────
     //
     // 点节点 = 切视图。不发请求，不弹确认。
     // 已提交的阶段是实心的；正在预览的阶段是虚线描边。
+    //
+    // 形态上它是一条**轨道**：九个节点串在一条线上，线被点亮的段落就是进度。
+    // 进度是**看得见的一段光**，不是几个颜色不同的小圆点。
+    // 左边那格读数告诉你「现在在哪一段」，右边那格告诉你「你只是来看看」。
     function StageRail(props) {
       const { stages, committed, viewing, onPick, busy } = props
       if (!stages || stages.length === 0) return null
+      const viewIndex = stages.findIndex(stage => stage.stage === viewing)
+      const commitIndex = stages.findIndex(stage => stage.stage === committed)
+      // 轨道点亮到「已提交」的那一段；没有已提交阶段时亮到当前查看的那一段。
+      const litIndex = commitIndex >= 0 ? commitIndex : Math.max(0, viewIndex)
+      const meta = STAGES.find(entry => entry.id === viewing)
+      const previewing = Boolean(viewing) && viewing !== committed
       return h('div', { className: 'dd-rail' },
-        stages.map((stage, index) => {
-          const isCommitted = stage.stage === committed
-          const isViewing = stage.stage === viewing
-          const className = 'dd-stage ' + stage.state
-            + (isCommitted && stage.state !== 'current' ? ' done' : '')
-            + (isViewing && !isCommitted ? ' preview' : '')
-          return [
-            index > 0 ? h('span', { className: 'dd-rail-sep', key: 'sep' + stage.stage }) : null,
-            h('button', {
-              key: stage.stage,
-              className: className,
-              disabled: busy,
-              title: (stage.requirement ? stage.requirement + '\n' : '')
-                + (isCommitted ? '当前已提交的阶段' : '点击预览这一阶段（改了东西才会推进进度）'),
-              onClick: () => onPick(stage.stage),
-            },
-              h('i', null),
-              h('span', { className: 'sl' }, stage.label || stage.stage),
+        h('div', { className: 'dd-rail-id' },
+          h('div', { className: 'idx' },
+            String(viewIndex >= 0 ? viewIndex + 1 : 1).padStart(2, '0'),
+            h('em', null, ' / ' + String(stages.length).padStart(2, '0')),
+          ),
+          h('div', { className: 'en' }, meta ? meta.en : (viewing || '—')),
+        ),
+        h('div', { className: 'dd-rail-track' },
+          h('div', { className: 'dd-nodes' },
+            stages.map((stage, index) => {
+              const isCommitted = stage.stage === committed
+              const isViewing = stage.stage === viewing
+              const className = 'dd-node ' + stage.state
+                + (isCommitted && stage.state !== 'current' ? ' done' : '')
+                + (isViewing && !isCommitted ? ' preview' : '')
+              return [
+                index > 0
+                  ? h('span', { className: 'dd-link' + (index <= litIndex ? ' lit' : ''), key: 'sep' + stage.stage })
+                  : null,
+                h('button', {
+                  key: stage.stage,
+                  className: className,
+                  disabled: busy,
+                  title: (stage.requirement ? stage.requirement + '\n' : '')
+                    + (isCommitted ? '当前已提交的阶段' : '点击预览这一阶段（改了东西才会推进进度）'),
+                  onClick: () => onPick(stage.stage),
+                },
+                  h('span', { className: 'dot' }),
+                  h('span', { className: 'lb' }, stage.label || stage.stage),
+                ),
+              ]
+            }),
+          ),
+        ),
+        previewing
+          ? h('div', { className: 'dd-rail-note' },
+            h('span', { className: 'pill' },
+              h('span', null, '预览'),
+              h('b', null, STAGE_LABEL[viewing] || viewing),
+              h('span', { style: { opacity: '.7' } }, '· 进度仍停在 ' + (STAGE_LABEL[committed] || committed || '—')),
             ),
-          ]
-        }),
-      )
-    }
-
-    /** The banner that says 「你正在预览，不是真的回退了」。 */
-    function PreviewBar(props) {
-      const { viewing, committed, requirement, onBack } = props
-      if (!viewing || viewing === committed) return null
-      return h('div', { className: 'dd-previewbar' },
-        h('span', { className: 'tag' }, '预览'),
-        h('span', null, '正在预览 ', h('b', null, viewing), ' 阶段'),
-        h('span', { style: { color: 'var(--ink4)' } }, '· 已提交进度仍停在 ', h('b', null, committed || '—')),
-        requirement ? h('span', { style: { color: 'var(--ink4)' } }, '· ' + requirement) : null,
-        h('span', { className: 'dd-spacer' }),
-        h('button', { className: 'dd-btn sm', onClick: onBack }, '回到 ' + (committed || '当前') + ' 阶段'),
+            h('button', {
+              className: 'dd-btn sm',
+              onClick: () => { if (committed) onPick(committed) },
+              title: '回到已提交的阶段',
+            }, '回到 ' + (STAGE_LABEL[committed] || committed || '当前')),
+          )
+          : null,
       )
     }
 
@@ -1231,16 +1667,25 @@ window.__ModuleLoader__.load({
 
     // ── stage views ────────────────────────────────────────────────────────
 
+    /**
+     * 阶段台头（deck）。
+     *
+     * 以前这里有一条「标题条」加一条「工具条」，两道横栏把内容压成两指宽。
+     * 现在合成**一条**：左边是这一阶段是什么，右边是此刻要用的动作。
+     * 中间那句说明只留一行，念完就够。
+     */
     function StageHeader(props) {
-      const { stage, title, desc, right } = props
-      const meta = STAGES.find(entry => entry.id === stage)
-      return h('div', { className: 'dd-stagehead' },
-        h('div', { style: { minWidth: '0' } },
-          h('div', { className: 'sn3' }, (meta ? meta.en : stage) + ' · ' + (meta ? meta.label : '')),
-          h('div', { className: 'st3' }, title),
-          desc ? h('div', { className: 'sd3' }, desc) : null,
+      const { stage, title, desc, left, right } = props
+      const index = STAGES.findIndex(entry => entry.id === stage)
+      return h('div', { className: 'dd-deck' },
+        h('div', { className: 'dd-deck-id' },
+          h('span', { className: 'sn3' },
+            String(index >= 0 ? index + 1 : 1).padStart(2, '0') + ' / ' + String(STAGES.length).padStart(2, '0')),
+          h('span', { className: 'st3' }, title),
+          left ? h('span', { className: 'deck-left' }, left) : null,
+          desc ? h('span', { className: 'sd3', title: desc }, desc) : null,
         ),
-        right ? h('div', { className: 'sr3' }, right) : null,
+        right ? h('div', { className: 'dd-deck-tools' }, right) : null,
       )
     }
 
@@ -1502,11 +1947,12 @@ window.__ModuleLoader__.load({
       const sceneStrip = h('div', { className: 'dd-strip' },
         scenes.map(entry => h('div', {
           key: entry.id,
-          className: 'dd-strip-chip' + (entry.id === activeId ? ' on' : ''),
+          className: 'dd-scene-cell' + (entry.id === activeId ? ' on' : ''),
           onClick: () => setActiveId(entry.id),
         },
           h('span', { className: 'sid' }, entry.id),
-          h('span', { className: 'sn2' }, (entry.beats || []).length + '拍'),
+          h('span', { className: 'nm' }, entry.title || '（无标题）'),
+          h('span', { className: 'ct' }, (entry.beats || []).length + '拍'),
           entry.qc && entry.qc.verdict === 'FAIL'
             ? h('span', { className: 'dot fail' })
             : entry.qc && entry.qc.verdict === 'WARN'
@@ -1824,9 +2270,9 @@ window.__ModuleLoader__.load({
      * 排版封面——一个只有编号的方块对导演毫无意义。
      */
     function ShotCard(props) {
-      const { shot, selected, onSelect, workspaceId } = props
+      const { shot, selected, onSelect, workspaceId, index } = props
       const [failed, setFailed] = useState(false)
-      const status = shot.status ?? 'none'
+      const signal = shotSignal(shot)
       const poster = shot.poster
       const posterSrc = failed || poster === undefined
         ? undefined
@@ -1835,11 +2281,12 @@ window.__ModuleLoader__.load({
           : posterUrl(workspaceId, shot.id)
       const marks = shot.markers || []
       return h('button', {
-        className: 'dd-shotcard' + (selected ? ' on' : ''),
+        className: 'dd-monitor' + (selected ? ' on' : ''),
         onClick: () => onSelect(shot.id),
-        title: shot.id + ' · ' + (shot.title || '') + '\n' + (STATUS_TEXT[status] || status),
+        title: shot.id + ' · ' + (shot.title || '') + '\n' + signal.label,
+        style: index === undefined ? undefined : { animationDelay: Math.min(index, 14) * 26 + 'ms' },
       },
-        h('div', { className: 'poster' },
+        h('div', { className: 'screen' },
           posterSrc
             ? h('img', {
               src: posterSrc, alt: shot.id, loading: 'lazy',
@@ -1852,14 +2299,15 @@ window.__ModuleLoader__.load({
               h('div', { className: 'cam' }, shot.camera || shot.lighting || '—'),
             )
             : null,
+          h('div', { className: 'veil' }),
           h('div', { className: 'topline' },
             h('span', { className: 'sid' }, shot.id),
-            h('span', { className: 'pill ' + status }, STATUS_TEXT[status] ?? status),
+            h('span', { className: 'pill ' + signal.key }, h('i', null), signal.label),
           ),
           marks.length > 0
             ? h('div', { className: 'marks' },
-              marks.slice(0, 3).map((mark, index) => h('span', {
-                key: index,
+              marks.slice(0, 3).map((mark, markIndex) => h('span', {
+                key: markIndex,
                 className: 'mark' + (mark.kind === 'beat' ? ' beat' : mark.kind === 'notes' ? ' notes' : mark.kind === 'prompt' ? ' prompt' : ''),
               }, mark.label)))
             : null,
@@ -1868,7 +2316,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 't' }, shot.title || '（无标题）'),
           h('div', { className: 's' }, shot.summary || '（没有内容摘要）'),
           h('div', { className: 'm' },
-            h('span', null, shot.duration ? shot.duration + 's' : '—'),
+            h('span', null, h('b', null, shot.duration ? shot.duration + 's' : '—')),
             h('span', null, shot.camera || '—'),
             shot.ratio ? h('span', null, shot.ratio) : null,
           ),
@@ -1878,7 +2326,7 @@ window.__ModuleLoader__.load({
 
     /** The generate stage: scene navigation + the wall. */
     function GenerateView(props) {
-      const { data, selectedShot, onSelectShot, busy, actions, workspaceId, onOpenImage } = props
+      const { data, selectedShot, onSelectShot, busy, actions, workspaceId, onOpenImage, onSceneChange } = props
       const scenes = data.scenes || []
       const [sceneId, setSceneId] = useState('')
       const [filter, setFilter] = useState('all')
@@ -1913,18 +2361,25 @@ window.__ModuleLoader__.load({
       const totalShots = scenes.reduce((sum, scene) => sum + (scene.shots || []).length, 0)
       const shownShots = activeScene ? visibleShots(activeScene) : []
 
+      // 把「现在在看哪一场」报给上层：右栏在没有选中镜头时要有内容可看，
+      // 而不是一句「在网格里点一镜」这种说明书。
+      useEffect(() => {
+        if (onSceneChange) onSceneChange(activeScene || null)
+      }, [activeScene ? activeScene.id : '', onSceneChange])
+
       const strip = h('div', { className: 'dd-strip' },
         scenes.map(scene => {
           const bad = (scene.shots || []).filter(shot => shot.status === 'fail').length
           const warn = (scene.shots || []).filter(shot => shot.status === 'warn').length
           return h('div', {
             key: scene.id,
-            className: 'dd-strip-chip' + (scene.id === sceneId ? ' on' : ''),
+            className: 'dd-scene-cell' + (scene.id === sceneId ? ' on' : ''),
             title: scene.title || scene.id,
             onClick: () => { setSceneId(scene.id); setOverview(false) },
           },
             h('span', { className: 'sid' }, scene.id),
-            h('span', { className: 'sn2' }, (scene.shots || []).length + '镜'),
+            h('span', { className: 'nm' }, scene.title || '（无标题）'),
+            h('span', { className: 'ct' }, (scene.shots || []).length + '镜'),
             bad > 0 ? h('span', { className: 'dot fail' }) : warn > 0 ? h('span', { className: 'dot warn' }) : h('span', { className: 'dot ok' }),
           )
         }),
@@ -1934,56 +2389,58 @@ window.__ModuleLoader__.load({
         h(StageHeader, {
           stage: 'generate',
           title: '生成台',
-          desc: '生成阶段的出口是视频资产 + 提示词资产 + 台账。网格里的颜色是体检器自己的判定。',
+          desc: '网格里的颜色是体检器自己的判定。',
+          left: [
+            h('span', { className: 'dd-readout' }, h('b', { className: 'num' }, String(totalShots)), ' 镜'),
+            h('span', { className: 'dd-readout' }, h('b', { className: 'num' }, String(scenes.length)), ' 场'),
+          ],
           right: [
-            h('span', { className: 'dd-chip' }, h('b', { className: 'num' }, String(totalShots)), ' 镜'),
-            h('span', { className: 'dd-chip' }, h('b', { className: 'num' }, String(scenes.length)), ' 场'),
+            h('div', { className: 'dd-seg' },
+              h('button', { className: filter === 'all' ? 'on' : '', onClick: () => setFilter('all') }, '全部'),
+              h('button', { className: filter === 'failed' ? 'on' : '', onClick: () => setFilter('failed') }, '问题'),
+              h('button', { className: filter === 'pending' ? 'on' : '', onClick: () => setFilter('pending') }, '未生成'),
+              h('button', { className: filter === 'generated' ? 'on' : '', onClick: () => setFilter('generated') }, '已生成'),
+            ),
+            h('input', {
+              className: 'dd-input', value: query, placeholder: '搜索镜号 / 标题 / 内容…',
+              onChange: event => setQuery(event.target.value),
+            }),
+            h('div', { className: 'dd-seg' },
+              h('button', { className: !overview ? 'on' : '', onClick: () => setOverview(false) }, '分场'),
+              h('button', { className: overview ? 'on' : '', onClick: () => setOverview(true) }, '总览'),
+            ),
           ],
         }),
-        h('div', { className: 'dd-toolbar' },
-          h('div', { className: 'dd-seg' },
-            h('button', { className: filter === 'all' ? 'on' : '', onClick: () => setFilter('all') }, '全部'),
-            h('button', { className: filter === 'failed' ? 'on' : '', onClick: () => setFilter('failed') }, '问题'),
-            h('button', { className: filter === 'pending' ? 'on' : '', onClick: () => setFilter('pending') }, '未生成'),
-            h('button', { className: filter === 'generated' ? 'on' : '', onClick: () => setFilter('generated') }, '已生成'),
-          ),
-          h('input', {
-            className: 'dd-input', value: query, placeholder: '搜索镜号 / 标题 / 内容…',
-            onChange: event => setQuery(event.target.value),
-          }),
-          h('span', { className: 'dd-spacer' }),
-          h('div', { className: 'dd-seg' },
-            h('button', { className: !overview ? 'on' : '', onClick: () => setOverview(false) }, '分场'),
-            h('button', { className: overview ? 'on' : '', onClick: () => setOverview(true) }, '总览'),
-          ),
+        h('div', { className: 'dd-strip-nav' },
+          h('button', {
+            className: 'dd-icon-btn', disabled: activeIndex <= 0,
+            onClick: () => setSceneId(scenes[Math.max(0, activeIndex - 1)].id),
+            title: '上一场',
+          }, h(Icon, { name: 'chevLeft', size: 13 })),
+          strip,
+          h('button', {
+            className: 'dd-icon-btn', disabled: activeIndex < 0 || activeIndex >= scenes.length - 1,
+            onClick: () => setSceneId(scenes[Math.min(scenes.length - 1, activeIndex + 1)].id),
+            title: '下一场',
+          }, h(Icon, { name: 'chevron', size: 13 })),
         ),
-        !overview
-          ? h('div', { className: 'dd-toolbar', style: { paddingTop: '7px', paddingBottom: '7px' } },
-            h('button', {
-              className: 'dd-icon-btn', disabled: activeIndex <= 0,
-              onClick: () => setSceneId(scenes[Math.max(0, activeIndex - 1)].id),
-            }, h(Icon, { name: 'chevLeft', size: 13 })),
-            h('div', { style: { minWidth: '0', flex: '1' } }, strip),
-            h('button', {
-              className: 'dd-icon-btn', disabled: activeIndex < 0 || activeIndex >= scenes.length - 1,
-              onClick: () => setSceneId(scenes[Math.min(scenes.length - 1, activeIndex + 1)].id),
-            }, h(Icon, { name: 'chevron', size: 13 })),
-          )
-          : null,
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
             overview
               ? h('div', null,
                 filteredScenes.length === 0
                   ? h('div', { className: 'dd-empty' }, '没有符合条件的镜头')
-                  : filteredScenes.map(scene => h('div', { key: scene.id, style: { marginBottom: '16px' } },
-                    h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '7px' } },
-                      h('span', { className: 'num', style: { fontSize: '11px', color: 'var(--ink4)' } }, scene.id),
-                      h('span', { style: { fontFamily: 'var(--serif)', fontSize: '14px', fontWeight: '600' } }, scene.title || ''),
-                      h('span', { className: 'dd-note' }, scene.summary || ''),
-                      h('span', { className: 'dd-spacer' }),
-                      h('span', { className: 'num', style: { fontSize: '11px', color: 'var(--ink4)' } },
-                        (scene.shots || []).length + ' 镜 · ' + (scene.duration || 0) + 's'),
+                  : filteredScenes.map(scene => h('div', { key: scene.id, style: { marginBottom: '18px' } },
+                    h('div', { className: 'dd-sceneplate' },
+                      h('div', { className: 'sp-id' }, scene.id),
+                      h('div', { className: 'sp-main' },
+                        h('div', { className: 'sp-title' }, scene.title || ''),
+                        h('div', { className: 'sp-sum' }, scene.summary || ''),
+                      ),
+                      h('div', { className: 'sp-meta' },
+                        h('span', { className: 'num' },
+                          (scene.shots || []).length + ' 镜 · ' + (scene.duration || 0) + 's'),
+                      ),
                     ),
                     h('table', { className: 'dd-table' },
                       h('thead', null, h('tr', null,
@@ -2001,34 +2458,40 @@ window.__ModuleLoader__.load({
                         h('td', { style: { color: 'var(--ink2)', maxWidth: '420px' } }, shot.summary || '—'),
                         h('td', { className: 'n' }, shot.duration ? shot.duration + 's' : '—'),
                         h('td', { className: 'num' }, shot.camera || '—'),
-                        h('td', null, h('span', {
-                          className: 'dd-badge ' + (shot.status === 'fail' ? 'fail' : shot.status === 'warn' ? 'warn' : shot.status === 'pass' ? 'pass' : ''),
-                        }, STATUS_TEXT[shot.status] ?? shot.status)),
+                        h('td', null, (() => {
+                          const signal = shotSignal(shot)
+                          return h('span', { className: 'dd-badge ' + signal.key }, signal.label)
+                        })()),
                       ))),
                     ),
                   )),
                 )
               : activeScene
                 ? h('div', null,
-                  h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '11px' } },
-                    h('span', { className: 'num', style: { fontSize: '11.5px', color: 'var(--ink4)', letterSpacing: '.08em' } }, activeScene.id),
-                    h('span', { style: { fontFamily: 'var(--serif)', fontSize: '17px', fontWeight: '600' } }, activeScene.title || '（无标题）'),
-                    h('span', { className: 'dd-note', style: { maxWidth: '560px' } }, activeScene.summary || ''),
-                    h('span', { className: 'dd-spacer' }),
-                    activeScene.qc
-                      ? h('span', {
-                        className: 'dd-badge ' + (activeScene.qc.verdict === 'FAIL' ? 'fail' : activeScene.qc.verdict === 'WARN' ? 'warn' : 'pass'),
-                        title: (activeScene.qc.issues || []).join('；'),
-                      }, '表演层 ' + activeScene.qc.verdict)
-                      : null,
-                    h('span', { className: 'dd-note' }, (activeScene.shots || []).length + ' 镜 · ' + (activeScene.duration || 0) + 's'),
+                  h('div', { className: 'dd-sceneplate' },
+                    h('div', { className: 'sp-id' }, activeScene.id),
+                    h('div', { className: 'sp-main' },
+                      h('div', { className: 'sp-title' }, activeScene.title || '（无标题）'),
+                      h('div', { className: 'sp-sum' }, activeScene.summary || ''),
+                    ),
+                    h('div', { className: 'sp-meta' },
+                      activeScene.qc
+                        ? h('span', {
+                          className: 'dd-badge ' + (activeScene.qc.verdict === 'FAIL' ? 'fail' : activeScene.qc.verdict === 'WARN' ? 'warn' : 'pass'),
+                          title: (activeScene.qc.issues || []).join('；'),
+                        }, '表演层 ' + activeScene.qc.verdict)
+                        : null,
+                      h('span', { className: 'num' },
+                        (activeScene.shots || []).length + ' 镜 · ' + (activeScene.duration || 0) + 's'),
+                    ),
                   ),
                   shownShots.length === 0
                     ? h('div', { className: 'dd-empty' }, '这一场没有符合筛选条件的镜头')
                     : h('div', { className: 'dd-wall' },
-                      shownShots.map(shot => h(ShotCard, {
+                      shownShots.map((shot, shotIndex) => h(ShotCard, {
                         key: shot.id,
                         shot,
+                        index: shotIndex,
                         workspaceId,
                         selected: shot.id === selectedShot,
                         onSelect: onSelectShot,
@@ -2050,7 +2513,7 @@ window.__ModuleLoader__.load({
       const save = patch => onSave(patch)
       return h('div', { className: 'dd-grid2' },
         h(PresetField, {
-          label: '运镜', value: shot.camera, options: CAMERAS, disabled: busy, allowCustom: true,
+          label: '运镜', value: shot.camera, options: CAMERAS, disabled: busy, allowCustom: true, wide: true,
           onSave: value => save({ camera: value }),
         }),
         h(PresetField, {
@@ -2277,23 +2740,72 @@ window.__ModuleLoader__.load({
 
     /** The shot detail column: 真源、产物、判定、依据，同屏。 */
     function ShotDetail(props) {
-      const { detail, loading, onClose, busy, actions, workspaceId, onOpenImage } = props
-      if (loading) return h('div', { className: 'dd-detail' }, h('div', { className: 'dd-empty' }, '正在读取镜头…'))
-      if (!detail) return h('div', { className: 'dd-detail' }, h('div', { className: 'dd-empty' }, t('empty.shot', '在网格里点一镜')))
+      const { detail, loading, onClose, busy, actions, workspaceId, onOpenImage, sheet, onSelectShot } = props
+      if (loading) return h('div', { className: 'dd-inspector' }, h('div', { className: 'dd-empty' }, '正在读取镜头…'))
+      if (!detail) {
+        // 没有选中镜头时，右栏**不写说明书**——它给这一场的概览：
+        // 场次是什么、有多少镜、每一镜什么状态。点一行就切到那一镜。
+        if (!sheet || !sheet.shots || sheet.shots.length === 0) {
+          return h('div', { className: 'dd-inspector' }, h('div', { className: 'dd-empty' }, '这个阶段还没有镜头'))
+        }
+        const shots = sheet.shots || []
+        const bad = shots.filter(shot => shot.status === 'fail' || shot.status === 'warn').length
+        return h('div', { className: 'dd-inspector' },
+          h('div', { className: 'dd-inspector-head' },
+            h('span', { className: 'id' }, sheet.id || 'SCENE'),
+            h('span', { className: 'ttl' }, sheet.title || '概览'),
+          ),
+          h('div', { className: 'dd-inspector-body' },
+            h('div', { className: 'dd-sheet' },
+              h('div', { className: 'dd-sheet-head' },
+                sheet.id ? h('div', { className: 'sid' }, sheet.id) : null,
+                h('div', { className: 'ttl' }, sheet.title || '（无标题）'),
+                sheet.summary ? h('div', { className: 'sum' }, sheet.summary) : null,
+              ),
+              h('div', { className: 'dd-sheet-stats' },
+                h('div', { className: 'dd-sheet-stat' },
+                  h('div', { className: 'v' }, String(shots.length)),
+                  h('div', { className: 'k' }, 'SHOTS')),
+                h('div', { className: 'dd-sheet-stat' },
+                  h('div', { className: 'v' }, String((sheet.duration || 0) + 's')),
+                  h('div', { className: 'k' }, 'DURATION')),
+                h('div', { className: 'dd-sheet-stat' },
+                  h('div', { className: 'v', style: { color: bad > 0 ? 'var(--sig-warn)' : 'var(--sig-pass)' } }, String(bad)),
+                  h('div', { className: 'k' }, 'ATTENTION')),
+              ),
+              h('div', { className: 'dd-sheet-list' },
+                shots.map(shot => {
+                  const signal = shotSignal(shot)
+                  return h('div', {
+                    key: shot.id,
+                    className: 'dd-sheet-row',
+                    onClick: () => { if (onSelectShot) onSelectShot(shot.id) },
+                    title: '打开 ' + shot.id,
+                  },
+                    h('span', { className: 'id' }, shot.id),
+                    h('span', { className: 'nm' }, shot.title || '（无标题）'),
+                    h('span', { className: 'st ' + signal.key }),
+                  )
+                }),
+              ),
+            ),
+          ),
+        )
+      }
       const shot = detail.shot
       const scene = detail.scene
       const beats = scene && Array.isArray(scene.beats) ? scene.beats : []
       const covered = new Set((shot.covers || []).map(index => index))
       const images = (detail.assets || []).filter(asset => asset.type === 'reference_image' || asset.type === 'keyframe')
       const videos = (detail.assets || []).filter(asset => asset.type === 'video')
-      return h('div', { className: 'dd-detail' },
-        h('div', { className: 'dd-detail-head' },
+      return h('div', { className: 'dd-inspector' },
+        h('div', { className: 'dd-inspector-head' },
           h('span', { className: 'id' }, shot.id),
           h('span', { className: 'ttl' }, shot.title || ''),
           h('span', { className: 'dd-spacer' }),
           h('button', { className: 'dd-icon-btn', onClick: onClose, title: t('action.close', '关闭') }, h(Icon, { name: 'close', size: 13 })),
         ),
-        h('div', { className: 'dd-detail-body' },
+        h('div', { className: 'dd-inspector-body' },
           h(Section, { title: t('section.camera', '镜头'), tag: t('tag.source', '真源'), tagKind: 'src', defaultOpen: true },
             h(ShotCameraEditor, { shot, busy, onSave: patch => actions.editShot(shot.id, patch) }),
           ),
@@ -2676,7 +3188,7 @@ window.__ModuleLoader__.load({
       const flow = h('div', { className: 'dd-chat-flow', ref: flowRef },
         rows.length === 0
           ? h('div', { className: 'dd-chat-empty' },
-            h('div', null, '这里接的是**真的** DSH 会话：'),
+            h('div', null, '这里接的是真的 DSH 会话：'),
             h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
             hasSession
               ? h('div', { style: { marginTop: '8px', color: 'var(--ink4)' } }, '它会把创意写进 creative/brief.md，你改一句它就改一句。')
@@ -2746,11 +3258,9 @@ window.__ModuleLoader__.load({
               h('div', { style: { minWidth: '0', flex: '1 1 380px' } },
                 h('div', { className: 'h1' }, '从一个想法开始'),
                 h('div', { className: 'h2' },
-                  '导演工作台把 AI 短剧的九个阶段摊开：创意、大纲、角色、剧本、分镜、生成、验收、装配、交付。'
-                  + '每个阶段有自己的产物与体检线，你随时能改，随时能退回去重做一镜。'),
+                  '九个阶段，一路到成片。每一阶段有自己的产物与体检线——随时能改，随时能退回重做一镜。'),
                 h('div', { className: 'h3' },
-                  '右边那扇窗**常驻**在这里——是一个**真的** AI 会话，加载了 conceive 阶段的技能，'
-                  + '它会把创意写进 creative/brief.md。点「开始对话」之后你可以一直跟它聊，这一阶段是持续的过程。'),
+                  '右边那扇窗是一个真的 AI 会话。点「开始对话」，它会把创意写进 creative/brief.md。'),
               ),
               h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', flex: '0 0 auto' } },
                 current !== undefined
@@ -3296,7 +3806,7 @@ window.__ModuleLoader__.load({
             disabled: busy,
             onProvider: value => setDraft(current => ({ ...current, generationProvider: value, generationModel: '' })),
             onModel: value => set('generationModel', value),
-            note: '这里列的是宿主**已经配好**的模型路由，不需要在本插件里再存一份 API key。',
+            note: '这里列的是宿主已经配好的模型路由，不需要在本插件里再存一份 API key。',
           }),
           h(ModelRow, {
             label: '宿主模型（这个工作台自己用谁思考）',
@@ -3400,7 +3910,16 @@ window.__ModuleLoader__.load({
       const [stages, setStages] = useState(null)
       const [settings, setSettings] = useState(null)
       const [stagePayload, setStagePayload] = useState(null)
-      const [stageLoading, setStageLoading] = useState(false)
+      /**
+       * 阶段载荷读失败了。
+       *
+       * 没有它，「读不到」和「正在读」分不开：切阶段时 `setStagePayload(null)`
+       * 与 effect 里 `loadStage()` 之间存在**一帧**的空档，那一帧里
+       * 界面既没有数据、也还没开始读——以前就是在这里漏出了
+       * 「正在看的阶段：generate；拿到载荷的阶段：还没有」这种内部状态。
+       * 现在这个空档由「**正在切换**」接管，只有真的失败了才走错误态。
+       */
+      const [stageError, setStageError] = useState(null)
       const [detail, setDetail] = useState(null)
       const [detailLoading, setDetailLoading] = useState(false)
       const [spec, setSpec] = useState(null)
@@ -3410,6 +3929,8 @@ window.__ModuleLoader__.load({
       const [specTab, setSpecTab] = useState('rules')
       const [specStage, setSpecStage] = useState('')
       const [selectedShot, setSelectedShot] = useState(null)
+      /** 生成台当前在看哪一场。右栏在没有选中镜头时靠它显示场次概览。 */
+      const [activeScene, setActiveScene] = useState(null)
       const [workspaceId, setWorkspaceId] = useState('')
       const [viewStage, setViewStage] = useState('')
       const [busy, setBusy] = useState(false)
@@ -3530,15 +4051,14 @@ window.__ModuleLoader__.load({
       // ── stage view ────────────────────────────────────────────────────────
       const loadStage = useCallback(async stage => {
         if (!stage) return
-        setStageLoading(true)
+        setStageError(null)
         try {
           const payload = await apiGet('stage', { workspace: workspaceId, stage })
           setStagePayload(payload)
           stageRevision.current = payload && payload.revision ? payload.revision : null
         } catch (problem) {
+          setStageError(problem instanceof Error ? problem.message : String(problem))
           say(problem instanceof Error ? problem.message : String(problem), 'err')
-        } finally {
-          setStageLoading(false)
         }
       }, [workspaceId, say])
 
@@ -3838,23 +4358,52 @@ window.__ModuleLoader__.load({
       const shownStage = stagePayload ? (stagePayload.stage || stagePayload.kind) : viewStage
       const switching = stagePayload !== null && shownStage !== viewStage
 
+      // 右栏没有选中镜头时显示什么。
+      //
+      // 以前这里写的是「在网格里点一镜」——一句说明书，占掉半屏。
+      // 现在它给**这一场的概览**：场次是什么、多少镜、哪几镜有问题。
+      // 概览里的每一行都能点，点了就切到那一镜。
+      const inspectorSheet = useMemo(() => {
+        if (viewStage === 'generate' && activeScene) {
+          return {
+            id: activeScene.id,
+            title: activeScene.title,
+            summary: activeScene.summary,
+            duration: activeScene.duration,
+            shots: activeScene.shots || [],
+          }
+        }
+        if (viewStage === 'storyboard' && stageData && Array.isArray(stageData.shots)) {
+          return {
+            id: '',
+            title: '分镜清单',
+            summary: '这一阶段的全部镜头。',
+            duration: undefined,
+            shots: stageData.shots,
+          }
+        }
+        return null
+      }, [viewStage, activeScene, stageData])
+
       return h('div', { className: 'dd', ref: rootRef },
         h('style', null, CSS),
         h('div', { className: 'dd-ambient', 'aria-hidden': 'true' }),
-        // ── top bar ───────────────────────────────────────────────────────
-        h('div', { className: 'dd-top' },
-          h('div', { className: 'dd-mark' },
+        h('div', { className: 'dd-texture', 'aria-hidden': 'true' }),
+        // ── masthead ───────────────────────────────────────────────────────
+        h('div', { className: 'dd-mast' },
+          h('div', { className: 'dd-brand' },
             h('button', {
-              className: 'dd-mark-glyph',
+              className: 'dd-brand-mark',
               onClick: () => { setHomeMode(true); setView('stage') },
               title: '回到首页',
               'aria-label': '回到首页',
-            }, h(Icon, { name: 'grid', size: 15 })),
+            }, h(Icon, { name: 'aperture', size: 17 })),
             h('div', null,
-              h('div', { className: 'dd-mark-title' }, t('brand.title', '导演工作台')),
-              h('div', { className: 'dd-mark-sub' }, t('brand.subtitle', 'AI 短剧生产线')),
+              h('div', { className: 'dd-brand-name' }, t('brand.title', '导演工作台')),
+              h('div', { className: 'dd-brand-sub' }, t('brand.subtitle', 'AI 短剧生产线')),
             ),
           ),
+          h('span', { className: 'dd-mast-sep' }),
           h('div', { className: 'dd-work' },
             h(Icon, { name: 'project', size: 13 }),
             h('div', {
@@ -3865,7 +4414,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dd-work-label' }, '作品'),
               h('span', { className: 'dd-work-title' }, currentWork ? (currentWork.title || currentWork.id) : '没有作品'),
               currentWork && currentWork.shots
-                ? h('span', { className: 'dd-work-sub' }, currentWork.shots + '镜')
+                ? h('span', { className: 'dd-work-sub' }, currentWork.shots + ' 镜')
                 : null,
             ),
             h('span', { className: 'dd-work-caret' }, h(Icon, { name: 'down', size: 12 })),
@@ -3884,27 +4433,32 @@ window.__ModuleLoader__.load({
               })
               : null,
           ),
+          // 灯条：导演唯一需要「一眼扫到」的东西。四段灯 + 读数，嵌在一块凹槽里。
           h('div', { className: 'dd-tally' },
-            h('span', { className: 'dd-tally-item' }, h('span', { className: 'dd-led fail' }), h('b', null, String(counts.fail || 0)), 'FAIL'),
-            h('span', { className: 'dd-tally-item' }, h('span', { className: 'dd-led warn' }), h('b', null, String(counts.warn || 0)), 'WARN'),
-            h('span', { className: 'dd-tally-item' }, h('span', { className: 'dd-led gen' }), h('b', null, String(counts.generated || 0)), '未体检'),
-            h('span', { className: 'dd-tally-item' }, h('span', { className: 'dd-led pass' }), h('b', null, String(counts.pass || 0)), '通过'),
+            h('div', { className: 'dd-tally-cell', title: '体检判定 FAIL 的镜头' },
+              h('span', { className: 'dd-led fail' }), h('b', null, String(counts.fail || 0)), h('span', { className: 'lb' }, 'Fail')),
+            h('div', { className: 'dd-tally-cell', title: '体检判定 WARN 的镜头' },
+              h('span', { className: 'dd-led warn' }), h('b', null, String(counts.warn || 0)), h('span', { className: 'lb' }, 'Warn')),
+            h('div', { className: 'dd-tally-cell', title: '已生成但还没有体检' },
+              h('span', { className: 'dd-led gen' }), h('b', null, String(counts.generated || 0)), h('span', { className: 'lb' }, 'Queued')),
+            h('div', { className: 'dd-tally-cell', title: '体检通过的镜头' },
+              h('span', { className: 'dd-led pass' }), h('b', null, String(counts.pass || 0)), h('span', { className: 'lb' }, 'Pass')),
           ),
-          h('div', { className: 'dd-top-right' },
+          h('div', { className: 'dd-mast-right' },
             overview
               ? h('span', {
-                className: 'dd-chip click',
+                className: 'dd-chip click dd-readout-path',
                 title: '产物位置：' + overview.outputRoot + '\n' + (overview.outputRootReason || '') + '\n点击改设置',
                 onClick: openDrawer,
               },
                 h(Icon, { name: 'asset', size: 12 }),
-                h('span', { className: 'num', style: { maxWidth: '170px', overflow: 'hidden', textOverflow: 'ellipsis' } }, overview.outputRoot),
+                h('span', { className: 'path' }, overview.outputRoot),
               )
               : null,
             overview && overview.disk
-              ? h('span', { className: 'dd-chip', title: '磁盘占用' },
+              ? h('span', { className: 'dd-chip dd-readout-disk', title: '磁盘占用' },
                 h('b', { className: 'num' }, Math.round(overview.disk.ratio * 100) + '%'),
-                h('span', { className: 'num', style: { color: 'var(--ink4)' } }, '剩 ' + formatBytes(overview.disk.free)),
+                h('span', { className: 'num' }, '剩 ' + formatBytes(overview.disk.free)),
               )
               : null,
             h('button', {
@@ -3930,14 +4484,6 @@ window.__ModuleLoader__.load({
             setStagePayload(null)
             stageRevision.current = null
           },
-        }),
-        h(PreviewBar, {
-          viewing: viewStage,
-          committed,
-          requirement: railStages.find(entry => entry.stage === viewStage)
-            ? railStages.find(entry => entry.stage === viewStage).requirement
-            : undefined,
-          onBack: () => { setViewStage(committed || ''); setStagePayload(null); stageRevision.current = null },
         }),
         // ── body ──────────────────────────────────────────────────────────
         h('div', { className: 'dd-body' },
@@ -3987,21 +4533,25 @@ window.__ModuleLoader__.load({
               })
               : null,
             view === 'stage' && !showHome
-              ? stageLoading && !stagePayload
-                ? h('div', { className: 'dd-empty' }, '正在读取 ' + (STAGE_LABEL[viewStage] || viewStage) + ' 阶段…')
-                : stageData === undefined
-                  ? h('div', { className: 'dd-empty' },
-                    h('div', { className: 'dd-empty-title' }, '这一阶段还没有数据'),
-                    h('div', null, '正在看的阶段：' + (viewStage || '—')
-                      + '；拿到载荷的阶段：' + (stagePayload ? (stagePayload.stage || stagePayload.kind || '—') : '还没有')),
-                    h('div', { style: { marginTop: '10px' } },
-                      h('button', {
-                        className: 'dd-btn',
-                        onClick: () => { setStagePayload(null); stageRevision.current = null; loadStage(viewStage) },
-                      }, '重新读取')))
-                  : switching
-                    ? h('div', { className: 'dd-empty' }, '正在切换到 ' + (STAGE_LABEL[viewStage] || viewStage) + '…')
-                    : null
+              ? (stageError && stageData === undefined
+                ? h('div', { className: 'dd-empty' },
+                  h('div', { className: 'dd-empty-title' }, (STAGE_LABEL[viewStage] || viewStage) + '阶段读不到'),
+                  h('div', null, stageError),
+                  h('div', { style: { marginTop: '12px' } },
+                    h('button', {
+                      className: 'dd-btn primary',
+                      onClick: () => { setStagePayload(null); setStageError(null); stageRevision.current = null; loadStage(viewStage) },
+                    }, '重新读取')))
+                : stageData === undefined || switching
+                  ? h('div', { className: 'dd-stagewait' },
+                    h('div', { className: 'dd-stagewait-mark' }, h(Icon, { name: 'film', size: 18 })),
+                    h('div', { className: 'dd-stagewait-title' },
+                      switching
+                        ? '正在切换到 ' + (STAGE_LABEL[viewStage] || viewStage)
+                        : '正在读取 ' + (STAGE_LABEL[viewStage] || viewStage)),
+                    h('div', { className: 'dd-stagewait-bar' }, h('span', null)),
+                  )
+                  : null)
               : null,
               view === 'stage' && !showHome && stageData !== undefined && !switching
                 ? (shownStage === 'conceive'
@@ -4019,6 +4569,7 @@ window.__ModuleLoader__.load({
                               data: stageData, busy, actions, workspaceId,
                               selectedShot, onSelectShot: openShot,
                               onOpenImage: asset => setViewer(asset),
+                              onSceneChange: setActiveScene,
                             })
                             : shownStage === 'verify'
                               ? h(VerifyView, { data: stageData, busy, actions, onOpenShot: openShot })
@@ -4037,6 +4588,8 @@ window.__ModuleLoader__.load({
               busy,
               actions,
               workspaceId,
+              sheet: inspectorSheet,
+              onSelectShot: openShot,
               onClose: () => { setSelectedShot(null); setDetail(null) },
               onOpenImage: asset => setViewer(asset),
             })
@@ -4102,7 +4655,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** The sidebar glyph. */
+    /** The sidebar glyph — an iris. 六片叶子，远看就知道是「镜头」。 */
     function DramaDeskIcon(props) {
       const size = props.size ?? 18
       return h('svg', {
@@ -4110,11 +4663,11 @@ window.__ModuleLoader__.load({
         xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': true,
         style: { display: 'block', pointerEvents: 'none' },
       }, [
-        h('rect', { key: 'a', x: 2, y: 3, width: 16, height: 14, rx: 2.5, stroke: 'currentColor', strokeWidth: 1.5 }),
-        h('rect', { key: 'b', x: 5, y: 6, width: 4, height: 4, rx: 1, fill: 'currentColor', opacity: 0.85 }),
-        h('rect', { key: 'c', x: 11, y: 6, width: 4, height: 4, rx: 1, fill: 'currentColor', opacity: 0.4 }),
-        h('rect', { key: 'd', x: 5, y: 12, width: 4, height: 4, rx: 1, fill: 'currentColor', opacity: 0.85 }),
-        h('circle', { key: 'e', cx: 13, cy: 14, r: 2.6, stroke: 'currentColor', strokeWidth: 1.5 }),
+        h('circle', { key: 'a', cx: 10, cy: 10, r: 7.4, stroke: 'currentColor', strokeWidth: 1.4 }),
+        h('path', {
+          key: 'b', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round',
+          d: 'M11.6 5.4 15.8 12.8M8.4 5.4 18.2 5.4M6.6 8.6 10.8 1.6M8.4 14.6 3.6 7.6M11.6 14.6 1.8 14.6M13.4 11.4 9.2 18.4',
+        }),
       ])
     }
 

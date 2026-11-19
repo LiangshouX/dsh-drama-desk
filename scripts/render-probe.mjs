@@ -30,6 +30,15 @@ import { join } from 'node:path'
 const args = process.argv.slice(2)
 const budgetSwitch = Number(argValue('--budget-switch') ?? 1200)
 const budgetCpu = Number(argValue('--budget-cpu') ?? 20)
+/**
+ * Host 的基址。
+ *
+ * 默认 13144 是**独立 `dsh web`** 的端口；DSH Desktop 跑的时候宿主在另一个
+ * 端口上（用 `netstat -ano` 看 DeepSeek Harness 那个进程），探针会连不上，
+ * 于是「测不到」被当成「通过」或者「失败」——两种都是坏结果。
+ * 所以这里可以指：`--base http://127.0.0.1:<port>`。
+ */
+const base = argValue('--base') ?? 'http://127.0.0.1:13144'
 
 function argValue(name) {
   const index = args.indexOf(name)
@@ -43,7 +52,6 @@ const BACKEND = String.raw`
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-
 Add-Type @"
 using System; using System.Runtime.InteropServices;
 public class DDProbe {
@@ -60,6 +68,7 @@ public class DDProbe {
 "@
 
 $script:DeskName = "导演工作台"
+$StatsBase = "__STATS_BASE__"
 
 function Get-DshWindow {
   $root = [System.Windows.Automation.AutomationElement]::RootElement
@@ -231,9 +240,9 @@ if ($null -ne $markEl) {
 # 藏起来 → 数 8 秒 → 再数一次；增长量应当为 0。
 $hiddenPolls = -1
 try {
-  $s1 = Invoke-RestMethod -Uri "http://127.0.0.1:13144/drama-desk/api/stats" -TimeoutSec 10
+  $s1 = Invoke-RestMethod -Uri "$StatsBase/drama-desk/api/stats" -TimeoutSec 10
   Start-Sleep -Seconds 8
-  $s2 = Invoke-RestMethod -Uri "http://127.0.0.1:13144/drama-desk/api/stats" -TimeoutSec 10
+  $s2 = Invoke-RestMethod -Uri "$StatsBase/drama-desk/api/stats" -TimeoutSec 10
   $hiddenPolls = [int]$s2.data.total - [int]$s1.data.total
 } catch {
   $hiddenPolls = -1
@@ -257,7 +266,7 @@ async function main() {
   console.log('渲染开销闸门\n')
   // Windows PowerShell 5.1 把没有 BOM 的 .ps1 当 ANSI 读——中文字面量会变成乱码，
   // 脚本直接语法错误。所以**必须带 UTF-8 BOM**。
-  writeFileSync(PROBE, '\uFEFF' + BACKEND, 'utf8')
+  writeFileSync(PROBE, '\uFEFF' + BACKEND.replace('__STATS_BASE__', base), 'utf8')
   const result = await run()
   const line = result.stdout.split(/\r?\n/).find(row => row.startsWith('RESULT|'))
   for (const row of result.stdout.split(/\r?\n/)) {

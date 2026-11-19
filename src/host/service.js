@@ -13,7 +13,7 @@
  */
 import { stat, statfs, mkdir } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
-import { readJsonIfExists, readTextIfExists, isFile, resolveWithin, writeJsonAtomic, writeTextAtomic, listDirIfExists } from './fsx.js'
+import { readJsonIfExists, readTextIfExists, isFile, resolveWithin, writeJsonAtomic, writeTextAtomic, listDirIfExists, mapLimit } from './fsx.js'
 import { discoverWorkspaces, loadWorkspace, writeSceneBeats, writeShotFields, DERIVED_SHOT_FIELDS } from './workspace.js'
 import { loadSpec, STAGES } from './spec.js'
 import { runBeatQc, runMotionQc, runImageQc } from './qc.js'
@@ -56,6 +56,25 @@ export const STATUS_ORDER = ['none', 'generated', 'warn', 'fail', 'pass']
  */
 const DISK_CACHE_MS = 4000
 
+/**
+ * How long the discovered work list stays cached.
+ *
+ * 一轮快照要问四次「有哪些作品」（顶栏、流水线、阶段条、设置），
+ * 而每一次都是一次目录遍历。四十多次往返，问的还是同一份答案。
+ *
+ * 一秒：够把一轮快照里的四次问合成一次；又远小于面板的轮询间隔，
+ * 所以新作品最多晚一轮出现——和面板自己的刷新节奏一样，看不出差别。
+ */
+const WORKSPACE_CACHE_MS = 1000
+
+/**
+ * How many asset existence probes run at once.
+ *
+ * 够快（有上限的并发把「一问一答」变成「几轮往返」），又不至于把
+ * **宿主共享的** libuv 线程池打满——插件是嵌在别人的应用里的（§11）。
+ */
+const ASSET_PROBE_CONCURRENCY = 32
+
 /** Human labels for the five statuses. */
 export const STATUS_LABELS = {
   none: '未生成',
@@ -92,6 +111,10 @@ export class DramaDeskService {
     this.diskCache = undefined
     this.outputCache = undefined
     this.adapterCache = undefined
+    /** The discovered work list, cached for one second (see `listWorkspaces`). */
+    this.workspaceCache = undefined
+    /** The "are the prompt artifacts stale" answer, keyed by the source fingerprint. */
+    this.checkCache = undefined
   }
 
   // ── locations ────────────────────────────────────────────────────────────
@@ -160,12 +183,33 @@ export class DramaDeskService {
     for (const key of [...this.cache.keys()]) {
       if (key.startsWith(dir)) this.cache.delete(key)
     }
+    // 作品变了：作品清单与「产物是否过期」的答案都可能变了。
+    // 前者由 TTL 兜底，后者**没有 TTL**——它按真源指纹缓存，
+    // 而真源变了指纹就变了；这里清掉是为了覆盖「只改了产物」的情况。
+    this.workspaceCache = undefined
+    this.checkCache = undefined
   }
 
   // ── workspaces ───────────────────────────────────────────────────────────
 
-  /** List the works discovered under the configured project root. */
+  /**
+   * List the works discovered under the configured project root.
+   *
+   * **短 TTL 的原因是「一次快照里问了好几遍」**，不是「磁盘慢」。
+   * 一轮快照会问四次：顶栏、流水线、阶段条各一次。每一遍都要一次 readdir
+   * 加三次目录探测加两次文件读取——四遍就是四十多次往返，而它们问的
+   * 是同一份答案。
+   *
+   * 所以结果按 **TTL** 短暂缓存：一秒。一秒之内（也就是一轮快照之内）
+   * 四次问共用一次；一秒之外（面板每 4 秒轮询一次）一定重算。
+   * 新作品最多晚一轮轮询出现——和面板的刷新节奏一样，看不见差别。
+   */
   async listWorkspaces() {
+    const now = Date.now()
+    const cached = this.workspaceCache
+    if (cached !== undefined && now - cached.at < WORKSPACE_CACHE_MS) {
+      return cached.value
+    }
     const found = await discoverWorkspaces(await this.projectRoot())
     const rows = []
     for (const entry of found) {
@@ -180,6 +224,7 @@ export class DramaDeskService {
         scenes: typeof state?.scenes_total === 'number' ? state.scenes_total : undefined,
       })
     }
+    this.workspaceCache = { at: now, value: rows }
     return rows
   }
 
@@ -423,11 +468,13 @@ export class DramaDeskService {
     const counts = emptyCounts()
     // 提示词产物是否存在：一次 readdir 拿全，不是每镜一次 stat。
     const promptIds = new Set(await this.listPromptIds(data.dir))
+    // 验收报告同理：一次 readdir 拿全，不是每镜一次「文件不存在」的探测。
+    const reportIds = await this.verifyReportIds(data.dir)
     for (const scene of data.scenes) {
       const sceneQc = beatQc.get(scene.id)
       const shots = []
       for (const shot of (byScene.get(scene.id) ?? []).sort((a, b) => (a.index ?? 0) - (b.index ?? 0))) {
-        const cell = await this.buildCell(data, scene, shot, sceneQc, promptIds.has(shot.id))
+        const cell = await this.buildCell(data, scene, shot, sceneQc, promptIds.has(shot.id), reportIds.has(shot.id))
         counts[cell.status] = (counts[cell.status] ?? 0) + 1
         shots.push(cell)
       }
@@ -481,10 +528,36 @@ export class DramaDeskService {
     return ids
   }
 
+  /**
+   * The ids of the shots that have a verification report on disk.
+   *
+   * 网格要给每一格一个判定，于是每一格都要问「这一镜的报告在不在」。
+   * 逐镜问就是 **72 次文件探测**——而报告其实只有几份，剩下六成多
+   * 都是「文件不存在」的失败探测。失败探测也是往返，也是等待。
+   *
+   * 所以：**一次 readdir 拿全**，然后只对真正存在的报告做读取。
+   * 新报告出现时 `revisionOf()` 的 `verify:<n>` 会变，客户端因此重新拉，
+   * 下一轮就会读到它——不需要在这一轮里赌。
+   *
+   * @param {string} dir the work directory
+   * @returns {Promise<Set<string>>}
+   */
+  async verifyReportIds(dir) {
+    const names = await listDirIfExists(join(dir, 'verify'))
+    const ids = new Set()
+    for (const name of names) {
+      if (!name.endsWith('.report.json')) continue
+      ids.add(name.slice(0, -'.report.json'.length))
+    }
+    return ids
+  }
+
   /** Build one grid cell: status, reason, and the markers a director needs. */
-  async buildCell(data, scene, shot, sceneQc, promptExists) {
+  async buildCell(data, scene, shot, sceneQc, promptExists, reportExists) {
     const ledger = newestLedgerFor(data.ledger, shot.id)
-    const report = await this.cachedJson(join(data.dir, 'verify', `${shot.id}.report.json`))
+    const report = reportExists
+      ? await this.cachedJson(join(data.dir, 'verify', `${shot.id}.report.json`))
+      : undefined
     const markers = []
     let status = 'none'
     let reason = '台账无记录'
@@ -789,13 +862,17 @@ export class DramaDeskService {
     const workspace = await this.resolveWorkspace(options.workspaceId)
     if (workspace === undefined) return { workspace: undefined, assets: [], totals: undefined }
     const data = await this.loadWork(workspace.dir)
-    const rows = []
-    for (const asset of data.assets) {
+    // 「这个文件还在吗」要问磁盘一次——但**不能一问一答地串行问**。
+    //
+    // 资产多的时候（演示作品 101 个），串行就是 101 次往返，一次往返
+    // 一毫秒就是一百毫秒。有上限的并发池把等待压到几次往返的量，
+    // 同时又不会把宿主的线程池打满（见 `fsx.js` 的 `mapLimit`）。
+    const rows = await mapLimit(data.assets, ASSET_PROBE_CONCURRENCY, async asset => {
       let missing = true
       if (typeof asset.path === 'string' && asset.path !== '') {
         missing = !await isFile(resolveWithin(data.dir, asset.path))
       }
-      rows.push({
+      return {
         id: asset.id,
         type: asset.type,
         path: asset.path,
@@ -815,8 +892,8 @@ export class DramaDeskService {
           .filter(shot => Array.isArray(shot.references) && shot.references.includes(asset.id))
           .map(shot => shot.id),
         missing,
-      })
-    }
+      }
+    })
     const totals = {
       count: rows.length,
       bytes: rows.reduce((sum, row) => sum + (typeof row.bytes === 'number' ? row.bytes : 0), 0),
@@ -1479,20 +1556,75 @@ export class DramaDeskService {
     return result
   }
 
-  /** Whether one shot's prompt artifact is still in sync with the真源. */
+  /**
+   * Whether one shot's prompt artifact is still in sync with the真源.
+   *
+   * 校验要**跑一遍编译器**（Python 子进程），一次几百毫秒。而这条路径上
+   * 有三处会问它：生成台每开一次（哪些镜过期了）、镜详情每开一次
+   * （这一镜过期了没）、`drama_desk_check` 工具每调一次。
+   *
+   * 结果按**真源的指纹**缓存：真源没动，答案就不可能动。
+   * 指纹是 `scenes.json` 与 `shots.json` 的 mtime + size——与
+   * `beatQcFor` 用的是同一把尺子（它也缓存表演层体检）。
+   *
+   * 产物或人工覆盖被改动时怎么办？那些改动都经过本插件（编译、改写），
+   * 而插件的每一次写都会调 `invalidateWork()`，它顺手把这个缓存清掉。
+   * 于是：**产物变了 → 缓存失效 → 下一次重算**，不多算也不错算。
+   *
+   * **缓存的是「清单」，不是「某一镜的判定」。** 后者会把 A 镜的答案
+   * 卖给 B 镜——那是一个静默的错误，比慢更糟。
+   */
   async check(options) {
     const workspace = await this.resolveWorkspace(options.workspaceId)
     if (workspace === undefined) throw new Error('没有可用的作品')
-    const result = await runCompile(workspace.dir, { check: true, shotId: options.shotId })
-    if (!result.ok) return { ok: false, error: result.error }
-    const stale = (result.stale ?? []).includes(options.shotId)
+    const fingerprint = await this.sourceFingerprint(workspace.dir)
+    let raw = this.checkCache
+    if (raw === undefined || raw.key !== fingerprint) {
+      const result = await runCompile(workspace.dir, { check: true })
+      if (!result.ok) return { ok: false, error: result.error }
+      // **只缓存与镜无关的部分。**
+      //
+      // 缓存整个 answer 是错的：answer 里的 `stale` / `changed` 是
+      // **这一镜**的判定，把它们缓存起来就等于把 A 镜的答案卖给了 B 镜。
+      // 缓存的必须是「哪些镜过期了」这份**清单**，单镜的判定由它现算。
+      raw = {
+        key: fingerprint,
+        stale: result.stale ?? [],
+        changed: result.changed ?? [],
+        overridden: result.overridden ?? [],
+      }
+      this.checkCache = raw
+    }
+    const shotId = options.shotId
     return {
       ok: true,
-      shotId: options.shotId,
-      stale,
-      changed: (result.changed ?? []).includes(options.shotId),
-      staleShots: result.stale ?? [],
+      shotId,
+      stale: shotId === undefined ? false : raw.stale.includes(shotId),
+      changed: shotId === undefined ? false : raw.changed.includes(shotId),
+      staleShots: raw.stale,
+      overridden: raw.overridden,
     }
+  }
+
+  /**
+   * The fingerprint of a work's真源: `scenes.json` + `shots.json`.
+   *
+   * 只看真源，不看产物——产物变了会走 `invalidateWork()`，不会走到这里。
+   *
+   * @param {string} dir the work directory
+   * @returns {Promise<string>}
+   */
+  async sourceFingerprint(dir) {
+    const parts = []
+    for (const name of ['scenes.json', 'shots.json']) {
+      try {
+        const info = await stat(join(dir, name))
+        parts.push(`${name}:${info.mtimeMs}:${info.size}`)
+      } catch {
+        parts.push(`${name}:-`)
+      }
+    }
+    return parts.join('|')
   }
 
   // ── internals ────────────────────────────────────────────────────────────

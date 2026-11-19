@@ -92,6 +92,26 @@ export async function listDirIfExists(path) {
   }
 }
 
+/**
+ * List the **regular files** in a directory; `[]` when the directory is absent.
+ *
+ * 与 `listDirIfExists` 的区别：这里**不含子目录**。
+ * 「这个路径上是不是有一个文件」用目录清单回答，比一次 `stat` 便宜，
+ * 而且一次清单就能回答很多个路径的问题。
+ *
+ * @param {string} path
+ * @returns {Promise<string[]>}
+ */
+export async function listFilesIfExists(path) {
+  try {
+    const entries = await readdir(path, { withFileTypes: true })
+    return entries.filter(entry => entry.isFile()).map(entry => entry.name)
+  } catch (error) {
+    if (isAbsent(error)) return []
+    throw error
+  }
+}
+
 /** Whether a path exists and is a directory. */
 export async function isDirectory(path) {
   try {
@@ -147,4 +167,37 @@ export function isAbsent(error) {
 /** Join path segments with the platform separator. */
 export function joinPath(...parts) {
   return join(...parts)
+}
+
+/**
+ * Map over `items` with a bounded number of concurrent workers.
+ *
+ * **为什么要有上限。** 一次 `Promise.all` 把上百个文件系统探测同时丢出去，
+ * 会把 libuv 的线程池打满——线程池是**共享**的，宿主应用自己的文件操作
+ * 会排在我们的队列后面（§11 的规矩：插件不能给别人的应用添麻烦）。
+ * 一个有上限的池既比串行快得多，又不会挤占线程池。
+ *
+ * 结果按输入顺序返回。
+ *
+ * @param {any[]} items
+ * @param {number} limit 同时进行的最大数量
+ * @param {(item: any, index: number) => Promise<any>} worker
+ * @returns {Promise<any[]>}
+ */
+export async function mapLimit(items, limit, worker) {
+  const list = Array.isArray(items) ? items : []
+  const results = new Array(list.length)
+  if (list.length === 0) return results
+  const width = Math.max(1, Math.min(Math.trunc(limit) || 1, list.length))
+  let cursor = 0
+  const run = async () => {
+    for (;;) {
+      const index = cursor
+      cursor += 1
+      if (index >= list.length) return
+      results[index] = await worker(list[index], index)
+    }
+  }
+  await Promise.all(Array.from({ length: width }, run))
+  return results
 }

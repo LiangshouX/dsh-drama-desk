@@ -359,6 +359,26 @@ async function checkPerformance(argv) {
   }
 }
 
+/**
+ * 等价性回归测试：优化过的答案必须与优化前**逐字节相同**。
+ *
+ * 性能优化改的是「怎么问」，不是「答什么」。缓存与批量读取一旦答错，
+ * 那是**静默的错误**——界面照样渲染，只是内容是假的。所以它要有闸门。
+ *
+ * 没有演示作品时它自己跳过（不是假装通过）。
+ */
+async function checkEquivalence() {
+  const testPath = join(ROOT, 'tests', 'equivalence.mjs')
+  if (!existsSync(testPath)) return
+  const result = spawnSync(process.execPath, [testPath], { encoding: 'utf8', timeout: 180000 })
+  if (result.status !== 0) {
+    const detail = String(result.stderr ?? '').split('\n').filter(line => line.trim() !== '').slice(0, 8).join('\n')
+    problems.push(`等价性回归测试失败：\n${detail}`)
+  } else if (String(result.stdout ?? '').includes('All equivalence checks passed')) {
+    console.log('✓ 等价性回归测试通过（缓存与批量读取的答案与优化前一致）')
+  }
+}
+
 await checkPluginHalf()
 await checkSyntax()
 await checkPerformance(process.argv.slice(2))
@@ -376,6 +396,7 @@ if (!onlyCheck) {
   }
   console.log(`✓ 已构建：build/skills（${skillDirs.length} 个）+ build/spec + build/tools`)
   await checkRuntime()
+  await checkEquivalence()
 } else {
   // 校验 build/ 与 src/ 是否同步
   const srcFiles = (await walk(SKILLS_SRC)).map((f) => relative(SKILLS_SRC, f)).sort()

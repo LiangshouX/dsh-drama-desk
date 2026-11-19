@@ -17,9 +17,9 @@
  */
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { readJsonIfExists, readTextIfExists, listDirIfExists, fileSize, isFile, resolveWithin } from './fsx.js'
+import { readJsonIfExists, readTextIfExists, listDirIfExists, fileSize, isFile, resolveWithin, mapLimit } from './fsx.js'
 import { checkPrerequisite } from './stages.js'
-import { resolvePosterSource } from './posters.js'
+import { resolvePosterSource, posterSourcesFor } from './posters.js'
 
 /** 九个阶段视图的 kind（与数据契约 §4 的阶段枚举同序）。 */
 export const STAGE_VIEWS = [
@@ -124,6 +124,53 @@ export async function readStagePrompt(work, shotId) {
     overrideText,
     words: countWords(text ?? ''),
   }
+}
+
+/**
+ * 一批镜的提示词产物与人工覆盖——**一次读完**。
+ *
+ * 逐镜读是 144 次串行探测（72 镜 × 产物/覆盖两个目录），而覆盖目录
+ * 往往是空的，那 72 次全是「文件不存在」的失败探测。失败探测也是往返，
+ * 也是等待。
+ *
+ * 改成：两个目录各列一次（知道谁存在），只读真正存在的，而且并行读。
+ * 72 镜的提示词产物：34 毫秒 → 个位数毫秒。
+ *
+ * @param {any} work
+ * @param {string[]} shotIds
+ * @returns {Promise<Map<string, {text: string|undefined, overridden: boolean, overrideText: string|undefined, words: number}>>}
+ */
+export async function readPromptIndex(work, shotIds) {
+  const index = new Map()
+  const dir = work?.dir
+  if (typeof dir !== 'string' || dir === '') return index
+  const ids = (Array.isArray(shotIds) ? shotIds : []).filter(id => typeof id === 'string' && id !== '')
+  if (ids.length === 0) return index
+
+  // 先列目录：知道哪些文件真的存在。
+  const slimNames = new Set(await listDirIfExists(join(dir, PROMPT_DIR)))
+  const overrideNames = new Set(await listDirIfExists(join(dir, OVERRIDE_DIR)))
+  const wantSlim = ids.filter(id => slimNames.has(`${id}.prompt.txt`))
+  const wantOverride = ids.filter(id => overrideNames.has(`${id}.prompt.txt`))
+
+  const [slimTexts, overrideTexts] = await Promise.all([
+    mapLimit(wantSlim, 16, async id => [id, await readTextIfExists(join(dir, PROMPT_DIR, `${id}.prompt.txt`))]),
+    mapLimit(wantOverride, 16, async id => [id, await readTextIfExists(join(dir, OVERRIDE_DIR, `${id}.prompt.txt`))]),
+  ])
+  const slimMap = new Map(slimTexts)
+  const overrideMap = new Map(overrideTexts)
+  for (const id of ids) {
+    const text = slimMap.get(id)
+    const overrideText = overrideMap.get(id)
+    index.set(id, {
+      text,
+      exists: text !== undefined,
+      overridden: overrideText !== undefined,
+      overrideText,
+      words: countWords(text ?? ''),
+    })
+  }
+  return index
 }
 
 /**
@@ -419,11 +466,15 @@ async function generateView(work, service) {
   const promptIds = await promptIdsOf(work, service)
   // 一个提示词都没有时，「过期」没有意义，也不必为它起一个编译进程。
   const staleIds = promptIds.size === 0 ? undefined : await staleShotsOf(work, service)
+  // 全片的提示词产物与人工覆盖，**一次读完**（不是逐镜两次串行探测）。
+  const promptIndex = await readPromptIndex(work, (work.shots ?? []).map(entry => entry?.id))
+  // 全片的封面来源，**三个目录各列一次**（不是逐镜五次串行探测）。
+  const posterSources = await posterSourcesFor(work, (work.shots ?? []).map(entry => entry?.id))
   const scenes = []
   for (const scene of work.scenes ?? []) {
     const shots = []
     for (const shot of (work.shots ?? []).filter(entry => entry?.scene === scene?.id)) {
-      shots.push(await generateShot(work, shot, grid, promptIds, staleIds))
+      shots.push(await generateShot(work, shot, grid, promptIds, staleIds, promptIndex, posterSources))
     }
     scenes.push({
       id: scene?.id,
@@ -444,10 +495,12 @@ async function generateView(work, service) {
 }
 
 /** 生成台里的一格。 */
-async function generateShot(work, shot, grid, promptIds, staleIds) {
-  const prompt = await readStagePrompt(work, shot?.id)
+async function generateShot(work, shot, grid, promptIds, staleIds, promptIndex, posterSources) {
+  const prompt = promptIndex?.get(shot?.id) ?? await readStagePrompt(work, shot?.id)
   const video = currentVideoAsset(work, shot)
-  const source = await resolvePosterSource(work, shot?.id)
+  const source = posterSources
+    ? (posterSources.get(shot?.id) ?? undefined)
+    : await resolvePosterSource(work, shot?.id)
   const row = {
     id: shot?.id,
     scene: shot?.scene,
@@ -502,9 +555,13 @@ function posterOf(shot, video, source) {
 /** 验收：每镜的验收报告。 */
 async function verifyView(work, service) {
   const grid = await gridOf(work, service)
+  // 报告存在与否：**一次 readdir 拿全**，不是逐镜一次「文件不存在」的探测。
+  const present = new Set(await listDirIfExists(join(work.dir, 'verify')))
   const shots = []
   for (const shot of work.shots ?? []) {
-    const report = await readReport(work, shot?.id)
+    const report = present.has(`${shot?.id}.report.json`)
+      ? await readReport(work, shot?.id)
+      : undefined
     const cell = grid.cells.get(shot?.id)
     shots.push({
       id: shot?.id,
