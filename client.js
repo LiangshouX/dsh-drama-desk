@@ -260,6 +260,12 @@ window.__ModuleLoader__.load({
   --sig-fly:#3aa2cf;
   --sig-none:#798294;
 
+  /* ══ brand（Logo 的两色：冷蓝监视器 · 暖琥珀钨丝灯）══════════════════
+     与 icon.svg 里的两个色值一一对应。标志是产品的一部分，
+     不随主题换色——所以这两支颜色是**常量**，不是语义 token。 */
+  --brand-blue:#2F6BE0;
+  --brand-amber:#F5A524;
+
   /* ══ ink ═════════════════════════════════════════════════════════════ */
   --ink:var(--dsw-alias-label-primary,#e8ecf3);
   --ink2:var(--dsw-alias-label-secondary,#98a1b3);
@@ -405,11 +411,15 @@ body[data-ds-dark-theme] .dd{
   background:linear-gradient(180deg,var(--panel-2),var(--panel));
   box-shadow:0 1px 0 var(--hl) inset,0 1px 0 var(--line),0 6px 18px -12px var(--sh);
 }
-.dd-brand{display:flex;align-items:center;gap:10px;flex:none}
+.dd-brand{
+  display:flex;align-items:center;gap:10px;flex:none
+}
+/* 品牌标记的底板。标记本身是彩色的（冷蓝 + 暖琥珀），不跟 --hot 走——
+   标志是产品的一部分，不随主题换色。 */
 .dd-brand-mark{
-  width:30px;height:30px;border-radius:var(--rx-2);display:grid;place-items:center;flex:none;
+  width:32px;height:32px;border-radius:var(--rx-2);display:grid;place-items:center;flex:none;
   background:linear-gradient(160deg,var(--raised),var(--sunken));
-  box-shadow:var(--e-3);color:var(--hot);
+  box-shadow:var(--e-3);
 }
 .dd-brand-mark svg{filter:none}
 .dd-brand-name{
@@ -1500,8 +1510,6 @@ select.dd-input{
         copy: 'M8 8h11v12H8zM5 16V4h11',
         star: 'M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.9l6-.8z',
         back: 'M20 12H4M10 6l-6 6 6 6',
-        // 光圈：六片叶子。这枚印记是工作台的脸——远看就知道是「镜头」。
-        aperture: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM14.31 8 20.05 17.94M9.69 8h11.48M7.38 12 13.12 2.06M9.69 16 3.95 6.06M14.31 16H2.83M16.62 12 10.88 21.94',
       }
       const d = paths[props.name] ?? paths.grid
       const filled = props.name === 'play' || props.name === 'star'
@@ -1514,6 +1522,53 @@ select.dd-input{
         style: { display: 'block', pointerEvents: 'none' },
       }, [
         h('path', { key: 'p', d }),
+      ])
+    }
+
+    // ── 品牌标记：光圈 · 灯 ───────────────────────────────────────────────
+    //
+    // 一枚开到中心的六叶光圈，中间那格亮着琥珀色——
+    // 镜头开着，正对着正在拍的那一镜。
+    //
+    // 这套几何与 `icon.svg`（插件列表里那张）**同源**：三处（插件管理器 /
+    // 侧栏 / 工作台顶栏）共用同一个标志，不各画各的。
+    //
+    //   冷蓝 = 监视器        暖琥珀 = 钨丝灯
+    //
+    // 64 网格（彩色，插件图标 + 顶栏）与 20 网格（单色，侧栏字形）各一套，
+    // 比例相同：外圆 R : 六边形开口 rIn = 25 : 12 ≈ 7.6 : 3.75。
+    const IRIS_BLADES = [
+      'M36.15 56.65L47.92 12.73',
+      'M12.73 47.92L56.65 36.15',
+      'M8.57 23.27L40.73 55.43',
+      'M27.85 7.35L16.08 51.27',
+      'M51.27 16.08L7.35 27.85',
+      'M55.43 40.73L23.27 8.57',
+    ]
+    const IRIS_LAMP = 'M43.59 28.89L40.49 40.49L28.89 43.59L20.41 35.11L23.51 23.51L35.11 20.41Z'
+    const IRIS_BLADES_SM = [
+      'M11.36 17.48L14.92 4.2',
+      'M4.2 14.92L17.48 11.36',
+      'M2.84 7.44L12.56 17.16',
+      'M8.64 2.52L5.08 15.8',
+      'M15.8 5.08L2.52 8.64',
+      'M17.16 12.56L7.44 2.84',
+    ]
+    const IRIS_LAMP_SM = 'M13.62 9.03L12.65 12.65L9.03 13.62L6.38 10.97L7.35 7.35L10.97 6.38Z'
+
+    /** 彩色标记（64 网格）——顶栏的「导演工作台」标识。 */
+    function DramaDeskMark(props) {
+      const size = props.size ?? 21
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 64 64', fill: 'none',
+        xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': true,
+        style: { display: 'block', pointerEvents: 'none' },
+      }, [
+        h('g', { key: 'blades', stroke: 'var(--brand-blue)', strokeWidth: 4.2, strokeLinecap: 'round' }, [
+          h('circle', { key: 'ring', cx: 32, cy: 32, r: 25 }),
+          ...IRIS_BLADES.map((d, i) => h('path', { key: 'b' + i, d })),
+        ]),
+        h('path', { key: 'lamp', d: IRIS_LAMP, fill: 'var(--brand-amber)' }),
       ])
     }
 
@@ -4736,7 +4791,7 @@ select.dd-input{
               onClick: () => { setHomeMode(true); setView('stage') },
               title: '回到首页',
               'aria-label': '回到首页',
-            }, h(Icon, { name: 'aperture', size: 17 })),
+            }, h(DramaDeskMark, { size: 23 })),
             h('div', null,
               h('div', { className: 'dd-brand-name' }, t('brand.title', '导演工作台')),
               h('div', { className: 'dd-brand-sub' }, t('brand.subtitle', 'AI 短剧生产线')),
@@ -5023,7 +5078,7 @@ select.dd-input{
       )
     }
 
-    /** The sidebar glyph — an iris. 六片叶子，远看就知道是「镜头」。 */
+    /** The sidebar glyph — the iris. 六片叶子，中间那格亮着（单色版）。 */
     function DramaDeskIcon(props) {
       const size = props.size ?? 18
       return h('svg', {
@@ -5031,11 +5086,12 @@ select.dd-input{
         xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': true,
         style: { display: 'block', pointerEvents: 'none' },
       }, [
-        h('circle', { key: 'a', cx: 10, cy: 10, r: 7.4, stroke: 'currentColor', strokeWidth: 1.4 }),
+        h('circle', { key: 'ring', cx: 10, cy: 10, r: 7.6, stroke: 'currentColor', strokeWidth: 1.3 }),
         h('path', {
-          key: 'b', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round',
-          d: 'M11.6 5.4 15.8 12.8M8.4 5.4 18.2 5.4M6.6 8.6 10.8 1.6M8.4 14.6 3.6 7.6M11.6 14.6 1.8 14.6M13.4 11.4 9.2 18.4',
+          key: 'blades', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round',
+          d: IRIS_BLADES_SM.join(' '),
         }),
+        h('path', { key: 'lamp', d: IRIS_LAMP_SM, fill: 'currentColor' }),
       ])
     }
 
