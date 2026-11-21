@@ -260,7 +260,7 @@ window.__ModuleLoader__.load({
   --sig-fly:#3aa2cf;
   --sig-none:#798294;
 
-  /* ══ brand（Logo 的两色：冷蓝监视器 · 暖琥珀钨丝灯）══════════════════
+  /* ══ brand（Logo 的两色：冷蓝片身 · 暖琥珀在产的那一格）══════════════
      与 icon.svg 里的两个色值一一对应。标志是产品的一部分，
      不随主题换色——所以这两支颜色是**常量**，不是语义 token。 */
   --brand-blue:#2F6BE0;
@@ -1525,50 +1525,44 @@ select.dd-input{
       ])
     }
 
-    // ── 品牌标记：光圈 · 灯 ───────────────────────────────────────────────
+    // ── 品牌标记：胶片三格 ───────────────────────────────────────────────
     //
-    // 一枚开到中心的六叶光圈，中间那格亮着琥珀色——
-    // 镜头开着，正对着正在拍的那一镜。
+    // 一条胶片：厚片身、顶边四枚片孔、中间三个画格——
+    // **中间那格亮着琥珀色**，正是正在产的那一镜。
     //
     // 这套几何与 `icon.svg`（插件列表里那张）**同源**：三处（插件管理器 /
     // 侧栏 / 工作台顶栏）共用同一个标志，不各画各的。
     //
-    //   冷蓝 = 监视器        暖琥珀 = 钨丝灯
+    //   冷蓝 = 片身        暖琥珀 = 正在产的那一格
     //
-    // 64 网格（彩色，插件图标 + 顶栏）与 20 网格（单色，侧栏字形）各一套，
-    // 比例相同：外圆 R : 六边形开口 rIn = 25 : 12 ≈ 7.6 : 3.75。
-    const IRIS_BLADES = [
-      'M36.15 56.65L47.92 12.73',
-      'M12.73 47.92L56.65 36.15',
-      'M8.57 23.27L40.73 55.43',
-      'M27.85 7.35L16.08 51.27',
-      'M51.27 16.08L7.35 27.85',
-      'M55.43 40.73L23.27 8.57',
-    ]
-    const IRIS_LAMP = 'M43.59 28.89L40.49 40.49L28.89 43.59L20.41 35.11L23.51 23.51L35.11 20.41Z'
-    const IRIS_BLADES_SM = [
-      'M11.36 17.48L14.92 4.2',
-      'M4.2 14.92L17.48 11.36',
-      'M2.84 7.44L12.56 17.16',
-      'M8.64 2.52L5.08 15.8',
-      'M15.8 5.08L2.52 8.64',
-      'M17.16 12.56L7.44 2.84',
-    ]
-    const IRIS_LAMP_SM = 'M13.62 9.03L12.65 12.65L9.03 13.62L6.38 10.97L7.35 7.35L10.97 6.38Z'
+    // 镂空（片孔、两头的画格）用 **evenodd 子路径**一次画完：
+    // 插件管理器把 icon.svg 当 <img> 渲染，那条路上 mask 不保险。
+    const FILM_STRIP = 'M11.00 10.00H53.00A8 8 0 0 1 61.00 18.00V46.00A8 8 0 0 1 53.00 54.00H11.00A8 8 0 0 1 3.00 46.00V18.00A8 8 0 0 1 11.00 10.00Z'
+      + ' M10.00 15.00H15.00A2 2 0 0 1 17.00 17.00V21.00A2 2 0 0 1 15.00 23.00H10.00A2 2 0 0 1 8.00 21.00V17.00A2 2 0 0 1 10.00 15.00Z'
+      + ' M23.00 15.00H28.00A2 2 0 0 1 30.00 17.00V21.00A2 2 0 0 1 28.00 23.00H23.00A2 2 0 0 1 21.00 21.00V17.00A2 2 0 0 1 23.00 15.00Z'
+      + ' M36.00 15.00H41.00A2 2 0 0 1 43.00 17.00V21.00A2 2 0 0 1 41.00 23.00H36.00A2 2 0 0 1 34.00 21.00V17.00A2 2 0 0 1 36.00 15.00Z'
+      + ' M49.00 15.00H54.00A2 2 0 0 1 56.00 17.00V21.00A2 2 0 0 1 54.00 23.00H49.00A2 2 0 0 1 47.00 21.00V17.00A2 2 0 0 1 49.00 15.00Z'
+      + ' M10.00 28.00H18.00A3 3 0 0 1 21.00 31.00V43.00A3 3 0 0 1 18.00 46.00H10.00A3 3 0 0 1 7.00 43.00V31.00A3 3 0 0 1 10.00 28.00Z'
+      + ' M46.00 28.00H54.00A3 3 0 0 1 57.00 31.00V43.00A3 3 0 0 1 54.00 46.00H46.00A3 3 0 0 1 43.00 43.00V31.00A3 3 0 0 1 46.00 28.00Z'
+    const FILM_FRAME = 'M28.00 28.00H36.00A3 3 0 0 1 39.00 31.00V43.00A3 3 0 0 1 36.00 46.00H28.00A3 3 0 0 1 25.00 43.00V31.00A3 3 0 0 1 28.00 28.00Z'
 
-    /** 彩色标记（64 网格）——顶栏的「导演工作台」标识。 */
+    /* 侧栏的小尺寸减法：同一条片上的**那三格**——两头空心，中间实心。
+       16px 下胶片的片孔会糊掉，所以减法砍到「三格 + 哪一格在产」，
+       重量也和邻居（1.6 线描）对得上。 */
+    const FILM_GRID_L = 'M8.00 22.00H16.00A4 4 0 0 1 20.00 26.00V36.00A4 4 0 0 1 16.00 40.00H8.00A4 4 0 0 1 4.00 36.00V26.00A4 4 0 0 1 8.00 22.00Z'
+    const FILM_GRID_M = 'M28.00 22.00H36.00A4 4 0 0 1 40.00 26.00V36.00A4 4 0 0 1 36.00 40.00H28.00A4 4 0 0 1 24.00 36.00V26.00A4 4 0 0 1 28.00 22.00Z'
+    const FILM_GRID_R = 'M48.00 22.00H56.00A4 4 0 0 1 60.00 26.00V36.00A4 4 0 0 1 56.00 40.00H48.00A4 4 0 0 1 44.00 36.00V26.00A4 4 0 0 1 48.00 22.00Z'
+
+    /** 品牌标记（64 网格）——顶栏的「导演工作台」标识：整条胶片。 */
     function DramaDeskMark(props) {
-      const size = props.size ?? 21
+      const size = props.size ?? 22
       return h('svg', {
-        width: size, height: size, viewBox: '0 0 64 64', fill: 'none',
+        width: size, height: size, viewBox: '0 0 64 64',
         xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': true,
         style: { display: 'block', pointerEvents: 'none' },
       }, [
-        h('g', { key: 'blades', stroke: 'var(--brand-blue)', strokeWidth: 4.2, strokeLinecap: 'round' }, [
-          h('circle', { key: 'ring', cx: 32, cy: 32, r: 25 }),
-          ...IRIS_BLADES.map((d, i) => h('path', { key: 'b' + i, d })),
-        ]),
-        h('path', { key: 'lamp', d: IRIS_LAMP, fill: 'var(--brand-amber)' }),
+        h('path', { key: 'strip', d: FILM_STRIP, fill: 'var(--brand-blue)', fillRule: 'evenodd' }),
+        h('path', { key: 'lit', d: FILM_FRAME, fill: 'var(--brand-amber)' }),
       ])
     }
 
@@ -4791,7 +4785,7 @@ select.dd-input{
               onClick: () => { setHomeMode(true); setView('stage') },
               title: '回到首页',
               'aria-label': '回到首页',
-            }, h(DramaDeskMark, { size: 23 })),
+            }, h(DramaDeskMark, { size: 24 })),
             h('div', null,
               h('div', { className: 'dd-brand-name' }, t('brand.title', '导演工作台')),
               h('div', { className: 'dd-brand-sub' }, t('brand.subtitle', 'AI 短剧生产线')),
@@ -5078,20 +5072,27 @@ select.dd-input{
       )
     }
 
-    /** The sidebar glyph — the iris. 六片叶子，中间那格亮着（单色版）。 */
+    /**
+     * The sidebar glyph — 三格.
+     *
+     * 侧栏是 16px：胶片的片孔在那里会糊成一团，整条片子变成一块深色方块
+     * （比邻居的线描重得多）。所以侧栏用**减法**——同一条片上的那三格：
+     * 两头空心，中间实心（正在产的那一镜）。
+     *
+     * 单色（currentColor），与侧栏其它插件同一重量。
+     */
     function DramaDeskIcon(props) {
       const size = props.size ?? 18
       return h('svg', {
-        width: size, height: size, viewBox: '0 0 20 20', fill: 'none',
+        width: size, height: size, viewBox: '0 0 64 64', fill: 'none',
         xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': true,
         style: { display: 'block', pointerEvents: 'none' },
       }, [
-        h('circle', { key: 'ring', cx: 10, cy: 10, r: 7.6, stroke: 'currentColor', strokeWidth: 1.3 }),
-        h('path', {
-          key: 'blades', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round',
-          d: IRIS_BLADES_SM.join(' '),
-        }),
-        h('path', { key: 'lamp', d: IRIS_LAMP_SM, fill: 'currentColor' }),
+        h('g', { key: 'frames', stroke: 'currentColor', strokeWidth: 3.6, strokeLinejoin: 'round' }, [
+          h('path', { key: 'l', d: FILM_GRID_L }),
+          h('path', { key: 'r', d: FILM_GRID_R }),
+        ]),
+        h('path', { key: 'lit', d: FILM_GRID_M, fill: 'currentColor' }),
       ])
     }
 
