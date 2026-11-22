@@ -91,15 +91,77 @@
     }
 
     /**
+     * 每一段会话的**标题**。
+     *
+     * 宿主的 `SessionHeader` 里**没有 title 字段**——标题是 `session-title` 投影的产物
+     * （一条 `session/title` 事件 fold 出来，第一句话之后由宿主摘要生成）。
+     * 侧栏显示的就是客户端会话清单里的 `SessionSummary.title`。
+     *
+     * 所以这里读**同一个来源**，而不是自己拿第一句话去摘要：
+     * 清单里的标题于是永远和侧栏一致，也不会出现「插件一套、宿主一套」。
+     *
+     * 注意：**不要**读 `projectionValues.title` —— 列表行只带摘要子集
+     * （`SessionProjectionSummaryValues`），title 是以 `SessionSummary.title`
+     * 这个扁平字段出现的。`displayTitle` 也不拿来做兜底：它退化成项目目录名，
+     * 同一个工作区里每段会话都会显示成同一个词。
+     *
+     * @returns {Record<string, string>} sessionId → 标题
+     */
+    function sessionTitles() {
+      const service = sessionsService()
+      const source = service !== undefined ? service.list : undefined
+      if (source === undefined || source === null || typeof source.getSnapshot !== 'function') return {}
+      let snapshot
+      try {
+        snapshot = source.getSnapshot()
+      } catch {
+        return {}
+      }
+      const byId = snapshot !== undefined && snapshot !== null && snapshot.byId !== undefined && snapshot.byId !== null
+        ? snapshot.byId
+        : {}
+      const out = {}
+      for (const id of Object.keys(byId)) {
+        const row = byId[id]
+        if (row === undefined || row === null) continue
+        const durable = typeof row.title === 'string' ? row.title.trim() : ''
+        if (durable !== '') {
+          out[id] = durable
+          continue
+        }
+        // 兜底：某些宿主版本把投影原样塞进 projectionValues。
+        const projected = row.projectionValues !== undefined && row.projectionValues !== null
+          ? row.projectionValues.title
+          : undefined
+        const title = projected !== undefined && projected !== null && typeof projected.title === 'string'
+          ? projected.title.trim()
+          : ''
+        if (title !== '') out[id] = title
+      }
+      return out
+    }
+
+    /** 两份标题表是否等价（没变就别 setState——父组件的每次重渲染都会带上整棵子树）。 */
+    function sameTitles(a, b) {
+      const left = Object.keys(a)
+      const right = Object.keys(b)
+      if (left.length !== right.length) return false
+      for (const key of left) if (a[key] !== b[key]) return false
+      return true
+    }
+
+    /**
      * 会话清单里的显示名。
      *
-     * 这些会话大多**没起名**（标题空），所以露 id 的一段 + 创建时间——
-     * 光露 id 前八位的话，`session-xxxx` 会显示成两个一模一样的「会话 session-」。
+     * 优先**标题**（和侧栏一致），其次 API 给的 `title`，最后才是 id 片段 + 创建时间。
+     * 光露 id 前八位不行：`session-xxxx` 会显示成一模一样的「会话 session-」。
      */
-    function sessionLabel(session) {
+    function sessionLabel(session, titles) {
+      const id = session && typeof session.id === 'string' ? session.id : ''
+      const projected = titles !== undefined && id !== '' ? titles[id] : undefined
+      if (typeof projected === 'string' && projected !== '') return projected
       const title = session && typeof session.title === 'string' ? session.title.trim() : ''
       if (title !== '') return title
-      const id = session && typeof session.id === 'string' ? session.id : ''
       const bare = id.replace(/^session-/, '')
       const stamp = sessionStamp(session ? session.createdAt : undefined)
       const name = bare === '' ? '未命名对话' : '会话 ' + bare.slice(0, 8)
@@ -159,9 +221,10 @@
      * 在窄侧栏里也不会被裁掉。会话一多，浏览器自己会滚。
      */
     function ConceiveSessionMenu(props) {
-      const { sessions, current, onPick } = props
+      const { sessions, current, onPick, titles } = props
       const list = Array.isArray(sessions) ? sessions : []
       const known = current === undefined ? false : list.some(item => item && item.id === current)
+      const currentTitle = current !== undefined && titles !== undefined ? titles[current] : undefined
       return h('select', {
         className: 'dd-chat-session',
         value: current === undefined ? '' : current,
@@ -174,12 +237,14 @@
       }, [
         // 当前这段不在清单里（清单还没刷出来）时也要有个选项，否则 select 会空值。
         current !== undefined && !known
-          ? h('option', { key: '__current', value: current }, '当前对话 ' + current.replace(/^session-/, '').slice(0, 8))
+          ? h('option', { key: '__current', value: current }, typeof currentTitle === 'string' && currentTitle !== ''
+            ? currentTitle
+            : '当前对话 ' + current.replace(/^session-/, '').slice(0, 8))
           : null,
         list.length === 0
           ? h('option', { key: '__empty', value: '' }, '（这个工作区里只有这一段）')
           : null,
-        list.map(item => h('option', { key: item.id, value: item.id }, sessionLabel(item))),
+        list.map(item => h('option', { key: item.id, value: item.id }, sessionLabel(item, titles))),
       ])
     }
 
@@ -210,6 +275,8 @@
       const [bound, setBound] = useState({ id: undefined, reference: null })
       const [problem, setProblem] = useState(null)
       const [list, setList] = useState([])
+      /** 标题表：sessionId → 标题（来自宿主的 title 投影，和侧栏同一来源）。 */
+      const [titles, setTitles] = useState({})
       const [starting, setStarting] = useState(false)
       /** 自愈重试计数：绑定失败 → 请 Host 把这段会话恢复成活的 → 再绑一次。 */
       const [attempt, setAttempt] = useState(0)
@@ -283,6 +350,29 @@
         }
       }, [activeId, attempt])
 
+      // 标题：订阅宿主的会话清单快照，取 `title` 投影（和侧栏同一来源，见 sessionTitles）。
+      //
+      // 标题是**后来才有**的（第一句话之后由宿主摘要生成），所以必须订阅而不是快照一次；
+      // 但表没变就**不 setState**——父组件每重渲染一次都会带上整棵子树。
+      useEffect(() => {
+        const service = sessionsService()
+        const source = service !== undefined ? service.list : undefined
+        if (source === undefined || source === null
+          || typeof source.getSnapshot !== 'function' || typeof source.subscribe !== 'function') {
+          setTitles(previous => (Object.keys(previous).length === 0 ? previous : {}))
+          return undefined
+        }
+        const read = () => {
+          const next = sessionTitles()
+          setTitles(previous => (sameTitles(previous, next) ? previous : next))
+        }
+        read()
+        const off = source.subscribe(read)
+        return () => {
+          if (typeof off === 'function') off()
+        }
+      }, [sessionId, attempt])
+
       // 只认「当前这一段」的引用：换会话时旧引用已经不可用了（见 bound 的说明）。
       const reference = bound.id === activeId ? bound.reference : null
 
@@ -348,7 +438,7 @@
           h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起这扇窗（顶栏的图标能再展开）' }, h(Icon, { name: 'close', size: 13 })),
         ),
         h('div', { className: 'dd-chat-bar' },
-          h(ConceiveSessionMenu, { sessions: list, current: activeId, onPick: setActiveId }),
+          h(ConceiveSessionMenu, { sessions: list, current: activeId, onPick: setActiveId, titles }),
           h('button', {
             className: 'dd-btn sm', onClick: onFresh, disabled: !hasSession || busy,
             title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）',
