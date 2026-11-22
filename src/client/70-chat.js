@@ -825,20 +825,21 @@
       }, [])
 
       /**
-       * 打开宿主的完整对话面板；带 `view` 时**先切到宿主自己的那个视图**。
+       * 打开宿主的**对话面板**，把**这段会话**放进去。
        *
        * 这就是「把 DSH 原生的聊天主界面轻量嵌入」在这套架构里**能做到的形态**：
        * 宿主没有公开的槽渲染 API（`ctx.slots` 只有 register / registerFactory /
        * inject），所以插件**搬不动**它那些渲染器；但宿主的**会话装配**
-       * （`ctx.uiConversation`）是可达的——插件可以把「这段会话、这个视图」
-       * 交给宿主，让宿主自己渲染。
+       * （`ctx.uiConversation`）是可达的——插件把「这段会话」交给宿主，
+       * 让宿主用**它自己的**界面渲染：工具卡片、推理、审批、提问卡、轨迹、
+       * 上下文、编队、统计，全在宿主那边。
        *
-       * 于是：会话窗里点「轨迹」→ 宿主打开**这段会话的原生轨迹视图**。
-       * 那份轨迹（工具卡片、推理、审批、提问卡）比我们这扇小窗渲染得好得多，
-       * 所以**不复刻它，而是把它请过来**。
+       * 所以这扇小窗**不复刻**宿主，只做宿主做不好的事（贴着作品、看得见
+       * 改动了哪些文件），其余「请过去」。
        */
       const openInPanel = useCallback((view) => {
-        if (view !== undefined && activeId !== undefined) {
+        const activate = () => {
+          if (view === undefined || activeId === undefined) return
           try {
             const uc = CTX ? CTX.get('uiConversation') : undefined
             const binding = uc !== undefined && uc !== null && typeof uc.binding === 'function'
@@ -860,26 +861,17 @@
         const helper = CTX ? CTX.get('uiWorkspace') : undefined
         const layout = CTX ? CTX.get('layout') : undefined
         try {
-          // **先选工作区，再开会话。**
-          //
-          // 只调 `openSession` 的话，宿主不知道该选哪个工作区——
-          // 对话面板会停在「选择一个工作区开始」的空态。
+          // **先开会话，再选工作区。**
           //
           // `openWorkspace(id, beforeOpen)` 的第二个参数是**宿主的钩子**
-          // （它拿 `nextId` 去做草稿搬迁）。把「打开我们这段会话」挂在这个钩子里：
-          // 工作区被选上的同时，会话也被打开——只调 `openSession` 的话，
-          // 宿主不知道该选哪个工作区，对话面板会停在「选择一个工作区开始」。
+          // （它拿 `nextId` 去做草稿搬迁），不是「替我打开某个会话」。
+          // 真正把会话放进面板的是 `openSession`。
+          //
+          // 顺序也不能反：工作区切换会把会话选择重置掉，所以**会话要先选**，
+          // 工作区随后（工作区里就这一个会话时，宿主的默认也是它）。
           const workspaceId = dshWorkspaceId
           if (workspaceId !== undefined && workspaceId !== ''
             && helper !== undefined && helper !== null && typeof helper.openWorkspace === 'function') {
-            // **先开会话，再选工作区。**
-            //
-            // `openWorkspace(id, beforeOpen)` 的第二个参数是**宿主的钩子**
-            // （它拿 `nextId` 去做草稿搬迁），不是「替我打开某个会话」。
-            // 真正把会话放进面板的是 `openSession`。
-            //
-            // 顺序也不能反：工作区切换会把会话选择重置掉，所以**会话要先选**，
-            // 工作区随后（工作区里就这一个会话时，宿主的默认也是它）。
             if (typeof helper.openSession === 'function') helper.openSession(activeId)
             helper.openWorkspace(workspaceId, () => {})
           } else if (helper !== undefined && helper !== null && typeof helper.openSession === 'function') {
@@ -889,7 +881,10 @@
         } catch {
           // 打不开就算了：面板里这段对话照常能聊。
         }
-      }, [activeId, dshWorkspaceId])
+        // 视图切换要**等会话先打开**：宿主是打开会话时才把面板的绑定建起来的，
+        // 在那之前切视图没有对象可切。
+        if (view !== undefined) setTimeout(activate, 400)
+      }, [activeId, dshWorkspaceId, resolveViewId])
 
       /** 改宿主默认模型（模型 + 推理强度）。 */
       const changeModel = useCallback(async (provider, model, effort) => {
@@ -957,13 +952,9 @@
           title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）',
         }, '新对话'),
         h('button', {
-          className: 'dd-btn sm', onClick: () => openInPanel('trajectory'), disabled: !hasSession,
-          title: '打开宿主的原生轨迹视图（工具卡片、推理、审批都在那边）',
-        }, '轨迹'),
-        h('button', {
           className: 'dd-btn sm', onClick: () => openInPanel(), disabled: !hasSession,
-          title: '在宿主的对话面板里打开完整聊天',
-        }, '完整对话'),
+          title: '打开宿主的对话面板（这段会话已就位）；顶部标签里有轨迹 / 上下文 / 编队 / 统计',
+        }, '宿主面板'),
         panelControls,
         h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起这扇窗（顶栏的图标能再展开）' }, h(Icon, { name: 'close', size: 13 })),
       )
