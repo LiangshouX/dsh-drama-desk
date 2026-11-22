@@ -277,7 +277,7 @@
      */
     function ConceiveChat(props) {
       const {
-        sessionId, onClose, onFresh, onStart, canStart, busy,
+        sessionId, onClose, onFresh, onStart, onDraft, canStart, busy,
         workspaceId, panelControls, dshWorkspaceId, SessionProvider, renderSlot,
       } = props
       const [activeId, setActiveId] = useState(sessionId)
@@ -298,6 +298,8 @@
       /** 标题表：sessionId → 标题（来自宿主的 title 投影，和侧栏同一来源）。 */
       const [titles, setTitles] = useState({})
       const [starting, setStarting] = useState(false)
+      /** 「从零开始聊」那一颗按钮的等待态（它要多做一件事：先建草稿作品）。 */
+      const [draftStarting, setDraftStarting] = useState(false)
       /** 自愈重试计数：绑定失败 → 请 Host 把这段会话恢复成活的 → 再绑一次。 */
       const [attempt, setAttempt] = useState(0)
       const repairedRef = useRef(false)
@@ -459,6 +461,22 @@
       }, [starting, onStart])
 
       /**
+       * 还没有作品时的入口：**从零开始聊**。
+       *
+       * 父组件干两件事：建一个草稿作品（名字与目录 id 都是暂定的）、立刻开一段会话。
+       * 命名的事往后放——聊出方向再立项，而且立项**不换这段对话**。
+       */
+      const draftStart = useCallback(async () => {
+        if (draftStarting || typeof onDraft !== 'function') return
+        setDraftStarting(true)
+        try {
+          await onDraft()
+        } finally {
+          setDraftStarting(false)
+        }
+      }, [draftStarting, onDraft])
+
+      /**
        * 打开**宿主的完整对话面板**，把这段会话放进去。
        *
        * 为什么还要留这个出口：侧栏这一格是嵌进来的**窄**视图，宿主的完整面板
@@ -524,15 +542,26 @@
         h('div', null, '这里接的是真的 DSH 会话：'),
         h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
         h('div', { style: { marginTop: '14px' } },
+          // 还没有作品时，这颗按钮不是死的：它就是「从零开始聊」——
+          // 建一个草稿作品、立刻开聊，命名的事往后放。
           h('button', {
-            className: 'dd-btn primary', onClick: start,
-            disabled: starting || busy || !canStart,
-            title: canStart ? '开一段真的构思会话' : '先选一个作品（构思会话是挂在作品上的）',
-          }, starting ? '正在开…' : '开始对话'),
+            className: 'dd-btn primary',
+            onClick: canStart ? start : draftStart,
+            disabled: starting || busy || (!canStart && draftStarting) || (canStart ? false : typeof onDraft !== 'function'),
+            title: canStart
+              ? '开一段真的构思会话'
+              : (typeof onDraft === 'function'
+                ? '建一个草稿作品并立刻开聊：聊出方向之后再立项命名'
+                : '先选一个作品（构思会话是挂在作品上的）'),
+          }, starting || draftStarting
+            ? '正在开…'
+            : (canStart ? '开始对话' : '从零开始聊')),
           h('div', { style: { marginTop: '10px', color: 'var(--ink4)' } },
             canStart
               ? '开好之后，聊天界面是宿主自己的那一套。'
-              : '先选一个作品（或新建一个），构思会话是挂在作品上的。')),
+              : (typeof onDraft === 'function'
+                ? '不用先建作品：先聊方向，聊出个大概再立项命名，对话不会因此换一段。'
+                : '先选一个作品（或新建一个），构思会话是挂在作品上的。'))),
       )
 
       // 页面本体：绑上了会话就交给宿主渲染，否则说清楚缺什么。
@@ -585,6 +614,8 @@
           h('span', { className: 'sc-a' }, scopeOther ? '属于' : '只谈'),
           h('b', { title: scopeWork.title }, scopeWork.title),
           h('span', { className: 'sc-id' }, scopeWork.id),
+          // 草稿作品：名字与目录 id 都是暂定的，别让人以为这是定下来的作品。
+          scopeWork.draft === true ? h('span', { className: 'sc-draft' }, '草稿') : null,
           scopeBroken ? h('span', { className: 'sc-warn' }, '范围没挂上 · 点一下重试') : null,
           scope.ok === false ? h('span', { className: 'sc-warn' }, '问不到范围 · 点一下重试') : null,
         )
@@ -642,6 +673,11 @@
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dd-chat-scope .sc-id{flex:none;font-family:var(--f-mono);font-size:10.5px;color:var(--ink3)}
 .dd-chat-scope .sc-id::before{content:'·';margin-right:5px;opacity:.55}
+/* 草稿标记：名字与目录 id 还是暂定的。 */
+.dd-chat-scope .sc-draft{
+  flex:none;font-family:var(--f-gauge);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
+  padding:1px 5px;border-radius:var(--rx-1);color:var(--ink3);box-shadow:inset 0 0 0 .5px var(--line-2);
+}
 .dd-chat-scope .sc-warn{margin-left:auto;flex:none;color:var(--sig-warn)}
 /* 没挂上 / 属于别的作品：这也是「如实回报」，不是错误页。点一下重挂。 */
 .dd-chat-scope[data-state='off']{

@@ -230,6 +230,12 @@ body[data-ds-dark-theme] .dd{
   max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .dd-work-sub{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);letter-spacing:-.02em;white-space:nowrap;flex:none}
+/* 草稿徽标：名字还没定，别让人以为这就是最终标题。 */
+.dd-work-draft{
+  flex:none;align-self:center;font-family:var(--f-gauge);font-size:8.5px;letter-spacing:.12em;
+  text-transform:uppercase;padding:1.5px 5px;border-radius:var(--rx-1);color:var(--ink3);
+  box-shadow:inset 0 0 0 .5px var(--line-2);
+}
 .dd-work-caret{color:var(--ink3);flex:none;align-self:center}
 .dd-menu{
   position:absolute;top:calc(100% + 7px);left:0;z-index:40;min-width:330px;max-width:440px;

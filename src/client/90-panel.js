@@ -87,6 +87,14 @@
         return null
       })
       const [conceive, setConceive] = useState(null)
+      /**
+       * 构思会话的**两条异步来路**（「换作品 → 问」与「开会话」）共用这一个序号：
+       * 后发先至的响应必须能被认出来。`conceiveFor` 记着当前 conceive 是给哪个
+       * 作品的，换作品时先清空，绝不把上一部戏的会话顶着显示。
+       */
+      const conceiveSeq = useRef(0)
+      const conceiveFor = useRef('')
+      const [conceiveTick, setConceiveTick] = useState(0)
       const [workMenu, setWorkMenu] = useState(false)
       const [newWork, setNewWork] = useState(null)
       const searchRef = useRef(null)
@@ -435,17 +443,27 @@
        * `drama-conceive` 技能），id 记在 `state.json` 上——所以换天回来、
        * 换一台机器，还是同一段构思对话。
        *
-       * 注意：**进入阶段不会自动走到这里。** 侧栏是常驻的，会话却由用户
-       * 主动发起——点侧栏里的「开始对话」才真的建这段会话。
+       * `targetId` 是给「从零开始聊」用的：那一步刚刚建了一个草稿作品，
+       * `workspaceId` 的 state 还没重新渲染，闭包里的旧值会是空串。
        */
-      const openConceive = useCallback(async fresh => {
-        if (!workspaceId) {
-          say('先选一个作品，或者新建一个——构思会话是挂在作品上的', 'err')
+      const openConceive = useCallback(async (fresh, targetId) => {
+        const id = typeof targetId === 'string' && targetId !== '' ? targetId : workspaceId
+        if (!id) {
+          say('先选一个作品；还没想好拍什么就点「从零开始聊」——先聊方向，聊完再立项命名', 'err')
           return
         }
+        // 开会话也是一条**异步来路**：它在飞的这段时间里，「换作品 → 问会话」那条
+        // GET 可能先回来（那时磁盘上还没有会话）并把结果盖掉。序号在这里的作用与
+        // 它在阶段载荷上的作用一样：**后发先至的结果必须能被认出来并丢掉**。
+        const seq = (conceiveSeq.current += 1)
         try {
-          const result = await apiPost('conceive-session', { workspaceId, fresh: fresh === true })
-          setConceive(result)
+          const result = await apiPost('conceive-session', { workspaceId: id, fresh: fresh === true })
+          if (seq === conceiveSeq.current) {
+            setConceive(result)
+          } else {
+            // 期间有更晚的请求：不抢写，请它按磁盘再核一次。
+            setConceiveTick(count => count + 1)
+          }
           if (fresh === true) say('新对话已开始（旧的那段还在 DSH 的会话列表里）', 'ok')
         } catch (problem) {
           say(problem instanceof Error ? problem.message : String(problem), 'err')
@@ -453,17 +471,53 @@
       }, [workspaceId, say])
 
       // 换了作品 → 重新问一次这个作品的构思会话还在不在（不创建）。
+      //
+      // **先清空再问。** 不清的话，在响应回来之前 `conceive` 还挂着**上一部戏**的
+      // 会话 id，会话窗就会把别人的对话显示成这一部的（实测：切到新建的草稿作品，
+      // 右栏还在放 demo-epic 的那段对话，范围条也还写着 demo-epic）。宁可闪一下
+      // 「还没开始」，也不能显示错的那一段。
       useEffect(() => {
-        if (!workspaceId) {
+        if (conceiveFor.current !== workspaceId) {
+          conceiveFor.current = workspaceId
           setConceive(null)
-          return undefined
         }
+        if (!workspaceId) return undefined
+        const seq = (conceiveSeq.current += 1)
         let cancelled = false
         apiGet('conceive-session', { workspace: workspaceId })
-          .then(value => { if (!cancelled) setConceive(value) })
-          .catch(() => { if (!cancelled) setConceive(null) })
+          .then(value => { if (!cancelled && seq === conceiveSeq.current) setConceive(value) })
+          .catch(() => { if (!cancelled && seq === conceiveSeq.current) setConceive(null) })
         return () => { cancelled = true }
-      }, [workspaceId])
+      }, [workspaceId, conceiveTick])
+
+      /**
+       * 换作品：视图状态跟着那部戏走。
+       *
+       * 以前只换 id，`viewStage` 留着上一部戏的阶段——切到一部还停在「创意」的
+       * 新作品，顶栏却写着「预览 生成 · 已提交进度仍停在 创意」，
+       * 看起来像坏了。**阶段是每部戏自己的**，换戏就该回到它的已提交阶段。
+       *
+       * @param {string} id 作品 id
+       * @param {string} [stage] 明确指定要看哪个阶段（新建的空骨架恒为 conceive）
+       */
+      const switchWork = useCallback((id, stage) => {
+        setWorkspaceId(id)
+        setSelectedShot(null)
+        setDetail(null)
+        setAssets(null)
+        setLedger(null)
+        setHomeMode(null)
+        stageRevision.current = null
+        if (typeof stage === 'string' && stage !== '') {
+          setViewStage(stage)
+          return
+        }
+        const rows = overview !== null && overview !== undefined && Array.isArray(overview.workspaces)
+          ? overview.workspaces
+          : []
+        const next = rows.find(row => row.id === id)
+        setViewStage(next !== undefined && typeof next.stage === 'string' && next.stage !== '' ? next.stage : '')
+      }, [overview])
 
       const createWork = useCallback(async () => {
         const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -471,16 +525,57 @@
         try {
           await apiPost('workspace', { action: 'create', id, title: '新作品 · ' + id })
           await reload()
-          setWorkspaceId(id)
-          setSelectedShot(null)
-          setDetail(null)
-          setAssets(null)
-          setLedger(null)
+          switchWork(id, 'conceive')
           say('已创建作品 ' + id + '（标题可以在 work.json 里改）', 'ok')
         } catch (problem) {
           say(problem instanceof Error ? problem.message : String(problem), 'err')
         }
-      }, [reload, say])
+      }, [reload, say, switchWork])
+
+      /**
+       * **从零开始聊**：还没有作品、也还没想好拍什么。
+       *
+       * 老路是「先建一个空骨架，再开对话」——于是你得先给一个还不存在的故事
+       * 起一个 `work-202611221430` 这样的 id，才能开始想它。顺序是反的。
+       *
+       * 现在：建一个**草稿作品**（名字「未命名作品」，id 暂定 `draft-<时间戳>`），
+       * 立刻开一段构思会话，范围文案会明说「草稿、还没立项、先别急着写文件」。
+       * 聊出方向之后点「立项命名」（`renameWork`）：改目录名与标题，**同一段对话继续**。
+       */
+      const startDraft = useCallback(async () => {
+        try {
+          const created = await apiPost('workspace', { action: 'create', draft: true })
+          await reload()
+          switchWork(created.id, 'conceive')
+          // 用户点这个入口的意图就是「现在开聊」——所以会话直接开，不等第二次点击。
+          setChatWanted(true)
+          try { window.localStorage.setItem('dsh-drama-desk:chat-open', '1') } catch { /* 存不下就算了 */ }
+          await openConceive(false, created.id)
+        } catch (problem) {
+          say(problem instanceof Error ? problem.message : String(problem), 'err')
+        }
+      }, [openConceive, reload, say, switchWork])
+
+      /**
+       * **立项**：给这个作品定名字与目录 ID（草稿转正）。
+       *
+       * 改名只动目录名与 `work.json`/`state.json` 里的身份：会话挂在 DSH 工作区
+       * 上、cwd 是总根，跟目录名无关，所以**这段对话不换**，接着聊。
+       */
+      const renameWork = useCallback(async patch => {
+        if (!workspaceId) return
+        const result = await apiPost('workspace', {
+          action: 'rename',
+          workspaceId,
+          id: patch && patch.id ? patch.id : undefined,
+          title: patch && patch.title ? patch.title : undefined,
+        })
+        await reload()
+        setWorkspaceId(result.id)
+        stageRevision.current = null
+        say('已立项：' + (result.title || result.id) + '（' + result.id + '）', 'ok')
+        return result
+      }, [reload, say, workspaceId])
 
       // ── keyboard ──────────────────────────────────────────────────────────
       useEffect(() => {
@@ -710,6 +805,9 @@
             },
               h('span', { className: 'dd-work-label' }, '作品'),
               h('span', { className: 'dd-work-title' }, currentWork ? (currentWork.title || currentWork.id) : '没有作品'),
+              currentWork && currentWork.draft === true
+                ? h('span', { className: 'dd-work-draft', title: '草稿作品：还没立项，名字与目录 id 都是暂定的' }, '草稿')
+                : null,
               currentWork && currentWork.shots
                 ? h('span', { className: 'dd-work-sub' }, currentWork.shots + ' 镜')
                 : null,
@@ -719,13 +817,9 @@
               ? h(WorkspaceMenu, {
                 works: overview ? overview.workspaces : [],
                 current: workspaceId,
-                onPick: id => {
-                  setWorkspaceId(id)
-                  setSelectedShot(null); setDetail(null); setAssets(null); setLedger(null)
-                  setHomeMode(null)
-                  stageRevision.current = null
-                },
+                onPick: switchWork,
                 onCreate: createWork,
+                onDraft: startDraft,
                 onClose: () => setWorkMenu(false),
               })
               : null,
@@ -816,6 +910,12 @@
             stageRevision.current = null
           },
         }),
+        // ── 草稿横幅 ──────────────────────────────────────────────────────
+        // 还是草稿的作品（从零开始聊建出来的）要**一眼看出「还没立项」**，
+        // 并且在这里给出定名与定目录 id 的那一步。首页/工作台都在它下面。
+        currentWork !== undefined && currentWork.draft === true
+          ? h(DraftBanner, { work: currentWork, busy, onRename: renameWork })
+          : null,
         // ── body ──────────────────────────────────────────────────────────
         h('div', { className: 'dd-body' },
           h('div', { className: 'dd-nav' },
@@ -853,13 +953,9 @@
                 works: overview ? overview.workspaces : [],
                 current: workspaceId,
                 busy,
-                onPick: id => {
-                  setWorkspaceId(id)
-                  setHomeMode(null)
-                  setSelectedShot(null); setDetail(null); setAssets(null); setLedger(null)
-                  stageRevision.current = null
-                },
+                onPick: switchWork,
                 onCreate: createWork,
+                onDraft: startDraft,
                 onEnter: () => setHomeMode(false),
               })
               : null,
@@ -986,6 +1082,8 @@
                 // 作品的目录 ID 与作品名挂成它的 prompt context（见 conceive-scope）。
                 workspaceId,
                 onStart: () => openConceive(false),
+                // 还没有作品时，空态那颗按钮变成「从零开始聊」：建草稿 + 直接开聊。
+                onDraft: startDraft,
                 onClose: () => {
                   setChatWanted(false)
                   try { window.localStorage.setItem('dsh-drama-desk:chat-open', '0') } catch { /* 存不下就算了 */ }

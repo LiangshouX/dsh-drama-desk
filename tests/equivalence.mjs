@@ -95,8 +95,12 @@ console.log('   OK (4 stages)')
 
 console.log('8. the workspace list is still correct after the TTL cache')
 const list = await service.listWorkspaces()
-assert.equal(list.length, 3, 'workspace count')
+// **别断言「正好 3 个作品」**：作品住在运行时的总根里，用户随时会新建一个
+// （「从零开始聊」就会建草稿）。断言数量等于把「用户加了作品」变成「构建失败」。
+// 这里只断言与等价性相关的事实：非空、id 唯一、回归用的那份在场。
+assert.ok(list.length >= 1, 'workspace count')
+assert.equal(new Set(list.map(w => w.id)).size, list.length, 'workspace ids are unique')
 assert.ok(list.some(w => w.id === 'demo-epic'), 'demo-epic present')
-console.log('   OK (3 workspaces)')
+console.log('   OK (' + list.length + ' workspaces)')
 
 console.log('\nAll equivalence checks passed.')

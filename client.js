@@ -481,6 +481,12 @@ body[data-ds-dark-theme] .dd{
   max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .dd-work-sub{font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);letter-spacing:-.02em;white-space:nowrap;flex:none}
+/* 草稿徽标：名字还没定，别让人以为这就是最终标题。 */
+.dd-work-draft{
+  flex:none;align-self:center;font-family:var(--f-gauge);font-size:8.5px;letter-spacing:.12em;
+  text-transform:uppercase;padding:1.5px 5px;border-radius:var(--rx-1);color:var(--ink3);
+  box-shadow:inset 0 0 0 .5px var(--line-2);
+}
 .dd-work-caret{color:var(--ink3);flex:none;align-self:center}
 .dd-menu{
   position:absolute;top:calc(100% + 7px);left:0;z-index:40;min-width:330px;max-width:440px;
@@ -2372,7 +2378,7 @@ select.dd-input{
     // ── workspace menu (top bar) ───────────────────────────────────────────
 
     function WorkspaceMenu(props) {
-      const { works, current, onPick, onCreate, onClose } = props
+      const { works, current, onPick, onCreate, onDraft, onClose } = props
       const ref = useRef(null)
       useEffect(() => {
         const onDown = event => { if (ref.current && !ref.current.contains(event.target)) onClose() }
@@ -2407,8 +2413,156 @@ select.dd-input{
             h('div', { className: 'mi-sub' }, '按数据契约建一个空作品骨架'),
           ),
         ),
+        // 还没想好拍什么的时候走这一条：先开一段对话找方向，命名的事往后放。
+        typeof onDraft === 'function'
+          ? h('div', {
+            className: 'dd-menu-item',
+            onClick: () => { onDraft(); onClose() },
+          },
+            h(Icon, { name: 'note', size: 13 }),
+            h('div', null,
+              h('div', { className: 'mi-title' }, '从零开始聊'),
+              h('div', { className: 'mi-sub' }, '还没想好拍什么：先聊方向，聊出来再立项命名'),
+            ),
+          )
+          : null,
       )
     }
+
+    /** 从作品名里搓一个像样的目录 id（只留 ascii；搓不出来就返回空串，让人手填）。 */
+    function draftIdFrom(title) {
+      const ascii = String(title === undefined || title === null ? '' : title)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+      return ascii.length >= 3 ? ascii.slice(0, 40) : ''
+    }
+
+    /**
+     * 草稿横幅：**还没立项**的那一步。
+     *
+     * 为什么它值得占一条横幅：草稿作品的目录 id 是 `draft-<时间戳>`、名字是
+     * 「未命名作品」，两个都不该跟着这部戏一辈子。而它就是「先聊后立项」这个
+     * 流程里唯一需要人做决定的地方——所以放在最上面，点开就是命名。
+     *
+     * 立项只改名字与目录（+ 真源里的 id），**不换会话**：对话挂在 DSH 工作区上，
+     * 与目录名无关。所以这里不需要「会丢对话吗」的确认框。
+     */
+    function DraftBanner(props) {
+      const { work, busy, onRename } = props
+      const [open, setOpen] = useState(false)
+      const [title, setTitle] = useState('')
+      const [id, setId] = useState('')
+      const [touched, setTouched] = useState(false)
+      const [error, setError] = useState(null)
+      const [saving, setSaving] = useState(false)
+
+      const begin = () => {
+        const guess = typeof work.title === 'string' && work.title !== '未命名作品' ? work.title : ''
+        setTitle(guess)
+        setId(draftIdFrom(guess))
+        setTouched(false)
+        setError(null)
+        setOpen(true)
+      }
+      const changeTitle = value => {
+        setTitle(value)
+        if (!touched) setId(draftIdFrom(value))
+      }
+      const submit = async () => {
+        const nextTitle = title.trim()
+        const nextId = (id.trim() !== '' ? id.trim() : draftIdFrom(nextTitle)).toLowerCase()
+        if (nextTitle === '') { setError('先给它起个名字（这部戏叫什么）'); return }
+        if (!/^[a-z0-9][a-z0-9-]{2,39}$/.test(nextId)) {
+          setError('目录 id 只允许小写字母、数字与连字符（3–40 字符），例如 moon-tide')
+          return
+        }
+        setSaving(true)
+        setError(null)
+        try {
+          await onRename({ id: nextId, title: nextTitle })
+          setOpen(false)
+        } catch (problem) {
+          setError(problem instanceof Error ? problem.message : String(problem))
+        } finally {
+          setSaving(false)
+        }
+      }
+      const field = (label, value, onChange, onKey, extra) => h('label', { className: 'dd-draft-field' },
+        h('span', { className: 'fl' }, label),
+        h('input', {
+          className: 'dd-draft-input',
+          value,
+          spellCheck: false,
+          onChange: event => onChange(event.target.value),
+          onKeyDown: event => {
+            if (event.key === 'Enter') { event.preventDefault(); onKey() }
+            if (event.key === 'Escape') { event.preventDefault(); setOpen(false) }
+          },
+          ...extra,
+        }),
+      )
+      return h('div', { className: 'dd-draft' + (open ? ' open' : '') },
+        h('div', { className: 'dd-draft-line' },
+          h('span', { className: 'dd-draft-tag' }, '草稿'),
+          h('div', { className: 'dd-draft-text' },
+            h('b', null, '还没立项。'),
+            '名字与目录 id 都是暂定的（',
+            h('code', null, work.id),
+            '）——先把方向聊出来，定了再在这里命名。'
+            + '改名只动目录与标题，这段对话继续。'),
+          open
+            ? null
+            : h('button', {
+              className: 'dd-btn sm',
+              onClick: begin,
+              disabled: busy,
+              title: '给这部戏定名字与目录 id（草稿转正）',
+            }, '立项命名…'),
+        ),
+        open
+          ? h('div', { className: 'dd-draft-form' },
+            field('作品名', title, changeTitle, submit, { placeholder: '这部戏叫什么，例如「潮信」', autoFocus: true }),
+            field('目录 id', id, value => { setTouched(true); setId(value) }, submit, { placeholder: 'moon-tide' }),
+            h('div', { className: 'dd-draft-acts' },
+              error !== null ? h('span', { className: 'dd-draft-err' }, error) : h('span', { className: 'dd-draft-hint' }, '只允许小写字母、数字与连字符，定下来就是这部戏的目录名'),
+              h('button', { className: 'dd-btn sm', onClick: () => setOpen(false), disabled: saving }, '取消'),
+              h('button', { className: 'dd-btn sm primary', onClick: submit, disabled: saving }, saving ? '正在立项…' : '立项'),
+            ),
+          )
+          : null,
+      )
+    }
+
+    CSS_PARTS.push(`
+/* 草稿横幅：一条「还没立项」的事实 + 命名入口。它是**流程**的一部分，
+   不是警告色：草稿是正常状态，只是名字还没定。 */
+.dd-draft{flex:none;display:flex;flex-direction:column;gap:0;padding:0 14px;
+  background:var(--sunken);box-shadow:inset 0 -1px 0 var(--line)}
+.dd-draft-line{display:flex;align-items:center;gap:9px;min-height:34px;padding:6px 0;min-width:0}
+.dd-draft-tag{flex:none;font-family:var(--f-gauge);font-size:9px;letter-spacing:.16em;
+  text-transform:uppercase;padding:2px 6px;border-radius:var(--rx-1);color:var(--ink2);
+  background:var(--raised);box-shadow:inset 0 0 0 .5px var(--line-2)}
+.dd-draft-text{flex:1 1 auto;min-width:0;font-size:11.5px;line-height:1.65;color:var(--ink3)}
+.dd-draft-text b{color:var(--ink2);font-weight:600}
+.dd-draft-text code{font-family:var(--f-mono);font-size:10.5px}
+.dd-draft .dd-btn{flex:none}
+.dd-draft-form{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;
+  padding:2px 0 10px;min-width:0}
+.dd-draft-field{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 180px}
+.dd-draft-field .fl{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink3);font-family:var(--f-gauge)}
+.dd-draft-input{
+  height:26px;padding:0 8px;border-radius:var(--rx-1);border:none;outline:none;
+  background:var(--sunken);color:var(--ink1);font-family:inherit;font-size:12px;
+  box-shadow:inset 0 0 0 .5px var(--line-2);min-width:0;
+}
+.dd-draft-field:nth-child(2) .dd-draft-input{font-family:var(--f-mono);font-size:11.5px}
+.dd-draft-input:focus-visible{box-shadow:inset 0 0 0 .5px var(--line-2),0 0 0 1.5px var(--hot)}
+.dd-draft-acts{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding-bottom:1px}
+.dd-draft-err{font-size:10.5px;color:var(--sig-fail);max-width:280px}
+.dd-draft-hint{font-size:10.5px;color:var(--ink4);max-width:280px}
+`)
 
     // ── stage views ────────────────────────────────────────────────────────
 
@@ -4009,7 +4163,7 @@ select.dd-input{
      */
     function ConceiveChat(props) {
       const {
-        sessionId, onClose, onFresh, onStart, canStart, busy,
+        sessionId, onClose, onFresh, onStart, onDraft, canStart, busy,
         workspaceId, panelControls, dshWorkspaceId, SessionProvider, renderSlot,
       } = props
       const [activeId, setActiveId] = useState(sessionId)
@@ -4030,6 +4184,8 @@ select.dd-input{
       /** 标题表：sessionId → 标题（来自宿主的 title 投影，和侧栏同一来源）。 */
       const [titles, setTitles] = useState({})
       const [starting, setStarting] = useState(false)
+      /** 「从零开始聊」那一颗按钮的等待态（它要多做一件事：先建草稿作品）。 */
+      const [draftStarting, setDraftStarting] = useState(false)
       /** 自愈重试计数：绑定失败 → 请 Host 把这段会话恢复成活的 → 再绑一次。 */
       const [attempt, setAttempt] = useState(0)
       const repairedRef = useRef(false)
@@ -4191,6 +4347,22 @@ select.dd-input{
       }, [starting, onStart])
 
       /**
+       * 还没有作品时的入口：**从零开始聊**。
+       *
+       * 父组件干两件事：建一个草稿作品（名字与目录 id 都是暂定的）、立刻开一段会话。
+       * 命名的事往后放——聊出方向再立项，而且立项**不换这段对话**。
+       */
+      const draftStart = useCallback(async () => {
+        if (draftStarting || typeof onDraft !== 'function') return
+        setDraftStarting(true)
+        try {
+          await onDraft()
+        } finally {
+          setDraftStarting(false)
+        }
+      }, [draftStarting, onDraft])
+
+      /**
        * 打开**宿主的完整对话面板**，把这段会话放进去。
        *
        * 为什么还要留这个出口：侧栏这一格是嵌进来的**窄**视图，宿主的完整面板
@@ -4256,15 +4428,26 @@ select.dd-input{
         h('div', null, '这里接的是真的 DSH 会话：'),
         h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
         h('div', { style: { marginTop: '14px' } },
+          // 还没有作品时，这颗按钮不是死的：它就是「从零开始聊」——
+          // 建一个草稿作品、立刻开聊，命名的事往后放。
           h('button', {
-            className: 'dd-btn primary', onClick: start,
-            disabled: starting || busy || !canStart,
-            title: canStart ? '开一段真的构思会话' : '先选一个作品（构思会话是挂在作品上的）',
-          }, starting ? '正在开…' : '开始对话'),
+            className: 'dd-btn primary',
+            onClick: canStart ? start : draftStart,
+            disabled: starting || busy || (!canStart && draftStarting) || (canStart ? false : typeof onDraft !== 'function'),
+            title: canStart
+              ? '开一段真的构思会话'
+              : (typeof onDraft === 'function'
+                ? '建一个草稿作品并立刻开聊：聊出方向之后再立项命名'
+                : '先选一个作品（构思会话是挂在作品上的）'),
+          }, starting || draftStarting
+            ? '正在开…'
+            : (canStart ? '开始对话' : '从零开始聊')),
           h('div', { style: { marginTop: '10px', color: 'var(--ink4)' } },
             canStart
               ? '开好之后，聊天界面是宿主自己的那一套。'
-              : '先选一个作品（或新建一个），构思会话是挂在作品上的。')),
+              : (typeof onDraft === 'function'
+                ? '不用先建作品：先聊方向，聊出个大概再立项命名，对话不会因此换一段。'
+                : '先选一个作品（或新建一个），构思会话是挂在作品上的。'))),
       )
 
       // 页面本体：绑上了会话就交给宿主渲染，否则说清楚缺什么。
@@ -4317,6 +4500,8 @@ select.dd-input{
           h('span', { className: 'sc-a' }, scopeOther ? '属于' : '只谈'),
           h('b', { title: scopeWork.title }, scopeWork.title),
           h('span', { className: 'sc-id' }, scopeWork.id),
+          // 草稿作品：名字与目录 id 都是暂定的，别让人以为这是定下来的作品。
+          scopeWork.draft === true ? h('span', { className: 'sc-draft' }, '草稿') : null,
           scopeBroken ? h('span', { className: 'sc-warn' }, '范围没挂上 · 点一下重试') : null,
           scope.ok === false ? h('span', { className: 'sc-warn' }, '问不到范围 · 点一下重试') : null,
         )
@@ -4374,6 +4559,11 @@ select.dd-input{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dd-chat-scope .sc-id{flex:none;font-family:var(--f-mono);font-size:10.5px;color:var(--ink3)}
 .dd-chat-scope .sc-id::before{content:'·';margin-right:5px;opacity:.55}
+/* 草稿标记：名字与目录 id 还是暂定的。 */
+.dd-chat-scope .sc-draft{
+  flex:none;font-family:var(--f-gauge);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
+  padding:1px 5px;border-radius:var(--rx-1);color:var(--ink3);box-shadow:inset 0 0 0 .5px var(--line-2);
+}
 .dd-chat-scope .sc-warn{margin-left:auto;flex:none;color:var(--sig-warn)}
 /* 没挂上 / 属于别的作品：这也是「如实回报」，不是错误页。点一下重挂。 */
 .dd-chat-scope[data-state='off']{
@@ -4391,14 +4581,16 @@ select.dd-input{
     // ── 首页 ───────────────────────────────────────────────────────────────
 
     function HomeView(props) {
-      const { works, current, onPick, onCreate, onEnter, busy } = props
+      const { works, current, onPick, onCreate, onDraft, onEnter, busy } = props
       const cards = works.map(work => h('button', {
         key: work.id,
         className: 'dd-work-card' + (work.id === current ? ' on' : ''),
         onClick: () => onPick(work.id),
       },
         h('div', { className: 'wt' }, work.title || work.id),
-        h('div', { className: 'wi' }, work.id + ' · ' + (work.stage || '—')),
+        h('div', { className: 'wi' },
+          work.id + ' · ' + (work.stage || '—')
+          + (work.draft === true ? ' · 草稿' : '')),
         h('div', { className: 'wm' },
           h('span', null, (work.scenes ?? 0) + ' 场'),
           h('span', null, (work.shots ?? 0) + ' 镜'),
@@ -4411,13 +4603,22 @@ select.dd-input{
               h('div', { style: { minWidth: '0', flex: '1 1 380px' } },
                 h('div', { className: 'h1' }, '从一个想法开始'),
                 h('div', { className: 'h2' },
-                  '九个阶段，一路到成片。每一阶段有自己的产物与体检线——随时能改，随时能退回重做一镜。'),
+                  '九个阶段，一路到成片。每一阶段有自己的产物与体检线——随时能改，随时可退回重做一镜。'),
                 h('div', { className: 'h3' },
-                  '右边那扇窗是一个真的 AI 会话。点「开始对话」，它会把创意写进 creative/brief.md。'),
+                  '还没想好拍什么？点「从零开始聊」：右边那扇窗是一段真的 AI 会话，'
+                  + '先把方向聊出来，再给它命名立项。'),
               ),
               h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', flex: '0 0 auto' } },
                 current !== undefined
                   ? h('button', { className: 'dd-btn primary', disabled: busy, onClick: onEnter }, '进入工作台')
+                  : null,
+                typeof onDraft === 'function'
+                  ? h('button', {
+                    className: current === undefined ? 'dd-btn primary' : 'dd-btn',
+                    disabled: busy,
+                    onClick: onDraft,
+                    title: '建一个草稿作品并立刻开聊：聊出方向之后再命名立项',
+                  }, '从零开始聊')
                   : null,
                 h('button', { className: 'dd-btn', disabled: busy, onClick: onCreate }, '新建作品'),
               ),
@@ -4426,8 +4627,10 @@ select.dd-input{
               h('h4', null, '作品' + (works.length > 0 ? '（' + works.length + '）' : '')),
               works.length === 0
                 ? h('div', { className: 'dd-note' },
-                  '项目根下还没有作品。点「新建作品」建一个空骨架，或者先把右边的构思会话开起来——'
-                  + '它会在你写简报时帮你把故事想清楚。')
+                  '项目根下还没有作品。',
+                  h('b', null, '还没想好拍什么'),
+                  '就点「从零开始聊」——它建一个草稿作品并立刻开一段对话，聊出方向再立项命名'
+                  + '（改名不换对话）；想直接开工就点「新建作品」建一个空骨架。')
                 : h('div', { className: 'dd-works' },
                   cards,
                   h('button', { className: 'dd-work-card new', onClick: onCreate },
@@ -6777,6 +6980,14 @@ select.dd-input{
         return null
       })
       const [conceive, setConceive] = useState(null)
+      /**
+       * 构思会话的**两条异步来路**（「换作品 → 问」与「开会话」）共用这一个序号：
+       * 后发先至的响应必须能被认出来。`conceiveFor` 记着当前 conceive 是给哪个
+       * 作品的，换作品时先清空，绝不把上一部戏的会话顶着显示。
+       */
+      const conceiveSeq = useRef(0)
+      const conceiveFor = useRef('')
+      const [conceiveTick, setConceiveTick] = useState(0)
       const [workMenu, setWorkMenu] = useState(false)
       const [newWork, setNewWork] = useState(null)
       const searchRef = useRef(null)
@@ -7125,17 +7336,27 @@ select.dd-input{
        * `drama-conceive` 技能），id 记在 `state.json` 上——所以换天回来、
        * 换一台机器，还是同一段构思对话。
        *
-       * 注意：**进入阶段不会自动走到这里。** 侧栏是常驻的，会话却由用户
-       * 主动发起——点侧栏里的「开始对话」才真的建这段会话。
+       * `targetId` 是给「从零开始聊」用的：那一步刚刚建了一个草稿作品，
+       * `workspaceId` 的 state 还没重新渲染，闭包里的旧值会是空串。
        */
-      const openConceive = useCallback(async fresh => {
-        if (!workspaceId) {
-          say('先选一个作品，或者新建一个——构思会话是挂在作品上的', 'err')
+      const openConceive = useCallback(async (fresh, targetId) => {
+        const id = typeof targetId === 'string' && targetId !== '' ? targetId : workspaceId
+        if (!id) {
+          say('先选一个作品；还没想好拍什么就点「从零开始聊」——先聊方向，聊完再立项命名', 'err')
           return
         }
+        // 开会话也是一条**异步来路**：它在飞的这段时间里，「换作品 → 问会话」那条
+        // GET 可能先回来（那时磁盘上还没有会话）并把结果盖掉。序号在这里的作用与
+        // 它在阶段载荷上的作用一样：**后发先至的结果必须能被认出来并丢掉**。
+        const seq = (conceiveSeq.current += 1)
         try {
-          const result = await apiPost('conceive-session', { workspaceId, fresh: fresh === true })
-          setConceive(result)
+          const result = await apiPost('conceive-session', { workspaceId: id, fresh: fresh === true })
+          if (seq === conceiveSeq.current) {
+            setConceive(result)
+          } else {
+            // 期间有更晚的请求：不抢写，请它按磁盘再核一次。
+            setConceiveTick(count => count + 1)
+          }
           if (fresh === true) say('新对话已开始（旧的那段还在 DSH 的会话列表里）', 'ok')
         } catch (problem) {
           say(problem instanceof Error ? problem.message : String(problem), 'err')
@@ -7143,17 +7364,53 @@ select.dd-input{
       }, [workspaceId, say])
 
       // 换了作品 → 重新问一次这个作品的构思会话还在不在（不创建）。
+      //
+      // **先清空再问。** 不清的话，在响应回来之前 `conceive` 还挂着**上一部戏**的
+      // 会话 id，会话窗就会把别人的对话显示成这一部的（实测：切到新建的草稿作品，
+      // 右栏还在放 demo-epic 的那段对话，范围条也还写着 demo-epic）。宁可闪一下
+      // 「还没开始」，也不能显示错的那一段。
       useEffect(() => {
-        if (!workspaceId) {
+        if (conceiveFor.current !== workspaceId) {
+          conceiveFor.current = workspaceId
           setConceive(null)
-          return undefined
         }
+        if (!workspaceId) return undefined
+        const seq = (conceiveSeq.current += 1)
         let cancelled = false
         apiGet('conceive-session', { workspace: workspaceId })
-          .then(value => { if (!cancelled) setConceive(value) })
-          .catch(() => { if (!cancelled) setConceive(null) })
+          .then(value => { if (!cancelled && seq === conceiveSeq.current) setConceive(value) })
+          .catch(() => { if (!cancelled && seq === conceiveSeq.current) setConceive(null) })
         return () => { cancelled = true }
-      }, [workspaceId])
+      }, [workspaceId, conceiveTick])
+
+      /**
+       * 换作品：视图状态跟着那部戏走。
+       *
+       * 以前只换 id，`viewStage` 留着上一部戏的阶段——切到一部还停在「创意」的
+       * 新作品，顶栏却写着「预览 生成 · 已提交进度仍停在 创意」，
+       * 看起来像坏了。**阶段是每部戏自己的**，换戏就该回到它的已提交阶段。
+       *
+       * @param {string} id 作品 id
+       * @param {string} [stage] 明确指定要看哪个阶段（新建的空骨架恒为 conceive）
+       */
+      const switchWork = useCallback((id, stage) => {
+        setWorkspaceId(id)
+        setSelectedShot(null)
+        setDetail(null)
+        setAssets(null)
+        setLedger(null)
+        setHomeMode(null)
+        stageRevision.current = null
+        if (typeof stage === 'string' && stage !== '') {
+          setViewStage(stage)
+          return
+        }
+        const rows = overview !== null && overview !== undefined && Array.isArray(overview.workspaces)
+          ? overview.workspaces
+          : []
+        const next = rows.find(row => row.id === id)
+        setViewStage(next !== undefined && typeof next.stage === 'string' && next.stage !== '' ? next.stage : '')
+      }, [overview])
 
       const createWork = useCallback(async () => {
         const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
@@ -7161,16 +7418,57 @@ select.dd-input{
         try {
           await apiPost('workspace', { action: 'create', id, title: '新作品 · ' + id })
           await reload()
-          setWorkspaceId(id)
-          setSelectedShot(null)
-          setDetail(null)
-          setAssets(null)
-          setLedger(null)
+          switchWork(id, 'conceive')
           say('已创建作品 ' + id + '（标题可以在 work.json 里改）', 'ok')
         } catch (problem) {
           say(problem instanceof Error ? problem.message : String(problem), 'err')
         }
-      }, [reload, say])
+      }, [reload, say, switchWork])
+
+      /**
+       * **从零开始聊**：还没有作品、也还没想好拍什么。
+       *
+       * 老路是「先建一个空骨架，再开对话」——于是你得先给一个还不存在的故事
+       * 起一个 `work-202611221430` 这样的 id，才能开始想它。顺序是反的。
+       *
+       * 现在：建一个**草稿作品**（名字「未命名作品」，id 暂定 `draft-<时间戳>`），
+       * 立刻开一段构思会话，范围文案会明说「草稿、还没立项、先别急着写文件」。
+       * 聊出方向之后点「立项命名」（`renameWork`）：改目录名与标题，**同一段对话继续**。
+       */
+      const startDraft = useCallback(async () => {
+        try {
+          const created = await apiPost('workspace', { action: 'create', draft: true })
+          await reload()
+          switchWork(created.id, 'conceive')
+          // 用户点这个入口的意图就是「现在开聊」——所以会话直接开，不等第二次点击。
+          setChatWanted(true)
+          try { window.localStorage.setItem('dsh-drama-desk:chat-open', '1') } catch { /* 存不下就算了 */ }
+          await openConceive(false, created.id)
+        } catch (problem) {
+          say(problem instanceof Error ? problem.message : String(problem), 'err')
+        }
+      }, [openConceive, reload, say, switchWork])
+
+      /**
+       * **立项**：给这个作品定名字与目录 ID（草稿转正）。
+       *
+       * 改名只动目录名与 `work.json`/`state.json` 里的身份：会话挂在 DSH 工作区
+       * 上、cwd 是总根，跟目录名无关，所以**这段对话不换**，接着聊。
+       */
+      const renameWork = useCallback(async patch => {
+        if (!workspaceId) return
+        const result = await apiPost('workspace', {
+          action: 'rename',
+          workspaceId,
+          id: patch && patch.id ? patch.id : undefined,
+          title: patch && patch.title ? patch.title : undefined,
+        })
+        await reload()
+        setWorkspaceId(result.id)
+        stageRevision.current = null
+        say('已立项：' + (result.title || result.id) + '（' + result.id + '）', 'ok')
+        return result
+      }, [reload, say, workspaceId])
 
       // ── keyboard ──────────────────────────────────────────────────────────
       useEffect(() => {
@@ -7400,6 +7698,9 @@ select.dd-input{
             },
               h('span', { className: 'dd-work-label' }, '作品'),
               h('span', { className: 'dd-work-title' }, currentWork ? (currentWork.title || currentWork.id) : '没有作品'),
+              currentWork && currentWork.draft === true
+                ? h('span', { className: 'dd-work-draft', title: '草稿作品：还没立项，名字与目录 id 都是暂定的' }, '草稿')
+                : null,
               currentWork && currentWork.shots
                 ? h('span', { className: 'dd-work-sub' }, currentWork.shots + ' 镜')
                 : null,
@@ -7409,13 +7710,9 @@ select.dd-input{
               ? h(WorkspaceMenu, {
                 works: overview ? overview.workspaces : [],
                 current: workspaceId,
-                onPick: id => {
-                  setWorkspaceId(id)
-                  setSelectedShot(null); setDetail(null); setAssets(null); setLedger(null)
-                  setHomeMode(null)
-                  stageRevision.current = null
-                },
+                onPick: switchWork,
                 onCreate: createWork,
+                onDraft: startDraft,
                 onClose: () => setWorkMenu(false),
               })
               : null,
@@ -7506,6 +7803,12 @@ select.dd-input{
             stageRevision.current = null
           },
         }),
+        // ── 草稿横幅 ──────────────────────────────────────────────────────
+        // 还是草稿的作品（从零开始聊建出来的）要**一眼看出「还没立项」**，
+        // 并且在这里给出定名与定目录 id 的那一步。首页/工作台都在它下面。
+        currentWork !== undefined && currentWork.draft === true
+          ? h(DraftBanner, { work: currentWork, busy, onRename: renameWork })
+          : null,
         // ── body ──────────────────────────────────────────────────────────
         h('div', { className: 'dd-body' },
           h('div', { className: 'dd-nav' },
@@ -7543,13 +7846,9 @@ select.dd-input{
                 works: overview ? overview.workspaces : [],
                 current: workspaceId,
                 busy,
-                onPick: id => {
-                  setWorkspaceId(id)
-                  setHomeMode(null)
-                  setSelectedShot(null); setDetail(null); setAssets(null); setLedger(null)
-                  stageRevision.current = null
-                },
+                onPick: switchWork,
                 onCreate: createWork,
+                onDraft: startDraft,
                 onEnter: () => setHomeMode(false),
               })
               : null,
@@ -7676,6 +7975,8 @@ select.dd-input{
                 // 作品的目录 ID 与作品名挂成它的 prompt context（见 conceive-scope）。
                 workspaceId,
                 onStart: () => openConceive(false),
+                // 还没有作品时，空态那颗按钮变成「从零开始聊」：建草稿 + 直接开聊。
+                onDraft: startDraft,
                 onClose: () => {
                   setChatWanted(false)
                   try { window.localStorage.setItem('dsh-drama-desk:chat-open', '0') } catch { /* 存不下就算了 */ }

@@ -72,6 +72,32 @@ function isBusy(error) {
   return error.code === 'EBUSY' || error.code === 'EPERM' || error.code === 'EACCES'
 }
 
+/**
+ * 把 `from` 改名成 `to`（目录或文件），带 Windows 的「正忙」重试。
+ *
+ * 与 `replaceFile` 不同的地方：**没有「就地覆盖」这条退路**。改名失败就是失败——
+ * 硬凑一个「复制内容再删旧的」，在半途失败时会把一个作品拆成两半，
+ * 那比报错糟糕得多。重试到最后一刻，然后把**原样的错误**交回去，界面如实说。
+ *
+ * 只重试「正忙」类（EBUSY / EPERM / EACCES）：打开着的缩略图、杀毒扫描、
+ * 资源管理器预览都会短暂占住目录，几十毫秒就过去了。
+ */
+export async function renamePath(from, to) {
+  const delays = [0, 60, 200, 500, 1200]
+  let last
+  for (const delay of delays) {
+    if (delay > 0) await sleep(delay)
+    try {
+      await rename(from, to)
+      return
+    } catch (error) {
+      last = error
+      if (!isBusy(error)) throw error
+    }
+  }
+  throw last
+}
+
 /** A short sleep. */
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))

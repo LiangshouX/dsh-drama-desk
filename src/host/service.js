@@ -13,7 +13,7 @@
  */
 import { stat, statfs, mkdir } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
-import { readJsonIfExists, readTextIfExists, isFile, resolveWithin, writeJsonAtomic, writeTextAtomic, listDirIfExists, mapLimit } from './fsx.js'
+import { readJsonIfExists, readTextIfExists, isFile, isDirectory, resolveWithin, writeJsonAtomic, writeTextAtomic, listDirIfExists, mapLimit, renamePath } from './fsx.js'
 import { discoverWorkspaces, loadWorkspace, writeSceneBeats, writeShotFields, DERIVED_SHOT_FIELDS } from './workspace.js'
 import { loadSpec, STAGES } from './spec.js'
 import { runBeatQc, runMotionQc, runImageQc } from './qc.js'
@@ -242,6 +242,9 @@ export class DramaDeskService {
         stage: typeof state?.stage === 'string' ? state.stage : undefined,
         shots: typeof state?.shots_total === 'number' ? state.shots_total : undefined,
         scenes: typeof state?.scenes_total === 'number' ? state.scenes_total : undefined,
+        // 草稿：还没立项的作品（见 `createWorkspace` 的 `draft`）。名字与目录 ID 都是
+        // **暂定**的，界面要如实标出来，并给一个「立项命名」的出口。
+        draft: work?.draft === true,
       })
     }
     this.workspaceCache = { at: now, value: rows }
@@ -1585,9 +1588,18 @@ export class DramaDeskService {
    *
    * An empty work is still a valid work: the contract's seven state files plus
    * an empty brief. Everything else is filled in by the stages.
+   *
+   * `draft: true` = **草稿作品**：还没想好要拍什么，先有个落脚的地方聊天找方向。
+   * 名字与目录 ID 都是暂定的（`draft-<时间戳>` / 「未命名作品」），聊出方向之后
+   * 由导演**立项改名**（见 `renameWorkspace`）。会话与目录名无关，所以改名不会
+   * 打断正在进行的对话——这也是为什么敢先给一个临时 id。
    */
   async createWorkspace(options = {}) {
-    const id = typeof options.id === 'string' ? options.id.trim() : ''
+    const draft = options.draft === true
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)
+    const id = typeof options.id === 'string' && options.id.trim() !== ''
+      ? options.id.trim()
+      : (draft ? 'draft-' + stamp : '')
     if (!/^[a-z0-9][a-z0-9-]{2,39}$/.test(id)) {
       throw new Error('作品 id 不合法：只允许小写字母、数字与连字符（3–40 字符）')
     }
@@ -1595,14 +1607,18 @@ export class DramaDeskService {
     const root = locations.project.path
     const dir = join(root, 'workspaces', id)
     if (await isFile(join(dir, 'work.json'))) throw new Error(`作品 ${id} 已经存在`)
+    const title = typeof options.title === 'string' && options.title !== ''
+      ? options.title
+      : (draft ? '未命名作品' : id)
     await mkdir(join(dir, 'creative'), { recursive: true })
     await writeJsonAtomic(join(dir, 'work.json'), {
       version: '1.0',
       work_id: id,
-      title: typeof options.title === 'string' && options.title !== '' ? options.title : id,
+      title,
       created_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
       created_by: 'human',
       notes: '',
+      ...(draft ? { draft: true } : {}),
     })
     await writeJsonAtomic(join(dir, 'state.json'), {
       version: '1.0',
@@ -1620,7 +1636,56 @@ export class DramaDeskService {
     await writeJsonAtomic(join(dir, 'ledger.json'), { version: '1.0', entries: [], totals: { cost_usd: 0, tasks: 0, succeeded: 0, failed: 0 } })
     await writeTextAtomic(join(dir, 'creative', 'brief.md'), '# 简报\n\n')
     this.selectedWorkspaceId = id
-    return { ok: true, id, dir }
+    return { ok: true, id, dir, draft }
+  }
+
+  /**
+   * **立项**：给一个作品定名字与目录 ID。草稿作品靠它转正。
+   *
+   * 为什么是「改目录名」而不是「另建一个作品再搬内容」：
+   *   · 会话与目录名**无关**（agent 的 cwd 是总根），所以改名不会打断正在进行的
+   *     那段构思对话——这正是「先聊后立项」成立的前提；
+   *   · 一个作品 = 一个目录（`AGENTS.md` §7）这条语义不动，不需要第二份台账；
+   *   · 资产路径是**相对作品目录**的（`resolveWithin(workspace.dir, …)`），
+   *     改目录名不动里面的引用。
+   *
+   * 不做「复制再删」的退路：半途失败会把一个作品拆成两半，比报错糟得多。
+   * 改不动就如实报错，原样留在旧目录（见 `fsx.renamePath`）。
+   *
+   * @param {{workspaceId?: string, id?: string, title?: string}} options
+   */
+  async renameWorkspace(options = {}) {
+    // **不用 `requireWorkspace`**：它找不到就退回首件作品——改名可不能改错人。
+    const rows = await this.listWorkspaces()
+    const workspace = rows.find(row => row.id === options.workspaceId)
+    if (workspace === undefined) throw new Error(`没有作品 ${options.workspaceId === undefined ? '' : options.workspaceId}`)
+    const oldId = workspace.id
+    const oldDir = workspace.dir
+    const wanted = typeof options.id === 'string' && options.id.trim() !== '' ? options.id.trim() : oldId
+    if (!/^[a-z0-9][a-z0-9-]{2,39}$/.test(wanted)) {
+      throw new Error('作品 id 不合法：只允许小写字母、数字与连字符（3–40 字符）')
+    }
+    const title = typeof options.title === 'string' && options.title.trim() !== ''
+      ? options.title.trim()
+      : undefined
+    const changing = wanted !== oldId
+    const target = join(await this.projectRoot(), 'workspaces', wanted)
+    if (changing && await isDirectory(target)) throw new Error(`workspaces/${wanted} 已经存在，换一个 id`)
+    if (changing) await renamePath(oldDir, target)
+    const dir = changing ? target : oldDir
+
+    // 身份写在两个真源里：`work.json`（名字与 id）与 `state.json`（id）。
+    const work = (await readJsonIfExists(join(dir, 'work.json'))) ?? {}
+    const nextWork = { ...work, work_id: wanted, title: title !== undefined ? title : (work.title || wanted) }
+    delete nextWork.draft
+    await writeJsonAtomic(join(dir, 'work.json'), nextWork)
+    const state = await readJsonIfExists(join(dir, 'state.json'))
+    if (state !== undefined) await writeJsonAtomic(join(dir, 'state.json'), { ...state, work_id: wanted })
+
+    this.invalidateWork(oldDir)
+    this.invalidateWork(dir)
+    this.selectedWorkspaceId = wanted
+    return { ok: true, id: wanted, title: nextWork.title, dir, renamed: changing, from: oldId }
   }
 
   // ── directories ───────────────────────────────────────────────────────────
@@ -1707,6 +1772,7 @@ export class DramaDeskService {
       title: workspace.title !== undefined && workspace.title !== '' ? workspace.title : workspace.id,
       path: path === '' ? '.' : path,
       fresh: isNew,
+      draft: workspace.draft === true,
     }
   }
 
@@ -1746,7 +1812,7 @@ export class DramaDeskService {
     return {
       ok: true,
       // 这一段会话实际钉在哪个作品上。
-      work: { id: scope.id, title: scope.title, path: scope.path },
+      work: { id: scope.id, title: scope.title, path: scope.path, draft: scope.draft === true },
       // 工作台此刻打开的是哪个作品（两者不同 = 这段对话不是这一部戏的）。
       current: { id: requested.id, title: requested.title },
       match: target.id === requested.id,

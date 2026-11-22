@@ -314,7 +314,11 @@ async function runAction(service, action, body) {
       return await service.makeDirectory({ path: body.path, name: body.name })
     case 'workspace':
       if (body.action === 'create') {
-        return await service.createWorkspace({ id: body.id, title: body.title })
+        return await service.createWorkspace({ id: body.id, title: body.title, draft: body.draft === true })
+      }
+      if (body.action === 'rename') {
+        // 立项：给草稿（或任何作品）定名字与目录 ID。
+        return await service.renameWorkspace({ workspaceId: body.workspaceId, id: body.id, title: body.title })
       }
       if (body.action === 'select') {
         return { ok: true, selected: body.id }

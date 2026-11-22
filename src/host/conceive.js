@@ -89,13 +89,26 @@ export function scopePrompt(scope) {
   const id = typeof scope.id === 'string' ? scope.id : ''
   const name = typeof scope.title === 'string' && scope.title !== '' ? scope.title : id
   const path = typeof scope.path === 'string' && scope.path !== '' ? scope.path : `workspaces/${id}`
-  return [
+  const draft = scope.draft === true
+  const lines = [
     `# 当前作品（整段对话的固定范围）`,
     '',
     `- 作品名：「${name}」`,
     `- 目录 ID：\`${id}\``,
     `- 路径：\`${path}/\`（在本次工作区的总根之下）`,
-    '',
+  ]
+  if (draft) lines.push('- 状态：**草稿（还没立项）** —— 名字与目录 ID 都是暂定的')
+  lines.push('')
+  if (draft) {
+    lines.push(
+      `这是一个**刚起的草稿**：导演还没想好要拍什么，先开了这段对话找方向。`,
+      `所以先别急着写文件——把方向聊清楚（问三到五个真正影响故事的问题）。`,
+      `方向定了导演会**立项命名**：那之后这一段换成正式的目录与名字，对话继续，不用重开。`,
+      `在那之前，别把这个临时 ID 当成作品的正式身份到处引用。`,
+      '',
+    )
+  }
+  lines.push(
     `这一页打开的就是「${name}」，它的目录 ID 是 \`${id}\`——这个对应关系不会变。`,
     `**只读写 \`${path}/\` 下的文件**：不要读、不要改总根下别的目录，也不要把别的作品的`,
     `角色、剧情、镜头混进来。别的目录就是别的戏。`,
@@ -103,7 +116,8 @@ export function scopePrompt(scope) {
     scope.fresh === true
       ? `这是一个**刚建的新作品**，目录还是空的。用 \`drama-conceive\` 技能跟我一起把创意想出来。`
       : `继续「${name}」的构思时用 \`drama-conceive\` 技能；要改稿就先读 \`${path}/\` 里的文件。`,
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 /**

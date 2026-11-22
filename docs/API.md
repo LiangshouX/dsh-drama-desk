@@ -621,21 +621,48 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 [ { "id": "<work-id>", "title": "「示例作品」",
   "stage": "generate", "scenes": 4, "shots": 7, "seconds": 45,
   "dir": "D:/…/workspaces/<work-id>",
+  "draft": false,
   "updatedAt": "2026-11-15T10:00:00Z" } ]
 ```
+
+`draft: true` = **草稿作品**：还没立项，名字（「未命名作品」）与目录 id
+（`draft-<时间戳>`）都是暂定的。界面要标出来，并给一个「立项命名」的出口。
 
 ### 7.2 新建：`POST /workspace`
 
 ```jsonc
 { "action": "create", "id": "my-drama-20261116", "title": "我的短剧" }
-→ { "ok": true, "data": { "id": "my-drama-20261116", "dir": "…" } }
+→ { "ok": true, "data": { "id": "my-drama-20261116", "dir": "…", "draft": false } }
+
+// 从零开始：不给 id / title，给 draft
+{ "action": "create", "draft": true }
+→ { "ok": true, "data": { "id": "draft-202611221430", "dir": "…", "draft": true } }
 ```
 
 新建的骨架（按契约 §1.2）：`work.json` `state.json`（stage=conceive）
 `scenes.json` `characters.json` `shots.json` `assets.json` `ledger.json`
-+ `creative/brief.md`（空）。
++ `creative/brief.md`（空）。`draft: true` 时 `work.json` 多一个 `draft: true`。
 
-### 7.3 选择：`POST /workspace` `{ "action": "select", "id": "…" }`
+### 7.3 立项（改名）：`POST /workspace` `{ "action": "rename", … }`
+
+```jsonc
+{ "action": "rename", "workspaceId": "draft-202611221430",
+  "id": "moon-tide", "title": "潮信" }
+→ { "ok": true, "data": { "id": "moon-tide", "title": "潮信",
+                          "dir": "D:/…/workspaces/moon-tide",
+                          "renamed": true, "from": "draft-202611221430" } }
+```
+
+- **改目录名**（不是另建一个再搬内容）：`workspaces/draft-…` → `workspaces/moon-tide`，
+  同时改 `work.json` 的 `work_id`/`title`（并去掉 `draft`）与 `state.json` 的 `work_id`。
+- **会话不受影响**：会话挂在 DSH 工作区上、cwd 是总根，与目录名无关，
+  所以 `state.json` 的 `desk_session_id` 原样跟过去 —— 「先聊后立项」靠的就是这条。
+- **资产不受影响**：资产的 `path` 相对**作品目录**，改目录名不动里面的引用。
+- `id` 省略 = 只改标题（`renamed:false`）。撞名 / 不合法 / 作品不存在都如实报错；
+  改不动目录就原样留在旧目录（`renamePath` 只重试「文件正忙」，不做「复制再删」，
+  半途失败会把一个作品拆成两半）。
+
+### 7.4 选择：`POST /workspace` `{ "action": "select", "id": "…" }`
 
 ---
 
@@ -731,6 +758,17 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 也不要把别的作品的角色、剧情、镜头混进来。别的目录就是别的戏。
 
 继续「<作品名>」的构思时用 `drama-conceive` 技能；要改稿就先读 `workspaces/<work-id>/` 里的文件。
+```
+
+**草稿作品（`draft: true`）多一段**，而且它与「刚建的新项目」那句不冲突：
+
+```markdown
+- 状态：**草稿（还没立项）** —— 名字与目录 ID 都是暂定的
+
+这是一个**刚起的草稿**：导演还没想好要拍什么，先开了这段对话找方向。
+所以先别急着写文件——把方向聊清楚（问三到五个真正影响故事的问题）。
+方向定了导演会**立项命名**：那之后这一段换成正式的目录与名字，对话继续，不用重开。
+在那之前，别把这个临时 ID 当成作品的正式身份到处引用。
 ```
 
 一个总根 = 一个 DSH 工作区，所有项目共用它，所以每段对话都得钉死「这次只谈哪个项目」

@@ -194,6 +194,8 @@ export async function listWorkspacesDetailed(service) {
       shots: shots.length,
       seconds: round2(seconds),
       dir,
+      // 草稿作品（还没立项）：界面要标出来，并给一个「立项命名」的出口。
+      draft: entry?.draft === true,
       updatedAt: await updatedAtOf(dir),
     })
   }
