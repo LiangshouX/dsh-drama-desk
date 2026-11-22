@@ -3779,17 +3779,55 @@ select.dd-input{
         .trim()
     }
 
-    /** 一条对话行。太长的（比如宿主注入的上下文）折起来，别把输入框顶走。 */
+    /**
+     * 这条用户消息是不是**注入的上下文**（而不是人写的话）。
+     *
+     * 判据刻意保守：以 markdown 一级标题开头、且明显很长。
+     * 人写的话极少长这样；认错了也只是多一次点击展开。
+     *
+     * @param {string} text
+     * @returns {boolean}
+     */
+    function isInjectedContext(text) {
+      const value = String(text ?? '')
+      if (value.length < 200) return false
+      return /^#{1,3}\s+\S/.test(value)
+    }
+
+    /**
+     * 一条对话行。
+     *
+     * `kind === 'context'` 是**注入的上下文**（长期记忆、别的插件塞的资料）——
+     * 它不是人写的话，所以**默认折起来**，只露一个标题。
+     */
     function MsgRow(props) {
       const { kind, text } = props
       const [open, setOpen] = useState(false)
+      const isContext = kind === 'context'
       const long = kind !== 'tool' && typeof text === 'string' && text.length > 420
-      const shown = long && !open ? text.slice(0, 420) + '…' : text
+      const title = isContext ? (String(text).split('\n')[0].replace(/^#+\s*/, '') || '上下文') : ''
+      const shown = isContext
+        ? (open ? text : '')
+        : (long && !open ? text.slice(0, 420) + '…' : text)
       return h('div', { className: 'dd-msg ' + kind },
         h('div', { className: 'who' },
-          kind === 'user' ? '我' : kind === 'assistant' ? 'AI' : kind === 'tool' ? '工具' : '出错'),
-        h('div', { className: 'body' }, shown),
-        long
+          isContext ? '上下文' : kind === 'user' ? '我' : kind === 'assistant' ? 'AI' : kind === 'tool' ? '工具' : '出错'),
+        isContext
+          ? h('button', {
+            className: 'dd-ctx-head',
+            type: 'button',
+            title: '宿主注入的上下文（默认折起）',
+            onClick: () => setOpen(!open),
+          },
+            h(Icon, { name: 'chevron', size: 12 }),
+            h('span', { className: 'nm' }, title),
+            h('span', { className: 'dd-note' }, open ? '收起' : '展开'),
+          )
+          : null,
+        isContext
+          ? (open ? h('div', { className: 'body' }, shown) : null)
+          : h('div', { className: 'body' }, shown),
+        long && !isContext
           ? h('button', {
             className: 'dd-btn sm ghost',
             style: { alignSelf: 'flex-start' },
@@ -4283,7 +4321,21 @@ select.dd-input{
           if (event.type === 'user/message') {
             flush()
             const text = stripSeed(stripInjected(textOf(event.data)))
-            if (text !== '') out.push({ kind: 'user', text, key: 'u' + event.seq })
+            if (text === '') continue
+            // **注入的上下文要折起来。**
+            //
+            // 宿主（ReMe 的长期记忆、其它插件注入的资料）会把上下文**作为一条
+            // 用户消息**塞进来。宿主自己的对话面板会把它折成「上下文」节点，
+            // 我们这扇小窗没有那套节点——于是用户看到的是一整屏记忆原文，
+            // 自己的话被埋在下面。
+            //
+            // 判据要**保守**：以 markdown 一级标题开头、且明显很长——
+            // 人写的话极少长这样。认错了也只是多一次点击展开。
+            if (isInjectedContext(text)) {
+              out.push({ kind: 'context', text, key: 'c' + event.seq })
+              continue
+            }
+            out.push({ kind: 'user', text, key: 'u' + event.seq })
             continue
           }
 
@@ -4441,6 +4493,32 @@ select.dd-input{
       }, [binding])
 
       /**
+       * 宿主某个**视图**的槽 id。
+       *
+       * `binding.activate()` 认的是**槽 id**（`conversation.view` 的条目 id），
+       * 而 `uiConversation.views` 那边给的是**目标名**——两者不是一回事，
+       * 写死一个字符串就是猜。所以从槽注册表里取：
+       * `ctx.slots.entriesOfSlot('conversation.view')` → `options.id`。
+       *
+       * @param {string} want 目标名的一小段（大小写无关）
+       * @returns {string|undefined}
+       */
+      const resolveViewId = useCallback((want) => {
+        try {
+          const slots = CTX ? CTX.get('slots') : undefined
+          if (slots === undefined || slots === null || typeof slots.entriesOfSlot !== 'function') return undefined
+          const entries = slots.entriesOfSlot('conversation.view')
+          for (const entry of entries) {
+            const id = entry && entry.options ? entry.options.id : undefined
+            if (typeof id === 'string' && id.toLowerCase().includes(want)) return id
+          }
+        } catch {
+          // 取不到就用默认视图。
+        }
+        return undefined
+      }, [])
+
+      /**
        * 打开宿主的完整对话面板；带 `view` 时**先切到宿主自己的那个视图**。
        *
        * 这就是「把 DSH 原生的聊天主界面轻量嵌入」在这套架构里**能做到的形态**：
@@ -4461,7 +4539,13 @@ select.dd-input{
               ? uc.binding(activeId)
               : undefined
             if (binding !== undefined && binding !== null && typeof binding.activate === 'function') {
-              binding.activate(view)
+              // **视图 id 从槽注册表取**，不写死。
+              //
+              // `activate()` 认的是 `conversation.view` 的**条目 id**，
+              // 而 `uiConversation.views` 给的是**目标名**——两者不是一回事。
+              // `ctx.slots.entriesOfSlot('conversation.view')` → `options.id` 才是对的。
+              const viewId = resolveViewId(view)
+              binding.activate(viewId === undefined ? view : viewId)
             }
           } catch {
             // 切不过去就算了：面板照常能打开，只是停在默认视图。
@@ -4482,10 +4566,16 @@ select.dd-input{
           const workspaceId = dshWorkspaceId
           if (workspaceId !== undefined && workspaceId !== ''
             && helper !== undefined && helper !== null && typeof helper.openWorkspace === 'function') {
-            // 钩子里开一次会话：工作区被选上的同时，会话也被选中。
-            helper.openWorkspace(workspaceId, () => {
-              if (typeof helper.openSession === 'function') helper.openSession(activeId)
-            })
+            // **先开会话，再选工作区。**
+            //
+            // `openWorkspace(id, beforeOpen)` 的第二个参数是**宿主的钩子**
+            // （它拿 `nextId` 去做草稿搬迁），不是「替我打开某个会话」。
+            // 真正把会话放进面板的是 `openSession`。
+            //
+            // 顺序也不能反：工作区切换会把会话选择重置掉，所以**会话要先选**，
+            // 工作区随后（工作区里就这一个会话时，宿主的默认也是它）。
+            if (typeof helper.openSession === 'function') helper.openSession(activeId)
+            helper.openWorkspace(workspaceId, () => {})
           } else if (helper !== undefined && helper !== null && typeof helper.openSession === 'function') {
             helper.openSession(activeId)
           }
@@ -4810,6 +4900,20 @@ select.dd-input{
 .dd-chat-model>span:not(.lv){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dd-chat-model .lv{font-family:var(--f-mono);font-size:10px;color:var(--ink4);flex:none}
 
+/* 注入的上下文：默认只露一个标题，像宿主对话面板的「上下文」节点。 */
+.dd-msg.context{background:transparent;box-shadow:none;padding:0}
+.dd-msg.context .who{color:var(--ink4)}
+.dd-ctx-head{
+  display:flex;align-items:center;gap:7px;width:100%;padding:5px 9px;
+  border-radius:var(--rx-1);font-size:11px;color:var(--ink3);text-align:left;
+  box-shadow:inset 0 0 0 .5px var(--line);background:var(--panel-2);
+}
+.dd-ctx-head:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-ctx-head .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-msg.context .body{
+  margin-top:5px;box-shadow:inset 0 0 0 .5px var(--line);background:var(--panel-2);
+  font-size:11.5px;color:var(--ink3);max-height:280px;overflow:auto;
+}
 /* Agent 向用户提问。 */
 .dd-question{
   border-radius:var(--rx-2);padding:10px 12px;display:flex;flex-direction:column;gap:8px;
