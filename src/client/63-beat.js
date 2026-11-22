@@ -36,8 +36,9 @@
             if (String(delivery).trim() !== '') next.mode = wanted
           }
         }
-        if (Object.keys(next).length === 0) return
-        onSave(next)
+        if (Object.keys(next).length === 0) return undefined
+        // **把结果原样交回去**：编辑器靠 `false` 判断「没存上，别退出编辑态」。
+        return onSave(next)
       }
 
       return h('div', { className: 'dd-beat' },

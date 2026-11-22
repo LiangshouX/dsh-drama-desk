@@ -72,7 +72,12 @@ function shell(body) {
 /**
  * 收一个分段的顶层声明名。
  *
- * 只看**顶格**的声明——嵌套作用域里的同名变量是合法的，不算冲突。
+ * 只看**分段顶层**的声明（0–4 格缩进）——嵌套作用域里的同名变量是合法的，不算冲突。
+ *
+ * 缩进 0–4 而不是只认顶格：`src/client/*.js` 的每个分段都是**整体缩进 4 格**的片段
+ * （它们要拼进同一个函数体）。以前这个正则只认 `^` 顶格，于是在客户端分段上
+ * **一个名字都扫不到**，「顶层名字全局唯一」这道闸门等于不存在 —— 同名覆盖会变成
+ * 静默 bug（后拼的覆盖先拼的，界面「莫名其妙少了个功能」）。6 格起才进入函数体。
  *
  * @param {string} text 分段正文
  * @returns {string[]}
@@ -80,7 +85,7 @@ function shell(body) {
 function declaredNames(text) {
   const names = []
   for (const line of text.split('\n')) {
-    const match = /^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)|^(?:const|let|var)\s+([A-Za-z_$][\w$]*)|^(?:class)\s+([A-Za-z_$][\w$]*)/.exec(line)
+    const match = /^\s{0,4}(?:async\s+)?function\s+([A-Za-z_$][\w$]*)|^\s{0,4}(?:const|let|var)\s+([A-Za-z_$][\w$]*)|^\s{0,4}(?:class)\s+([A-Za-z_$][\w$]*)/.exec(line)
     if (match === null) continue
     names.push(match[1] ?? match[2] ?? match[3])
   }

@@ -52,7 +52,20 @@
                     },
                       h('span', { className: 'rid' }, rule.id),
                       h('span', { className: 'ti' }, rule.title),
-                      h('span', { className: 'st' }, (rule.stages || []).join(' · ')),
+                      // 规则上写着它管哪几个阶段——那几段就该能点过去。
+                      // 看完一条铁律接着去它管的那个阶段，是这一页最自然的下一步。
+                      h('span', { className: 'st' },
+                        (rule.stages || []).length === 0
+                          ? '—'
+                          : (rule.stages || []).map(stage => (typeof onGoto === 'function'
+                            ? h('button', {
+                              key: stage,
+                              className: 'dd-ref',
+                              type: 'button',
+                              title: '去「' + (STAGE_LABEL[stage] || stage) + '」阶段',
+                              onClick: event => { event.stopPropagation(); onGoto(stage) },
+                            }, STAGE_LABEL[stage] || stage)
+                            : h('span', { key: stage, className: 'dd-ref' }, STAGE_LABEL[stage] || stage)))),
                     ),
                     openRule === rule.id
                       ? h('div', { className: 'dd-rule-body' },

@@ -31,6 +31,15 @@
   --sig-pass:#2aa06b;
   --sig-fly:#3aa2cf;
   --sig-none:#798294;
+  /* 语义别名。--ok / --warn / --danger 这三个名字在十来处样式里被用过
+     （未保存胶囊、警告条、产物过期…），但**从来没有定义过** ——
+     var() 找不到变量会被静默丢弃，于是那些颜色悄悄变回了正文色，
+     看上去像「设计本来就这样」。它们和信号灯是同一套颜色，这里补上别名，
+     一处修好全部，而不是去十个地方各改一遍。
+     注意：这段是模板字符串，注释里**不许出现反引号**（会提前结束模板）。 */
+  --ok:var(--sig-pass);
+  --warn:var(--sig-warn);
+  --danger:var(--sig-fail);
 
   /* ══ brand（Logo 的两色：冷蓝片身 · 暖琥珀在产的那一格）══════════════
      与 icon.svg 里的两个色值一一对应。标志是产品的一部分，
@@ -758,8 +767,19 @@ select.dd-input{
 .dd-sec-body{padding:12px 13px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 0 var(--line)}
 .dd-sec-body>*{flex:0 0 auto}
 
+/* 两列 / 三列字段组。
+   **列数要跟着「主区有多宽」变，而不是跟着视口。**
+   正文区是可伸缩的（右栏能拖宽、构思会话能开着），一边开着 460px 的会话窗时，
+   主区只剩 430px —— 那时两列各得 0 份，会把每个字段压到 60px，
+   中文直接变成一字一行（实机上看到的是「pa/ss」「姓/名」「fai/l」）。
+   媒体查询在这里没用（视口一直很宽），所以用**容器查询**：窄了就折成一列。
+   浏览器不支持容器查询时退化成原来的两列/三列，不会更糟。 */
 .dd-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .dd-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.dd-main{container-type:inline-size}
+@container (max-width: 560px){
+  .dd-grid2,.dd-grid3{grid-template-columns:1fr}
+}
 .dd-field{display:flex;flex-direction:column;gap:5px;min-width:0}
 .dd-field.wide{grid-column:1 / -1}
 .dd-field label{

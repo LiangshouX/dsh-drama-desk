@@ -1,6 +1,6 @@
     /** The storyboard stage: the shot list with machine-friendly camera fields. */
     function StoryboardView(props) {
-      const { data, busy, actions, onOpenShot } = props
+      const { data, busy, actions, onOpenShot, onGoto } = props
       const shots = data.shots || []
       const [openId, setOpenId] = useState(null)
       return h('div', { className: 'dd-main' },
@@ -37,10 +37,22 @@
                   h('td', { className: 'num' }, shot.camera || '—'),
                   h('td', { className: 'num' }, (shot.ratio || '—') + ' · ' + (shot.resolution || '—')),
                   h('td', { className: 'num' }, shot.lighting || '—'),
-                  h('td', null, h('button', {
-                    className: 'dd-btn sm',
-                    onClick: event => { event.stopPropagation(); onOpenShot(shot.id) },
-                  }, '打开')),
+                  h('td', null,
+                    h('div', { style: { display: 'flex', gap: '5px' } },
+                      h('button', {
+                        className: 'dd-btn sm',
+                        onClick: event => { event.stopPropagation(); onOpenShot(shot.id) },
+                      }, '打开'),
+                      // 分镜是「图纸」，生成台是「车间」：看完图纸就该能走过去，
+                      // 而且要**落在同一镜**上，不要让人自己再找一遍。
+                      typeof onGoto === 'function'
+                        ? h('button', {
+                          className: 'dd-btn sm ghost',
+                          title: '去生成台打开 ' + shot.id,
+                          onClick: event => { event.stopPropagation(); onGoto('generate', shot.id) },
+                        }, '生成台')
+                        : null,
+                    )),
                 ))),
               ),
             openId

@@ -9,6 +9,16 @@
     //
     // 坐标系：**中心相对**。图片永远画在视口正中，pan 是它相对视口中心的
     // 偏移。于是「图片不离开视野」的钳位是对称的，缩放锚点也好算。
+    //
+    // 尺寸语义（这里曾经错成「缩了两次」）：
+    //  · `layout` 是**布局框**——CSS 的 max-width/max-height 已经把图压到刚好
+    //    放得下，它本身就是「适配尺寸」。
+    //  · `zoom === 1` 表示「适配」，**不是**「原始像素」。所以这里没有
+    //    `fitZoom`：再乘一次 viewport/natural 就是把已缩过一次的图又缩一次，
+    //    屏幕上只剩「刚好放得下」的八成，还白占了空间。
+    //  · 钳位与读数一律用**绘制尺寸 = layout × zoom**，不用 natural——
+    //    两者差的那 20%~26% 正是「图片能被拖出可视区」的来源。
+    //  · `natural` 只在一个地方用得着：1:1 的目标缩放 = natural.width / layout.width。
 
     /** 缩放范围。 */
     const ZOOM_MIN = 0.1
@@ -50,36 +60,69 @@
     }
 
     /**
+     * 屏幕上的**绘制尺寸**：布局框 × zoom。
+     *
+     * 钳位、读数都该用它。用自然尺寸算，图能直接拖出屏幕。
+     *
+     * @param {number} zoom
+     * @param {{width: number, height: number}} layout 布局框（CSS 适配之后的盒子）
+     * @returns {{width: number, height: number}}
+     */
+    function drawnSize(zoom, layout) {
+      return { width: layout.width * zoom, height: layout.height * zoom }
+    }
+
+    /**
+     * 布局框的兜底。
+     *
+     * 图还没解码 / 还没布局时 `offsetWidth` 是 0。拿 0 当尺寸会把可拖范围钳成 0
+     * （图片被钉死在原地），所以按视口两倍兜底；真正的尺寸到了，组件会再钳一次。
+     *
+     * @param {{width: number, height: number}} layout
+     * @param {{width: number, height: number}} viewport
+     * @returns {{width: number, height: number}}
+     */
+    function safeLayoutSize(layout, viewport) {
+      if (layout && layout.width > 0 && layout.height > 0) {
+        return { width: layout.width, height: layout.height }
+      }
+      const width = viewport && viewport.width > 0 ? viewport.width : 0
+      const height = viewport && viewport.height > 0 ? viewport.height : 0
+      return { width: width * 2, height: height * 2 }
+    }
+
+    /**
      * 给定缩放，图片在视口里能平移多远。
      *
      * 钳位用的是**绘制尺寸**（布局框 × zoom），不是布局框——
      * 放大之后用布局框算，图片能直接拖出屏幕。
      *
      * @param {number} zoom
-     * @param {{width: number, height: number}} size 图片的自然尺寸
+     * @param {{width: number, height: number}} layout 布局框
      * @param {{width: number, height: number}} viewport 视口尺寸
      * @returns {{maxX: number, maxY: number}}
      */
-    function clampFor(zoom, size, viewport) {
-      const scaledWidth = size.width * zoom
-      const scaledHeight = size.height * zoom
+    function clampFor(zoom, layout, viewport) {
+      const drawn = drawnSize(zoom, layout)
       return {
-        maxX: Math.max(0, (scaledWidth - viewport.width) / 2),
-        maxY: Math.max(0, (scaledHeight - viewport.height) / 2),
+        maxX: Math.max(0, (drawn.width - viewport.width) / 2),
+        maxY: Math.max(0, (drawn.height - viewport.height) / 2),
       }
     }
 
     /**
      * 把 pan 钳回「图片永远在视野里」。
      *
+     * 图比视口小的时候 maxX / maxY 是 0，pan 恒为 {0,0}——也就是居中。
+     *
      * @param {{x: number, y: number}} pan
      * @param {number} zoom
-     * @param {{width: number, height: number}} size
+     * @param {{width: number, height: number}} layout
      * @param {{width: number, height: number}} viewport
      * @returns {{x: number, y: number}}
      */
-    function clampPan(pan, zoom, size, viewport) {
-      const { maxX, maxY } = clampFor(zoom, size, viewport)
+    function clampPan(pan, zoom, layout, viewport) {
+      const { maxX, maxY } = clampFor(zoom, layout, viewport)
       return {
         x: Math.min(maxX, Math.max(-maxX, pan.x)),
         y: Math.min(maxY, Math.max(-maxY, pan.y)),
@@ -90,7 +133,7 @@
      * 以某个点为锚缩放：锚点下的像素保持不动。
      *
      * 锚点同步要用**实际**比值 `next / current`——钳位过之后请求值与实际值
-     * 可能不同，用请求值锚点会漂一点。
+     * 可能不同，用请求值锚点会漂一点。返回的 pan 还可能被调用方再钳一次。
      *
      * @param {number} zoom 当前缩放
      * @param {{x: number, y: number}} pan 当前位移
@@ -101,7 +144,7 @@
     function zoomAroundPoint(zoom, pan, point, factor) {
       const current = clampZoom(zoom)
       const next = clampZoom(current * factor)
-      if (next === current) return { zoom: next, pan }
+      if (next === current) return { zoom: next, pan: { x: pan.x, y: pan.y } }
       const ratio = next / current
       return {
         zoom: next,
@@ -146,14 +189,35 @@
     }
 
     /**
-     * 「适应窗口」的缩放比。
+     * 1:1 的目标缩放。
      *
-     * @param {{width: number, height: number}} size 图片自然尺寸
-     * @param {{width: number, height: number}} viewport 视口尺寸
+     * 1:1 要的是「原始像素」，而 `zoom = 1` 是「适配」——所以目标是
+     * `natural.width / layout.width`，不是 1。拿不到尺寸就退回适配。
+     *
+     * @param {{width: number, height: number}} natural 原始像素
+     * @param {{width: number, height: number}} layout 布局框
      * @returns {number}
      */
-    function fitZoom(size, viewport) {
-      if (size.width <= 0 || size.height <= 0) return 1
-      if (viewport.width <= 0 || viewport.height <= 0) return 1
-      return Math.min(viewport.width / size.width, viewport.height / size.height)
+    function zoomForActualSize(natural, layout) {
+      if (!natural || !layout) return 1
+      if (natural.width <= 0 || layout.width <= 0) return 1
+      return clampZoom(natural.width / layout.width)
+    }
+
+    /**
+     * 读数：`适配 N% · 实际 W×H · 位移 x, y`。
+     *
+     * 「适配 N%」是 zoom 的百分比（100% = 刚好放得下），「实际 W×H」是**屏幕上**
+     * 的绘制尺寸——别拿自然尺寸冒充实际尺寸，实机验收读的就是这一行。
+     *
+     * @param {number} zoom
+     * @param {{width: number, height: number}} layout
+     * @param {{x: number, y: number}} pan
+     * @returns {string}
+     */
+    function viewerReadout(zoom, layout, pan) {
+      const drawn = drawnSize(clampZoom(zoom), layout)
+      return '适配 ' + zoomPercent(zoom)
+        + ' · 实际 ' + Math.round(drawn.width) + '×' + Math.round(drawn.height)
+        + ' · 位移 ' + Math.round(pan.x) + ', ' + Math.round(pan.y)
     }

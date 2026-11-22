@@ -55,8 +55,8 @@
 
       // ── 侧栏宽度 ────────────────────────────────────────────────────────
       // 右侧两块（镜详情 / 构思会话）各自记住自己的宽度。
-      const inspector = usePanelWidth({ storageKey: 'dsh-drama-desk:inspector-width', initial: 420 })
-      const chatPanel = usePanelWidth({ storageKey: 'dsh-drama-desk:chat-width', initial: 460 })
+      const inspector = usePanelWidth({ storageKey: 'dsh-drama-desk:inspector-width', initial: 420, label: '镜详情' })
+      const chatPanel = usePanelWidth({ storageKey: 'dsh-drama-desk:chat-width', initial: 460, label: '构思会话' })
 
       /** 侧栏右上角那枚「全屏」：占满导演工作台这一块，不是占满浏览器。 */
       const fullToggle = (panel, label) => h('button', {
@@ -75,12 +75,26 @@
       /** null = 自动（作品还是空的就显示首页）；true / false = 用户自己定的。 */
       const [homeMode, setHomeMode] = useState(null)
       /**
-       * 构思会话侧栏是否被手动收起。
+       * 构思会话侧栏：**用户有没有亲口说过要它**。
        *
-       * **默认 false = 常驻**：创意阶段不需要点顶栏图标才看得见这扇窗。
-       * 收起只是给空间不够时用的，不是「唤起」的前置条件。
+       * `null` = 还没有主见，按场景自动（首页与创意阶段常驻，别处收着）；
+       * `true` / `false` = 用户自己点过顶栏那枚图标，从此听他的，并记住。
+       *
+       * 为什么不能只用「按场景」：`!chatCollapsed && (首页 || 创意阶段)` 会做出一个
+       * **死按钮**——在角色/生成/资产页按下「展开构思会话」，state 确实翻转了，
+       * 面板却仍被那个条件挡着，屏幕上什么都不会发生。用户点两下就学会了「别点它」。
+       *
+       * 也不能反过来「一律常驻」：生成阶段本来就有镜详情（默认 420–570px），
+       * 再叠一扇 460px 的会话窗，主区会被压成一条缝。所以是**按需**。
        */
-      const [chatCollapsed, setChatCollapsed] = useState(false)
+      const [chatWanted, setChatWanted] = useState(() => {
+        try {
+          const stored = window.localStorage.getItem('dsh-drama-desk:chat-open')
+          if (stored === '1') return true
+          if (stored === '0') return false
+        } catch { /* localStorage 不可用就按自动来 */ }
+        return null
+      })
       const [conceive, setConceive] = useState(null)
       const [workMenu, setWorkMenu] = useState(false)
       const [newWork, setNewWork] = useState(null)
@@ -182,20 +196,58 @@
       }, [autoRefreshMs, reload])
 
       // ── stage view ────────────────────────────────────────────────────────
+      /**
+       * 阶段载荷的请求序号。
+       *
+       * **过期的响应必须丢掉。** 阶段视图是按「载荷自己的 stage」决定画什么的，
+       * 而 `setStagePayload` 是后到的覆盖先到的：在生成台按 F5 之后立刻点「验收」，
+       * 生成台那次请求（实测 2.6s）会**晚于**验收那次（1.2s）返回，把载荷盖回 generate，
+       * 于是 `shownStage !== viewStage` 恒成立 —— 页面永远停在「正在切换到 验收」，
+       * 连「重新读取」的兜底都不出现（它挂在 `!switching` 上）。
+       *
+       * 这是实测复现出来的，不是理论：网络面板里 verify 两次 200、随后界面不动。
+       */
+      const stageSeq = useRef(0)
       const loadStage = useCallback(async stage => {
         if (!stage) return
+        const seq = stageSeq.current + 1
+        stageSeq.current = seq
         setStageError(null)
         try {
           const payload = await apiGet('stage', { workspace: workspaceId, stage })
+          if (seq !== stageSeq.current) return
           setStagePayload(payload)
           stageRevision.current = payload && payload.revision ? payload.revision : null
         } catch (problem) {
+          if (seq !== stageSeq.current) return
           setStageError(problem instanceof Error ? problem.message : String(problem))
           say(problem instanceof Error ? problem.message : String(problem), 'err')
         }
       }, [workspaceId, say])
 
       const committed = stages ? (stages.committed || stages.current || stages.stage) : undefined
+
+      /**
+       * 写操作要带的阶段：**正在看的阶段**，但**不许把已提交的进度往回带**。
+       *
+       * 契约 §11.2 说「回退总是允许」——那条针对的是**显式**回退（分镜返工要能只重做
+       * 第 7 个镜头）。可这里每一次编辑都会顺手把 `viewStage` 一起发给 Host。
+       * 于是「在角色阶段看一眼、顺手改了个错别字」会把已提交进度从 generate
+       * **悄悄退回** characters：用户没看到任何提示，下游产物却全成了「过期」。
+       * 这是实测出来的（改一次角色卡，state.json 的 stage 就从 generate 变回 characters）。
+       *
+       * 所以：往回写的时候**不带阶段**，只存内容。要回退是用户的显式动作
+       * （让 agent 走 `drama_desk_stage`），不是点一下角色卡片的副作用。
+       */
+      const writeStage = useMemo(() => {
+        if (!stages || viewStage === '') return viewStage
+        const rows = stages.stages || []
+        const indexOf = stage => rows.findIndex(row => row.stage === stage)
+        const from = indexOf(committed)
+        const to = indexOf(viewStage)
+        if (from < 0 || to < 0) return viewStage
+        return to < from ? undefined : viewStage
+      }, [stages, committed, viewStage])
 
       // 已提交的阶段变了 → 预览阶段跟着回到它。
       useEffect(() => {
@@ -268,14 +320,19 @@
             const gaps = stage.gaps && stage.gaps.length > 0 ? '（' + stage.gaps.join('；') + '）' : ''
             say(label + ' · 已保存，但进度未推进：' + (stage.reason || '前置条件不满足') + gaps, 'err')
           } else if (stage && stage.advanced === true) {
-            say(label + ' · 已保存，进度推进到 ' + stage.to, 'ok')
+            // 已经在这一阶段时说「推进到 X」是在说假话：什么都没往前。
+            say(stage.from === stage.to
+              ? label + ' · 进度仍在 ' + stage.to
+              : label + ' · 已保存，进度推进到 ' + stage.to, 'ok')
           } else {
             say(label, 'ok')
           }
           return result
         } catch (problem) {
           say(problem instanceof Error ? problem.message : String(problem), 'err')
-          return undefined
+          // **`false` = 没存上。** 编辑组件靠它决定「留在编辑态还是退出」——
+          // 返回 undefined 的话，存失败会被当成成功，草稿就这么没了。
+          return false
         } finally {
           setBusy(false)
         }
@@ -283,34 +340,34 @@
 
       const actions = useMemo(() => ({
         editScene: (sceneId, patch) => runEdit('场次已保存', () => apiPost('edit-scene', {
-          workspaceId, sceneId, patch, stage: viewStage,
+          workspaceId, sceneId, patch, stage: writeStage,
         })),
         editCharacter: (characterId, patch) => runEdit('角色卡已保存', () => apiPost('edit-character', {
-          workspaceId, characterId, patch, stage: viewStage,
+          workspaceId, characterId, patch, stage: writeStage,
         })),
         editBrief: text => runEdit('简报已保存', () => apiPost('edit-brief', {
-          workspaceId, text, stage: viewStage,
+          workspaceId, text, stage: writeStage,
         })),
         editAsset: (assetId, patch) => runEdit('资产已保存', () => apiPost('edit-asset', {
-          workspaceId, assetId, patch, stage: viewStage,
+          workspaceId, assetId, patch, stage: writeStage,
         })),
         editVerify: (shotId, patch) => runEdit('验收已保存', () => apiPost('edit-verify', {
-          workspaceId, shotId, patch, stage: viewStage,
+          workspaceId, shotId, patch, stage: writeStage,
         })),
         editShot: (shotId, patch) => runEdit('镜头已保存', () => apiPost('edit-shot', {
-          workspaceId, shotId, patch, stage: viewStage,
+          workspaceId, shotId, patch, stage: writeStage,
         })),
         editBeat: (sceneId, request) => runEdit('表演层已保存', () => apiPost('edit-beat', {
-          workspaceId, sceneId, stage: viewStage, ...request,
+          workspaceId, sceneId, stage: writeStage, ...request,
         })),
         annotate: (shotId, note) => runEdit('批注已保存', () => apiPost('annotate-shot', {
-          workspaceId, shotId, note, stage: viewStage,
+          workspaceId, shotId, note, stage: writeStage,
         })),
         savePrompt: (shotId, text) => runEdit('提示词已保存（重新编译会保留你的版本）', () => apiPost('prompt', {
-          workspaceId, shotId, text, stage: viewStage,
+          workspaceId, shotId, text, stage: writeStage,
         })),
         resetPrompt: shotId => runEdit('已丢弃手工改写', () => apiPost('prompt-reset', {
-          workspaceId, shotId, stage: viewStage,
+          workspaceId, shotId, stage: writeStage,
         })),
         compileShot: (shotId, checkOnly) => runEdit(
           checkOnly ? '' : '已编译提示词产物',
@@ -328,7 +385,7 @@
             return value
           },
         ),
-      }), [runEdit, workspaceId, viewStage, say])
+      }), [runEdit, workspaceId, writeStage, say])
 
       // ── settings ──────────────────────────────────────────────────────────
       const saveSettings = useCallback(async draft => {
@@ -471,8 +528,48 @@
        *
        * 阶段切换的规矩与阶段条一样（AGENTS.md §12）：**只有真的换阶段才清载荷**。
        */
+      /**
+       * 跳转要能**回得来**。
+       *
+       * 「页面之间割裂」有一半是**有去无回**：从资产页点一个镜号落到生成台，
+       * 想回资产页得自己找导航——而且那边的筛选与页码已经没了。
+       * 这里记下「跳之前站在哪儿」，顶栏给一枚「返回」。
+       */
+      const [jumpTrail, setJumpTrail] = useState([])
+      const pushTrail = useCallback(entry => {
+        setJumpTrail(trail => {
+          const last = trail[trail.length - 1]
+          if (last !== undefined && last.view === entry.view && last.viewStage === entry.viewStage) return trail
+          return [...trail, entry].slice(-8)
+        })
+      }, [])
+
+      /**
+       * 回到上一处。
+       *
+       * 只有真的换阶段才清载荷（与阶段条同一条规矩，见 AGENTS.md §12）。
+       */
+      const goBack = useCallback(() => {
+        const last = jumpTrail[jumpTrail.length - 1]
+        if (last === undefined) return
+        setJumpTrail(trail => trail.slice(0, -1))
+        setView(last.view)
+        if (last.view !== 'stage') return
+        setHomeMode(false)
+        if (last.viewStage !== '' && last.viewStage !== viewStage) {
+          setViewStage(last.viewStage)
+          setStagePayload(null)
+          setStageError(null)
+          stageRevision.current = null
+        }
+        if (last.shot !== null && last.shot !== undefined && last.shot !== '') openShot(last.shot)
+        else { setSelectedShot(null); setDetail(null) }
+      }, [jumpTrail, viewStage, openShot])
+
       const gotoStage = useCallback((stage, shotId) => {
         if (!stage) return
+        // 跳之前先记下自己站在哪儿（同一处不重复记）。
+        if (view !== 'stage' || stage !== viewStage) pushTrail({ view, viewStage, shot: selectedShot })
         setView('stage')
         setHomeMode(false)
         if (stage !== viewStage) {
@@ -482,7 +579,14 @@
           stageRevision.current = null
         }
         if (shotId !== undefined && shotId !== '') openShot(shotId)
-      }, [viewStage, openShot])
+      }, [pushTrail, selectedShot, view, viewStage, openShot])
+
+      /** 切到菜单页（资产 / 台账 / 规范…），同样记一条来路。 */
+      const gotoView = useCallback(next => {
+        if (next === view) return
+        pushTrail({ view, viewStage, shot: selectedShot })
+        setView(next)
+      }, [pushTrail, selectedShot, view, viewStage])
 
       const counts = pipeline ? (pipeline.counts || { fail: 0, warn: 0, generated: 0, pass: 0, none: 0 }) : { fail: 0, warn: 0, generated: 0, pass: 0, none: 0 }
       const nav = [
@@ -503,9 +607,14 @@
       const freshWork = currentWork === undefined
         || ((currentWork.shots ?? 0) === 0 && (currentWork.scenes ?? 0) === 0)
       const showHome = view === 'stage' && (homeMode === null ? freshWork : homeMode)
-      // 侧栏**常驻**：创意阶段（含首页）不需要点顶栏图标才看得见这扇窗。
-      // `chatCollapsed` 只在屏幕挤不下时手动收起，不是「唤起」的前置条件。
-      const chatVisible = !chatCollapsed && (showHome || (view === 'stage' && viewStage === 'conceive'))
+      // 构思会话出现在哪儿：**用户说过就听用户的**，没说就按场景。
+      //
+      // 自动的部分只在「对话本身就是这页的事」的地方（首页 / 创意阶段）默认展开；
+      // 生成阶段本来就有镜详情，再叠一扇默认展开的会话窗会把主区压成一条缝。
+      // 而那枚图标在**任何**页面都能把窗叫出来——叫出来之后就一直跟着，
+      // 于是它再也不是死按钮。
+      const chatAuto = showHome || (view === 'stage' && viewStage === 'conceive')
+      const chatVisible = chatWanted === null ? chatAuto : chatWanted
 
       const stageData = stagePayload ? stagePayload.data : undefined
       // 用**载荷自己的阶段**来选组件：这样即使 viewStage 刚变、请求还在路上，
@@ -532,7 +641,16 @@
           setStageStalled(false)
           return
         }
-        if (stagePayload !== null || stageError) {
+        if (stageError) {
+          setStageStalled(false)
+          return
+        }
+        // **「载荷的 stage 不是正在看的那个」也算没到位。**
+        // 以前这里写的是 `stagePayload !== null` 就直接 return：于是「手里握着上一阶段的
+        // 载荷、新阶段的请求永远看不到结果」这种卡死状态，看门狗反而是关着的 ——
+        // 页面永远停在「正在切换」，连一个「重新读取」都不给。
+        const shown = stagePayload === null ? null : (stagePayload.stage || stagePayload.kind)
+        if (shown === viewStage) {
           setStageStalled(false)
           return
         }
@@ -649,10 +767,31 @@
                 h('span', { className: 'num' }, '剩 ' + formatBytes(overview.disk.free)),
               )
               : null,
+            // **返回**：从哪儿跳过来的，就回哪儿去。
+            // 有了它，「点一个镜号跨到别的页」不再是单向门。
+            jumpTrail.length > 0
+              ? h('button', {
+                className: 'dd-chip click dd-back',
+                type: 'button',
+                title: '回到上一处（' + (jumpTrail[jumpTrail.length - 1].view === 'stage'
+                  ? (STAGE_LABEL[jumpTrail[jumpTrail.length - 1].viewStage] || '工作台')
+                  : ({ home: '首页', spec: '规范', assets: '资产', ledger: '台账' }[jumpTrail[jumpTrail.length - 1].view] || '上一处'))
+                  + (jumpTrail[jumpTrail.length - 1].shot ? ' · ' + jumpTrail[jumpTrail.length - 1].shot : '') + '）',
+                onClick: goBack,
+              },
+                h(Icon, { name: 'back', size: 11 }),
+                h('span', null, '返回'),
+              )
+              : null,
             h('button', {
               className: 'dd-icon-btn' + (chatVisible ? ' on' : ''),
-              onClick: () => setChatCollapsed(collapsed => !collapsed),
-              title: chatVisible ? '收起构思会话' : '展开构思会话',
+              type: 'button',
+              onClick: () => {
+                const next = !chatVisible
+                setChatWanted(next)
+                try { window.localStorage.setItem('dsh-drama-desk:chat-open', next ? '1' : '0') } catch { /* 存不下就算了 */ }
+              },
+              title: chatVisible ? '收起构思会话' : '展开构思会话（在当前页面也能开）',
             }, h(Icon, { name: 'note', size: 14 })),
             h('button', { className: 'dd-icon-btn', onClick: reload, title: t('action.refresh', '刷新') }, h(Icon, { name: 'refresh', size: 14 })),
             h('button', { className: 'dd-icon-btn', onClick: openDrawer, title: t('action.settings', '设置') }, h(Icon, { name: 'settings', size: 14 })),
@@ -697,9 +836,9 @@
                   : (!showHome && view === item.id ? ' on' : '')
               ),
               onClick: () => {
-                if (item.id === 'home') { setView('stage'); setHomeMode(true); return }
+                if (item.id === 'home') { gotoView('stage'); setHomeMode(true); return }
                 if (item.id === 'stage') setHomeMode(false)
-                setView(item.id)
+                gotoView(item.id)
               },
               title: item.label,
             },
@@ -753,7 +892,9 @@
                     h('div', { className: 'dd-stagewait-bar' }, h('span', null)),
                     // 载荷迟迟不来：给一条**退路**。否则用户面前只有一个
                     // 永远转圈的页面，既没有内容也没有按钮。
-                    stageStalled && !switching
+                    // 注意这里是 `stageStalled` 而不是 `stageStalled && !switching`：
+                    // 「卡在切换中」正是最需要这条退路的情形，而旧写法恰好把它藏起来。
+                    stageStalled
                       ? h('div', { className: 'dd-stagewait-actions' },
                         h('button', {
                           className: 'dd-btn sm',
@@ -780,7 +921,7 @@
                       : shownStage === 'script'
                         ? h(ScriptView, { data: stageData, busy, actions })
                         : shownStage === 'storyboard'
-                          ? h(StoryboardView, { data: stageData, busy, actions, onOpenShot: openShot })
+                          ? h(StoryboardView, { data: stageData, busy, actions, onOpenShot: openShot, onGoto: gotoStage })
                           : shownStage === 'generate'
                             ? h(GenerateView, {
                               data: stageData, busy, actions, workspaceId,
@@ -789,7 +930,7 @@
                               onSceneChange: setActiveScene,
                             })
                             : shownStage === 'verify'
-                              ? h(VerifyView, { data: stageData, busy, actions, onOpenShot: openShot })
+                              ? h(VerifyView, { data: stageData, busy, actions, onOpenShot: openShot, onGoto: gotoStage })
                               : shownStage === 'assemble'
                                 ? h(AssembleView, { data: stageData, onOpenShot: openShot })
                                 : h(DeliverView, { data: stageData }))
@@ -798,11 +939,22 @@
             view === 'assets' ? h(AssetsView, { assets, workspaceId, onOpenImage: asset => setViewer(asset), onGoto: gotoStage }) : null,
             view === 'ledger' ? h(LedgerView, { ledger, onGoto: gotoStage }) : null,
           ),
-          (view === 'stage' && !showHome && (viewStage === 'generate' || viewStage === 'storyboard'))
+          // ── 镜详情（右栏）─────────────────────────────────────────────
+          // **任何阶段都能看镜头详情**，只要选中了一镜。
+          //
+          // 以前这里写死了 `(viewStage === 'generate' || 'storyboard')`：在验收页
+          // 点一个镜号，`openShot()` 真的发了请求、也真的拿到了详情，**面板却不渲染** ——
+          // 屏幕上什么都没发生。那是「页面之间联动性差」最典型的一种：
+          // 界面自己知道该给你看什么，只是没画出来。
+          //
+          // 生成 / 分镜两页即使没选镜也要开：那里默认显示「这一场的概览」。
+          (view === 'stage' && !showHome
+            && (selectedShot !== null || viewStage === 'generate' || viewStage === 'storyboard'))
             ? h('div', {
               className: 'dd-side' + (inspector.full ? ' full' : ''),
               ref: inspector.panelRef,
               style: inspector.style,
+              'data-resizing': inspector.dragging ? 'true' : 'false',
             },
               h(ShotDetail, {
                 detail,
@@ -816,12 +968,12 @@
                 onOpenImage: asset => setViewer(asset),
                 panelControls: inspectorControls,
               }),
+              inspector.dragging
+                ? h('span', { className: 'dd-side-size' }, inspector.width + 'px')
+                : null,
               inspector.full ? null : h('div', {
                 className: 'dd-side-resize',
-                onPointerDown: inspector.startResize,
-                title: '拖动调整宽度（' + inspector.width + 'px）',
-                role: 'separator',
-                'aria-label': '调整侧栏宽度',
+                ...inspector.resizeProps,
               }),
             )
             : null,
@@ -833,13 +985,17 @@
               className: 'dd-side' + (chatPanel.full ? ' full' : ''),
               ref: chatPanel.panelRef,
               style: chatPanel.style,
+              'data-resizing': chatPanel.dragging ? 'true' : 'false',
             },
               h(ConceiveChat, {
                 sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
                 busy,
                 canStart: workspaceId !== '',
                 onStart: () => openConceive(false),
-                onClose: () => setChatCollapsed(true),
+                onClose: () => {
+                  setChatWanted(false)
+                  try { window.localStorage.setItem('dsh-drama-desk:chat-open', '0') } catch { /* 存不下就算了 */ }
+                },
                 onFresh: () => openConceive(true),
                 panelControls: chatControls,
                 dshWorkspaceId: conceive && conceive.dshWorkspace ? conceive.dshWorkspace.id : undefined,
@@ -852,12 +1008,12 @@
                 SessionProvider: props === undefined ? undefined : props.SessionProvider,
                 renderSlot: props === undefined ? undefined : props.renderSlot,
               }),
+              chatPanel.dragging
+                ? h('span', { className: 'dd-side-size' }, chatPanel.width + 'px')
+                : null,
               chatPanel.full ? null : h('div', {
                 className: 'dd-side-resize',
-                onPointerDown: chatPanel.startResize,
-                title: '拖动调整宽度（' + chatPanel.width + 'px）',
-                role: 'separator',
-                'aria-label': '调整侧栏宽度',
+                ...chatPanel.resizeProps,
               }),
             )
             : null,
@@ -914,6 +1070,7 @@
             placeholder: textDialog.placeholder,
             serif: textDialog.serif,
             mono: textDialog.mono,
+            initialMode: textDialog.initialMode,
             onSave: textDialog.onSave,
             onClose: () => setTextDialog(null),
           })

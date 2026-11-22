@@ -1,6 +1,6 @@
     /** The verify stage: machine verdicts plus the human's call. */
     function VerifyView(props) {
-      const { data, busy, actions, onOpenShot } = props
+      const { data, busy, actions, onOpenShot, onGoto } = props
       const shots = data.shots || []
       return h('div', { className: 'dd-main' },
         h(StageHeader, {
@@ -22,14 +22,30 @@
                   const report = shot.report || {}
                   const human = report.human || {}
                   const tech = report.tech || {}
+                  // 判定有三个来源，大小写还不统一：报告里的 `verdict` 是大写，
+                  // 体检器的 `qc.verdict` 也是大写，人工段是小写。以前这里只比小写
+                  // `shot.verdict === 'fail'`，于是**大写判定一个都对不上**：
+                  // 徽标无色、按钮永远是「生成台」，判废的镜头看不出该回去修。
+                  const verdict = String(shot.verdict || (shot.qc && shot.qc.verdict) || '').toLowerCase()
+                  const broken = verdict === 'fail' || verdict === 'warn'
                   return h('div', { className: 'dd-sec', key: shot.id },
                     h('div', { className: 'dd-sec-head', onClick: () => onOpenShot(shot.id) },
                       h('span', { className: 'num', style: { fontSize: '12px' } }, shot.id),
                       h('span', { className: 't' }, shot.title || ''),
                       h('span', { className: 'sp' }),
+                      // 判废之后**下一步就是回去改**：验收页不该是终点站。
+                      // 没有这条，用户看完 FAIL 只能自己找导航、自己找那一镜。
+                      typeof onGoto === 'function'
+                        ? h('button', {
+                          className: 'dd-btn sm' + (broken ? ' primary' : ' ghost'),
+                          type: 'button',
+                          title: '去生成台打开 ' + shot.id + (broken ? '（把它修好）' : ''),
+                          onClick: event => { event.stopPropagation(); onGoto('generate', shot.id) },
+                        }, broken ? '去修这一镜' : '生成台')
+                        : null,
                       h('span', {
-                        className: 'dd-badge ' + (shot.verdict === 'pass' ? 'pass' : shot.verdict === 'fail' ? 'fail' : shot.verdict === 'warn' ? 'warn' : ''),
-                      }, shot.verdict || '未判'),
+                        className: 'dd-badge ' + (verdict === 'pass' ? 'pass' : verdict === 'fail' ? 'fail' : verdict === 'warn' ? 'warn' : ''),
+                      }, shot.verdict || (shot.qc && shot.qc.verdict) || '未判'),
                     ),
                     h('div', { className: 'dd-sec-body' },
                       /* 机器读数是**读数**，不是可改的字段——
