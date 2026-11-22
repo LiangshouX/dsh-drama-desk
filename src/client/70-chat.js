@@ -323,7 +323,7 @@
      * **回答是直接回传给 agent 的**，走宿主那条 Remote 通道：
      * `ctx.remote.userQuestions.answer(sessionId, callId, { answers: [{ id, selected }] })`。
      * 这不是插件自己造的路——**就是宿主对话面板用的那一条**
-     * （AGENTS.md §15①：不许自己折叠会话事件去仿造宿主的行为）。
+     * （`docs/dev/dsh-integration.md` D1：不许自己折叠会话事件去仿造宿主的行为）。
      *
      * 通道不在（老宿主 / 没有那个服务）时，退回「复制答案 + 去完整对话里答」，
      * **而不是**留一个点了没反应的按钮。
@@ -1042,7 +1042,7 @@
     // ── 构思会话窗的样式 ──────────────────────────────────────────────────
     CSS_PARTS.push(`
 /* ── 构思会话窗 ───────────────────────────────────────────────────────── */
-/* 头部挤不下时**换行**，绝不把中文标题压成一列（AGENTS.md §10⑤）。 */
+/* 头部挤不下时**换行**，绝不把中文标题压成一列（docs/dev/rendering.md R5）。 */
 .dd-chat-head{display:flex;align-items:center;gap:9px;padding:11px 14px;box-shadow:0 1px 0 var(--line);flex:none;flex-wrap:wrap}
 .dd-chat-title{flex:1 1 132px;min-width:132px}
 .dd-chat-title .ch-t{font-size:12.5px;font-weight:600}

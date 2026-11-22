@@ -71,7 +71,7 @@ const WORKSPACE_CACHE_MS = 1000
  * How many asset existence probes run at once.
  *
  * 够快（有上限的并发把「一问一答」变成「几轮往返」），又不至于把
- * **宿主共享的** libuv 线程池打满——插件是嵌在别人的应用里的（§11）。
+ * **宿主共享的** libuv 线程池打满——插件是嵌在别人的应用里的（`AGENTS.md` §11）。
  */
 const ASSET_PROBE_CONCURRENCY = 32
 
@@ -1253,7 +1253,7 @@ export class DramaDeskService {
    * 这个短剧工作区里的**会话清单**。
    *
    * 构思会话窗要能「选择对话」——而对话固定发生在**同一个 DSH 工作区**里
-   * （AGENTS.md §15⑥：一个短剧项目 = 一个 DSH 工作区）。所以这里列出
+   * （`AGENTS.md` §7：一个短剧项目 = 一个 DSH 工作区）。所以这里列出
    * **cwd 落在短剧项目总根之内**的那些会话，别把别的项目的会话混进来。
    *
    * Host 半边才有完整的会话目录（`ctx.sessions.list()`），客户端拿不到。
@@ -1630,7 +1630,7 @@ export class DramaDeskService {
   /**
    * 这个短剧项目挂在哪个 **DSH 工作区**下面。
    *
-   * 一个短剧项目 = 一个 DSH 工作区（AGENTS.md §15⑥）。会话挂在这个工作区里，
+   * 一个短剧项目 = 一个 DSH 工作区（`AGENTS.md` §7）。会话挂在这个工作区里，
    * 所以客户端跳宿主对话面板时需要它的 id —— 否则宿主不知道该选哪个工作区。
    *
    * @returns {Promise<{id: string, path: string}|undefined>}

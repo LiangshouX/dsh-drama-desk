@@ -1,11 +1,11 @@
 # AGENTS.md — dsh-drama-desk 开发规范
 
-> 给在这个仓库里工作的 AI Agent 与人看的**操作纪律**。
-> 产品功能见 `docs/PRD.md`；接口契约见 `docs/API.md`；仓库说明见 `README.md`。
+> 给在这个仓库里工作的 AI Agent 与人看的**操作纪律**：只放「不照做就会出事」的规矩。
+> 来龙去脉、实测数据、症状复盘都在 `docs/dev/`（见 §15 文档地图），**不要把它们搬回来**。
 
 ---
 
-## 一句话
+## 0. 一句话
 
 这个仓库是**开发对象**，不是运行中的东西。
 **跑起来的东西是 `release/` 里的 tarball。**
@@ -14,72 +14,44 @@
 
 ## 1. 安装纪律（最容易出事的一条）
 
-### 规则
-
-> **永远不要把源码目录当安装目标。**
-> 先打包，再安装 tarball。
+> **永远不要把源码目录当安装目标。先打包，再安装 tarball。**
 
 ```bash
 node scripts/build.mjs      # 构建发布态：build/spec + build/skills + build/tools
 node scripts/pack.mjs       # 打包 → release/dsh-drama-desk-<version>.tgz
 ```
 
-然后用 `plugin_manager` 的 `install_bundle`，`target` 指向刚打出来的那个 `.tgz`：
+然后用 `plugin_manager` 的 `install_bundle`，`target` 指向刚打出来的 `.tgz`：
 
 ```
 target: <仓库绝对路径>/release/dsh-drama-desk-<version>.tgz
 ```
 
-### 为什么
-
-把 `target` 指向源码目录（`.../dsh-drama-desk`）时，profile 里留下的是**指向仓库的软链**，
-于是同时踩三个坑：
+把 `target` 指向源码目录时，profile 里留下的是**指向仓库的软链**，于是一次踩三个坑：
 
 | 坑 | 后果 |
 |---|---|
 | 仓库里的一次误改**立刻**改变运行中的插件 | 分不清哪一份是发布物；线上行为不可复现 |
-| 打包工具在仓库里落下 `node_modules/`、`pnpm-lock.yaml`、`__pycache__/` | **弄脏 git**，源码与安装产物混在一个目录 |
-| 目录被移动/删除/切分支 | 运行中的插件直接断掉 |
+| 打包工具在仓库里落下 `node_modules/`、`pnpm-lock.yaml`、`__pycache__/` | 弄脏 git，源码与安装产物混在一起 |
+| 目录被移动 / 删除 / 切分支 | 运行中的插件直接断掉 |
 
-`release/` 与 `build/` 都在 `.gitignore` 里 —— 它们是产物，不是源码。
-仓库里只该有源码。
-
-### 改了源码之后
-
-```bash
-node scripts/pack.mjs          # 重新打包
-plugin_manager remove_bundle  dsh-drama-desk
-plugin_manager install_bundle  <release/*.tgz>
-```
-
-然后**刷新 DSH 页面**（`unlag_refresh`）。注意：**Host 半边不会热重载**——
-改 `src/host/**` 要等 DSH 重启才生效；只改 `client.js` 刷新就够。
-细节见 §9。
+`release/` 与 `build/` 都在 `.gitignore` 里——它们是产物，不是源码。
 
 ---
 
 ## 2. 开发态 / 发布态分离（不可破）
 
-```
-src/       ← 开发对象（DSH 不可见）
-  spec/      规范源码
-  skills/    Skill 源码（开发中的 Skill 永远不被 agent 调到）
-  tools/     体检器 + 编译器 + 驱动器
-  host/      Host 半边源码
-build/     ← 发布物（gitignore）
-  spec/      规范随包分发
-  skills/    通过校验的 Skill（bundledSkillDir 指向这里）
-  tools/     体检器 + 编译器
-release/   ← npm bundle tarball（gitignore）
-```
+| 目录 | 是什么 | 入库 |
+|---|---|---|
+| `src/` | **开发对象**（DSH 不可见）：`spec/` 规范源码、`skills/` Skill 源码、`tools/` 体检器与编译器、`host/`、`client/` | 是 |
+| `build/` | **发布物**：`spec/` + `skills/` + `tools/`，`bundledSkillDir` 指向 `build/skills` | 否（gitignore） |
+| `release/` | npm bundle tarball | 否（gitignore） |
 
 - `bundledSkillDir` → **`build/skills`**，不是 `src/skills`。
 - `src/skills` 不在 DSH 任何扫描根目录（`.dsh/skills` / `.agents/skills`）→ 双重隔离。
-- `build/` 由 `scripts/build.mjs` 从 `src/` 生成，并跑**发布前校验**。
-- 校验不过 → **非 0 退出，不产出**。不要跳过校验直接 `cp`。
-
-> DSH 的 skill 发现深度只有一层：只认 `<root>/<name>/SKILL.md`。
-> 布局必须是 `build/skills/<name>/SKILL.md`。
+- `build/` 由 `scripts/build.mjs` 从 `src/` 生成，并跑**发布前校验**；
+  校验不过 → **非 0 退出，不产出**。不要跳过校验直接 `cp`。
+- DSH 的 skill 发现深度只有一层：只认 `<root>/<name>/SKILL.md`。
 
 ---
 
@@ -94,10 +66,9 @@ release/   ← npm bundle tarball（gitignore）
 **推论（写代码时照着做）：**
 
 - 插件里**不得**出现任何阈值数字（0.28 / 0.70 / 0.50 …）的副本。
-  要显示阈值，就从体检器/规范里解析出来。
-- 插件里**不得**复述规则正文。要显示规则正文，就解析 `build/spec/`。
+- 插件里**不得**复述规则正文。要显示就解析 `build/spec/`（或调体检器）。
 - 插件里**不得**自己实现编译或体检。要跑，跑随包分发的脚本。
-- 改一处即全局生效 —— 这是「规范只有一份」的全部意义。
+- 改一处即全局生效——这是「规范只有一份」的全部意义。
 
 ---
 
@@ -106,11 +77,10 @@ release/   ← npm bundle tarball（gitignore）
 | 边界 | 原因 |
 |---|---|
 | 插件**不发起付费生成** | 生成仍由 agent 走幂等三步（台账 → 提交 → 立刻回写） |
-| 插件**不直接写派生字段** | `description_en` / `dialogue` 由编译生成，改了会被覆盖 → 界面只读 |
+| 插件**不直接写派生字段** | `description_en` / `dialogue` 由编译生成，改了会被静默覆盖 → 界面只读 |
 | 插件**不缓存业务状态** | 状态从磁盘派生；缓存由文件 mtime + size 失效 |
-| **任何图片显示前 ≤1200px** | 大尺寸多脸拼图会被输入审核判为敏感并**永久卡死会话**（已发生 3 次）。见 `src/host/api.js` 的图片路由与 `src/tools/safe_image.py` |
-| 派生字段在界面上只读 | 改派生字段会被编译静默覆盖 |
-| 不建第二套规则 | 规则只有一处真源 |
+| **不建第二套规则** | 规则只有一处真源 |
+| **任何图片显示前 ≤1200px** | 大尺寸多脸拼图会被输入审核判为敏感并**永久卡死会话**。见 `src/host/api.js` 的图片路由与 `src/tools/safe_image.py` |
 
 **图片那条是组件级约束，不是文档备注。** 任何新增的图片显示点都必须走
 `/drama-desk/image` 路由（或等价的受控组件），不允许直接塞 URL。
@@ -122,950 +92,215 @@ release/   ← npm bundle tarball（gitignore）
 界面的每个动作与 agent 的每个工具**必须调用同一个 Host service 方法**。
 禁止在 UI 路径和 tool 路径里各写一遍逻辑。
 
-| 操作 | 界面 | agent tool | Host 方法 |
-|---|---|---|---|
-| 读流水线 | 网格 | `drama_desk_status` | `service.pipeline()` |
-| 读镜详情 | 镜详情 | `drama_desk_shot` | `service.shot()` |
-| 读体检 | 判定区 | `drama_desk_qc` | `service.shot()` / `service.pipeline()` |
-| 读规则与依据 | 规范视图 | `drama_desk_rules` | `service.rules()` |
-| 读资产 | 资产视图 | `drama_desk_assets` | `service.assets()` |
-| 读台账 | 台账页 | `drama_desk_ledger` | `service.ledger()` |
-| 读 / 推进阶段 | 阶段条 | `drama_desk_stage` | `service.stageState()` / `service.setStage()` |
-| 读 / 改设置 | 设置抽屉 | `drama_desk_settings` | `service.settings()` / `service.updateSettings()` |
-| 改表演 | beats 编辑器 | `drama_desk_edit_beat` | `service.editBeat()` |
-| 改镜头 | 镜头字段 | `drama_desk_edit_shot` | `service.editShot()` |
-| 写批注 | 批注区 | `drama_desk_annotate` | `service.annotateShot()` |
-| 重新编译 | 按钮 | `drama_desk_compile` | `service.compile()` |
-| 校验过期 | 角标 | `drama_desk_check` | `service.check()` |
+新增一个操作的正确顺序：**先在 service 上写方法 → 再挂界面 → 再挂 agent tool**。
 
-HTTP 路由（`src/host/api.js`）只是**传输层**：它调用上面那些方法，不含业务逻辑。
+`src/host/api.js` 的 HTTP 路由只是**传输层**：它调用那些方法，不含业务逻辑。
+完整对照表（界面 / tool / service 三列）见 `docs/dev/architecture.md` §4。
 
 ---
 
-## 6. 目录约定
+## 6. 目录与源码布局
 
 ```
-dsh-drama-desk/
-├── package.json              插件包清单
-├── cordis.patch.yml          Host patch（一条 row；config 由用户的 patch 层覆盖）
-├── index.js                  Host 半边
-├── client.js                 Client 半边（浏览器 bundle，**生成物**）
-├── icon.svg                  插件图标
-├── locale/{en,zh}.json       Plugin Manager 元信息（meta.title / meta.description）
-├── docs/DETAIL.md            插件详情页
-├── scripts/
-│   ├── build.mjs             构建 + 发布前校验（含性能闸门 --perf / --render）
-│   ├── build-client.mjs      把 src/client/* 拼成 client.js（Client 半边的构建）
-│   ├── client-smoke.mjs      客户端冒烟测试：真的跑一遍 React SSR 渲染
-│   ├── pack.mjs              打包 npm bundle → release/
-│   ├── perf.mjs              Host 端延迟闸门
-│   ├── render-probe.mjs      渲染开销闸门（切换延迟 / CPU / 轮询）
-│   ├── profile.mjs           性能归因：慢的是代码还是宿主环境
-│   ├── shot.ps1              截图（§10 的「必须看一眼」就靠它）
-│   └── make_demo_work.py     生成带真实图片/视频的演示作品（落在视频目录，不入库）
-├── tests/
-│   └── equivalence.mjs       等价性回归：优化过的答案必须与优化前相同
-├── src/
-│   ├── spec/                 规范源码（core/ + models/<id>/）
-│   ├── skills/<name>/SKILL.md
-│   ├── tools/                体检器 + 编译器 + 驱动器（纯 stdlib 优先）
-│   ├── host/                 Host service / HTTP 路由 / agent tools
-│   └── client/               Client 半边源码（见 §6a）
-└── build/  release/          构建产物与发布物（都不入库）
+docs/{PRD,API,DETAIL}.md   产品 / 接口契约 / 详情页
+docs/dev/*.md              开发参考（架构、渲染、性能、界面、宿主集成、Windows）
+scripts/                   构建、打包、探针、截图、演示作品
+src/{spec,skills,tools,host,client}/
+tests/equivalence.mjs      等价性回归
+client.js                  Client 半边——**生成物**，别手改
 ```
 
-### §6a Client 半边：模块化源码 + 一个拼装器
+目录树全量、每个文件的职责、Client 模块怎么拼，见 `docs/dev/architecture.md`。
 
-`client.js` **曾经**是一个 5000 行的巨无霸。九个阶段的视图、聊天、资产、
-图片预览、设置抽屉全塞在一个文件里，于是三个代价同时出现：**改不动**
-（谁都不敢碰）、**并行不了**（两个人改同一个文件必然打架）、**看不见边界**
-（一个函数该放哪儿，只能靠猜）。
-
-所以源码搬到 `src/client/`，按功能分模块；`client.js` 变成**产物**：
-
-```
-src/client/
-  manifest.json     拼装顺序（header + parts）
-  00-header.js      设计语言与 bundle 格式说明（注释）
-  10-prelude.js     React 取值与 hooks 解构
-  2x-*.js           基础层：locale / API / 常量
-  3x-*.js           主题与通用组件（面板、编辑）
-  5x-*.js           阶段视图（九个阶段各一块）
-  7x-*.js           构思会话窗
-  8x-*.js           首页 / 规范 / 文档 / 资产 / 图片预览 / 设置
-  90-panel.js       根组件与插件装配
-```
-
-**四条纪律（拼装器会拦）**：
+**改 `src/client/` 时的四条纪律（拼装器会拦）：**
 
 1. 顺序由 `manifest.json` **显式声明**，不靠目录遍历的运气。
-2. 分段里**不许**出现 `window.__ModuleLoader__` 或第二次 `require('react')`
-   ——它们只属于拼装器生成的壳。
-3. 分段里**不许**出现 `import` / `export`——它们不是 ES 模块，是**拼进同一个
-   函数作用域的片段**。跨模块只能靠**顶格的全局名字**互相调用。
-4. **所有分段的顶层名字必须全局唯一。** 拼进同一作用域之后同名就是覆盖，
-   而覆盖会把「A 的函数被 B 悄悄换掉」变成静默 bug。
+2. 分段里不许出现 `window.__ModuleLoader__` 或第二次 `require('react')`。
+3. 分段里不许出现 `import` / `export`——它们是拼进**同一个函数作用域**的片段，
+   跨模块只能靠顶格的全局名字互相调用。
+4. **所有分段的顶层名字必须全局唯一**——同名就是覆盖，覆盖会变成静默 bug。
 
-**样式跟着组件走**：每个模块末尾用 `CSS_PARTS.push(\`…\`)` 把自己那一块的
-样式 push 进总表（`CSS_PARTS` 在 `30-theme.js` 里声明）。于是改一个组件时，
-实现与样式在同一个文件里被一起读到。
-
-**改法**：
-
-```bash
-node scripts/build-client.mjs           # src/client/* → client.js
-node scripts/build.mjs                  # 拼装 + 全部校验（含客户端 SSR 冒烟测试）
-```
-
-**永远不要手改 `client.js`** —— 下一次构建会覆盖它。
-
-> 与兄弟插件 `dsh-realtime-interview` 的 `scripts/build-client.mjs` 同一套做法。
-
-**客户端冒烟测试需要 `react` 与 `react-dom`**（开发期依赖，`node_modules/` 与
-`package-lock.json` 都在 `.gitignore` 里）：
-
-```bash
-npm install --no-save react@18 react-dom@18
-node scripts/client-smoke.mjs
-```
-
-没装时它自己**跳过**（不是假装通过）。装了就跑三遍渲染：根面板 + **台账（有数据
-与没数据两种）** + 资产 + 文本字段——组件级的错误（少一个 hook、读了一个 null 字段）
-**只有真的渲染一次才会暴露**。
-
-
-### 演示作品
-
-```bash
-# 小作品（4 场 / 7 镜）：功能冒烟用
-python scripts/make_demo_work.py --out "D:/Default/Videos/DSH-DRAMA-DESK" --scale small
-
-# 大作品（12 场 / 72 镜 / 569 秒）：分页、性能、规模用
-python scripts/make_demo_work.py --out "D:/Default/Videos/DSH-DRAMA-DESK" --scale large --force
-```
-
-生成带**真实参考图**（含一张 2048px，用来验证 ≤1200px 的显示约束）与
-**真实视频**（用来验证播放器与运动层体检）的作品，落在「视频」目录下
-——**不在插件仓库里**。没有真实素材时，预览与视频体检都无从检验。
-大作品用来证明「按场次渲染」在真实规模下不卡。
+**样式跟着组件走**：每块样式用 `CSS_PARTS.push()` 推给总表，实现与样式同文件。
+`client.js` 是产物：改 `src/client/` → `node scripts/build-client.mjs`。
 
 ---
 
-## 7. 提交前自检
+## 7. 作品数据不在这个仓库
 
-```bash
-node scripts/build.mjs            # 必须通过（非 0 退出 = 不许提交）
-node scripts/build.mjs --check    # 校验 build/ 是否与 src/ 同步
-git status --short                # 不该出现 build/ release/ node_modules/ __pycache__/
-```
+插件**不拥有任何作品**：它只负责「读作品目录」与「写真源字段」。作品住在运行时的总根
+（`<「视频」目录>/DSH-DRAMA-DESK/workspaces/<work-id>/`）下，**不在这个仓库里**。
 
-`scripts/build.mjs` 会检查：
-
-| 检查 | 拦什么 |
-|---|---|
-| Skill frontmatter | name 不是 kebab-case、description 缺失 |
-| 包内路径引用 | Skill 正文里引用了不存在的 `spec/` / `tools/` 路径 |
-| 废弃路径残留 | `.drama/`、`docs/数据契约.md` 这类旧路径 |
-| 具体作品名 | 把某一个作品当通用规则写进来 |
-| 插件半边完整性 | manifest 字段、`cordis.patch.yml`、`locale/*.json`、`icon.svg`、client 入口形态 |
-| **随包工具自成一体** | `src/tools/` 缺 `compile_prompts.py` / `slim_prompt.py` / `lighting.py` / `desk_qc.py`（编译器 import 了一个没被打包的生成器，界面上的「重新编译」会直接报错） |
-| **语法** | 每个 JS 文件 `node --check` 不过 |
-| **客户端 hook 顺序** | 组件在最后一个 hook **之前**早退 ⇒ React #310 ⇒ **整个面板崩成空白** |
-| **运行时** | Host 半边 import 之后调 `overview()` / `rules()` / `pipeline()` / 九个 `stageView()`，形状不对或运行时报错 |
-
-> 最后三条是**血的教训**：曾经一次编辑把两行 `import` 粘成了一行，
-> 一次把 `dirname` 从 import 里删掉了。`node --check` 只查语法，查不出后者；
-> 两者在插件里都表现为「界面读不到数据」——用户看到的是空白，不是报错。
-> 所以**构建必须真的跑一遍**。
->
-> 2026-11-22 又踩了第三条的同类：台账页写成
-> 「`if (!ledger) return …` 之后才写 `useMemo`」——第一次渲染没数据、第二次有了，
-> 于是 hook 数变了，React 报 #310，**整个工作台崩成一片空白**。
-> 现在 `scripts/build-client.mjs` 会扫每一个组件：**早退必须排在所有 hook 之后**。
->
-> 同一课还有第二面：**崩掉的 panel 在画面上只是「一片空白」**，很容易被当成
-> 「没数据」而不是「代码错了」。所以**改完界面要看控制台**，不只是看画面。
-
+- **别把作品名写进插件源码或规范**——`build.mjs` 会拦（`WORK_NAMES` 名单）。
+  文档里举例子一律用 `<work-id>` 占位。
+- **一个工作台只有一个总根**，不要给每个项目开一个 DSH 工作区。理由与细节见
+  `docs/dev/dsh-integration.md` D5。
 
 ---
 
-## 8. 作品数据不在这个仓库
-
-插件**不拥有任何作品**：它只负责「读作品目录」与「写真源字段」。
-作品住在运行时的总根下（见 §15⑥），**不在这个仓库里**。
-
-**别把作品名写进插件源码或规范** —— `build.mjs` 会拦（`WORK_NAMES` 名单）。
-文档里举例子一律用 `<work-id>` 占位。
-
----
-
-## 9. 改完代码之后
+## 8. 改完代码之后
 
 ```bash
+node scripts/build-client.mjs                  # 只在改了 src/client/ 时需要（先拼）
+node scripts/build.mjs                         # 构建 + 全部校验（内部会先拼再校验）
 node scripts/pack.mjs                          # 重新打包
 plugin_manager remove_bundle  dsh-drama-desk   # 旧版本必须先移除
 plugin_manager install_bundle  <release/*.tgz> # 装新的 tarball
 unlag_refresh                                  # 刷新页面（客户端半边）
 ```
 
-**Host 半边不会热重载。** `unlag_refresh` 只换客户端代码；
-Host 的 ES 模块要等 DSH 重启才会是新的模块代。所以：
+**Host 半边不会热重载。** `unlag_refresh` 只换客户端代码；Host 的 ES 模块要等 DSH 重启
+才会是新的模块代。所以：改了 `src/host/**` → 要等 DSH 重启；只改了 `client.js` → 刷新
+就够；改配置（`cordis.patch.yml`）→ 插件会重启，配置立刻生效（模块代码不变）。
 
-- 改了 `src/host/**` → 界面上的 Host 行为要等 DSH 重启才变；
-- 只改了 `client.js` → 刷新页面就够；
-- 改配置（`cordis.patch.yml`）→ 插件会重启，**配置立刻生效**（模块代码不变）。
-
-> 实在需要重启 DSH 时，先确认 `cordis.patch.yml` 已保存、仓库已提交。
+> 要重启 DSH 时，先确认 `cordis.patch.yml` 已保存、仓库已提交。
 > 会话是持久化的（`session-persistence-jsonl`），重启后可以恢复。
+
+**构建顺序不可反**：`client.js` 是生成物，校验它**必须在拼装之后**（`build.mjs` 内部
+已经这么做了；手工分步跑时要先 `build-client.mjs`）。
 
 ---
 
-## 10. 渲染层的三条血泪教训
-
-这三条都在 DSH Desktop 的 Electron 渲染器里真实踩过，**症状都是「DOM 在、
-几何对、就是不画」**——不截图根本发现不了。
-
-### ① 同一层叠上下文里的大模糊层会吃掉 `backdrop-filter`
-
-`.dd-ambient` 里有三个 `56vmax` 的 `filter: blur(70px)` 光斑。
-同一个层叠上下文里再给顶栏用 `backdrop-filter`，Chromium 会把该元素的
-**内容层整个丢掉**——只剩背景，文字、按钮、图标全不画。
-
-**对策**：顶栏 / 抽屉 / 浮层一律**不用 backdrop-filter**，用半透明纯色。
-（`filter: blur()` 的大光斑本身可以留，它自己画得好好的——但它很贵，见 §11。）
-
-### ② 纵向 flex 容器里的子项会被压扁
-
-`.dd-inspector-body` 是 `display:flex; flex-direction:column`。子项默认可压缩，
-内容比容器高时它们会被**压扁**（而不是溢出滚动）——表现为每段只露一条缝。
-
-**对策**：可滚动的纵向 flex 容器里，所有直接子项都要 `flex:0 0 auto`。
-
-### ③ 渐变背景 + backdrop-filter 同元素 = 内容不画
-
-`background: linear-gradient(...)` 与 `backdrop-filter` 同时用在同一元素上时，
-Chromium 会丢内容层。纯色背景没有这个问题。
-
-**对策**：不要在同一个元素上同时用渐变背景与 backdrop-filter。
-
-> 通用做法：**每次改完界面都截图看一眼**。这三条的共同特征是
-> 「DOM 查询能看到元素，但人眼看不到」——自动化断言查不出来，只有截图能。
-> 截图必须**缩到最长边 ≤1200px** 再读（见 §4 的图片纪律）。
-
-### ④ 祖先 `overflow:hidden` + 自身带 `filter` 的 `<img>` = 空白图片
-
-`.dd-thumb img` 曾经带 `animation: dd-develop`（里面是 `filter: blur(10px)`）。
-结果是：**参考图一片空白**——DOM 在、几何对、网络请求也成功，就是不画。
-
-与 ①③ 同源：Chromium 在「祖先裁剪 + 自身滤镜」这一组合下会丢内容层。
-淡入只用 `opacity`，**不要用 `filter`**。
-
-> 对策：入场动画只用 `opacity` / `transform`；任何 `filter` 都不许进图片动画。
-
-### ⑤ 纵向 flex 里的中文标题会被压成一个字一行
-
-`.dd-stagehead` 是横向 flex。右侧一旦放了一条很宽的子元素（12 枚场次 chip），
-左侧的中文标题就被压到**最小内容宽度 = 1 个字**，于是整段话竖着排。
-
-> 对策：给文字那一侧一个下限（`min-width: 300px`），并允许换行
-> （`flex-wrap: wrap`）。挤不下就换行，不许把字压成一列。
-
-### ⑥ 把侧栏包进容器时：`flex:0 0 auto` 的**主轴**会换人（2026-11-22 踩的坑）
-
-> 症状：右侧聊天窗**不可滚动**，消息一长就把输入框顶到视口外面去；
-> 而页面本身也不滚（`.dd-body` 是 `overflow:hidden`）——于是**输入框彻底看不见**。
-
-根因：`.dd-chat` 带着 `flex:0 0 auto`。它原先是 `.dd-body`（**行**向 flex）的直接子项，
-那个声明管的是**宽度**；被包进 `.dd-side`（**列**向 flex）之后，同一个声明落到**高度**上，
-而 `flex-shrink:0` 意味着**不许收缩** ⇒ 聊天窗被内容撑到 1181px，消息流的
-`overflow:auto` 永远用不上。
-
-> **对策**：包进新容器时，**主轴变了就得重写 flex 声明**：
-> ```css
-> .dd-side>.dd-inspector,.dd-side>.dd-chat{ flex:1 1 auto; min-height:0; overflow:hidden; }
-> ```
->
-> **症状特征**：某个可滚动区域「突然不滚了」，而它的父容器高度 > 视口。
-> 排查第一步：**量几何**（`getBoundingClientRect()` + `scrollHeight` vs `clientHeight`），
-> 不要凭截图猜。
-
-### ⑦ 构建顺序：先生成，再校验（2026-11-22）
-
-`client.js` 是**生成物**。校验它的语法**必须在拼装之后**——反过来（先校验上一轮的
-旧产物）的话，上一轮留下的坏文件会让这一轮的构建报一个与本次改动无关的错，
-而真正的问题（新的产物）根本没被看到。
+## 9. 提交前自检
 
 ```bash
-node scripts/build-client.mjs   # 先拼
-node scripts/build.mjs          # 再校验（它内部会先拼再校验）
+node scripts/build.mjs            # 必须通过（非 0 退出 = 不许提交）
+node scripts/build.mjs --check    # 校验 build/ 与 src/ 同步
+git status --short                # 不该出现 build/ release/ node_modules/ __pycache__/
 ```
+
+`scripts/build.mjs` 会真的跑，不只是看语法：
+
+- **Skill frontmatter**（kebab-case、description）与**包内路径引用**是否可达；
+- **废弃路径残留**（`.drama/`、`docs/数据契约.md`）与**具体作品名**；
+- **插件半边完整性**（manifest / `cordis.patch.yml` / `locale/*.json` / `icon.svg` / client 入口形态）；
+- **随包工具自成一体**（缺 `compile_prompts.py` / `slim_prompt.py` / `lighting.py` /
+  `desk_qc.py` 就不许发布——界面的「重新编译」会直接报错）；
+- **语法**（每个 JS 文件 `node --check`）；
+- **运行时冒烟**（import Host 半边，真的调 `overview()` / `rules()` / `pipeline()` /
+  九个 `stageView()`）；
+- **客户端 hook 顺序**（组件在最后一个 hook **之前**早退 ⇒ React #310 ⇒ 整个面板空白）；
+- **等价性回归**（优化过的答案必须与优化前逐字节相同）。
+
+> 语法通过不等于能跑：`node --check` 查不出「import 了但名字拼错」，而这类错误在插件里
+> 表现为「界面读不到数据」——用户看到的是空白，不是报错。**所以构建必须真的跑一遍。**
+
+---
+
+## 10. 界面纪律（改 UI 之前先读这两篇）
+
+`docs/dev/rendering.md`（Chromium / React 的坑）、`docs/dev/ui-language.md`（物质语言）。
+
+**Chromium 侧——症状都是「DOM 在、几何对、就是不画」：**
+
+1. 顶栏 / 抽屉 / 浮层**不用 `backdrop-filter`**（同一层叠上下文里的大模糊层会吃掉它）。
+2. 可滚动的纵向 flex 容器里，直接子项一律 `flex:0 0 auto`（否则被压扁而不是滚动）。
+3. 不在同一元素上同时用**渐变背景 + `backdrop-filter`**。
+4. 图片入场动画**只用 `opacity` / `transform`**，任何 `filter` 都会在祖先裁剪下让图变白。
+5. 横向 flex 里的中文标题要给 `min-width`，不许被压成一列。
+6. 元素被包进新容器时，**主轴变了就要重写 flex 声明**；「突然不滚了」先量几何。
+
+**React 侧——症状都是「整个面板一片空白」：**
+
+7. **早退必须排在所有 hook 之后**（第一次渲染没数据、第二次有了 ⇒ hook 数变了 ⇒ #310）。
+8. effect 里不要引用后面才声明的 `const`（依赖数组在渲染时求值 ⇒ TDZ ⇒ 面板崩）。
+
+**两条硬规矩：**
+
+- **改完界面要截图看一眼**（`scripts/shot.ps1`，最长边 ≤1200px），并且**看控制台**——
+  崩掉的 panel 在画面上只是「一片空白」，很容易被当成「没数据」。
+- 可编辑字段**一律用 `Editable`**：默认读态、手动触发编辑、失焦即存。不要再手写
+  「读态 div → 编辑态 input → 保存 / 撤销按钮」，也不要让「点内容 = 进编辑」。
 
 ---
 
 ## 11. 性能是红线
 
-> **插件是嵌在别人的主应用里的。** 插件慢一点，用户就会说「DSH 卡了」。
-> 功能做再好也救不回来——而且这类问题**不会报错**，它只会让人觉得 DSH 变慢了。
-
-所以性能必须有**闸门**，不能靠感觉。
-
-### 两道闸门
+**插件是嵌在别人的主应用里的。** 插件慢一点，用户就会说「DSH 卡了」——这类问题不报错，
+只让人以为 DSH 变慢了。所以性能要有闸门，不能靠感觉：
 
 ```bash
-node scripts/perf.mjs                      # Host 端延迟与响应体
-node scripts/render-probe.mjs               # 渲染开销（切换延迟 / CPU / 轮询）
-node scripts/build.mjs --perf --render      # 两道都跑，作为构建的一部分
+node scripts/perf.mjs --base http://127.0.0.1:<宿主端口>        # Host 端延迟
+node scripts/render-probe.mjs --base http://127.0.0.1:<宿主端口> # 渲染开销 / 轮询
 ```
 
-`--perf` / `--render` **要 DSH 正在跑**（前者要 web 端口，后者要 DSH Desktop 窗口），
-所以默认**不跑**——构建不该依赖一个正在运行的服务。
+预算（72 镜作品）：一轮刷新 p95 **60 ms**，端点 p95 **60 ms**，打开阶段 **400 ms**，
+切换工作台 **1200 ms**，净 CPU **20 %**，面板藏起来后轮询 **0 次**。
 
-### 本机的实测基线
+**六条规矩：**① 一次刷新只发一个请求（`/snapshot` 一次给全）；② 数据没变就不重渲染
+（比 `revision`，跳过 setState）；③ 面板不可见就停轮询（`IntersectionObserver`）；
+④ 不用 `filter: blur()` 做全屏氛围层；⑤ 不给同一元素上渐变背景 + `backdrop-filter`；
+⑥ Host 端的重活要缓存（几秒 TTL）。
 
-演示作品：72 镜 / 12 场（`demo-epic`）。
-
-| 指标 | 预算 | 实测（2026-11-16） | 实测（2026-11-19，优化后） |
-|---|---|---|---|
-| 一轮刷新（面板实际用的 `/snapshot`）p95 | 60 ms | **10.6–16.8 ms** | **12.8 ms** |
-| 端点 p95（最慢的 `snapshot` / `assets`） | 60 ms | **13.0–46.4 ms** | **12.3 / 9.9 ms** |
-| 打开「生成」阶段（`/api/stage`）p95 | 400 ms | **没量过**（约 350 ms） | **23.9 ms** |
-| 冷启动（插件刚装完那一次） | — | **14–28 ms**（曾到 276 ms） | 330 ms |
-| 打开工作台的切换延迟 | 1200 ms | **299–473 ms** | **320 ms** |
-| 切走工作台 | — | 413–526 ms | 503 ms |
-| 工作台净 CPU 开销（A/B 对照） | 20 % | **−8.6 … −1.7 %**（都比会话省） | **−1.6 %** |
-| 面板藏起来后的轮询次数（8 秒） | 0 次 | **0 次** | **0 次** |
-
-> **2026-11-19 那次「超预算」的教训**：那天的实测是 66–88 ms，
-> 原因**不在插件**——是 DSH 的 Host 进程长时间运行后自己在空转
-> （一个线程 98.8%，见 §17②）。重启 DSH 后同一个端点是 12.8 ms。
->
-> **量之前先确认宿主没有空转**，否则量到的是宿主的问题。
-
-> 切换延迟的预算**不是拍的**：同一台机器上，用户自己的「自媒体工作台」插件
-> 打开耗时 **244–1136 ms**。预算定在 1200 ms =「不许比参照插件更差」。
-> 换机器要重新测参照插件。
->
-> `/snapshot` 的响应体随作品规模增长（72 镜 ≈ 37 KB）。它每 4 秒发一次，
-> 即 ~9 KB/s。**作品的镜头数再上一个量级时，要重新量这一条。**
-
-### 六条规矩（每条都对应一个已修掉的坑）
-
-1. **一次刷新只发一个请求。** `/drama-desk/api/snapshot` 一次给全（顶栏 + 网格 +
-   阶段条 + 设置）。四个端点就是四倍 HTTP 开销。
-2. **数据没变就不重渲染。** Host 给每个视图一个 `revision`（文件 mtime + size）；
-   客户端比对后**跳过 setState**。否则每几秒就把 45 个格子销毁重建一次。
-3. **面板不可见就停轮询。** 宿主可能把面板留在 DOM 里只是不显示——组件不卸载，
-   轮询也不会停。所以用 `IntersectionObserver` 判可见性，藏起来立刻停，
-   重新可见时补一次刷新。
-4. **不要用 `filter: blur()` 做全屏氛围层。** 三个 `56vmax` 的模糊光斑让渲染进程
-   常驻一个核以上（实测 110 % CPU）。改成直接画径向渐变——视觉几乎一样，
-   但只是一次光栅化，没有逐帧开销。
-5. **不要在同一元素上同时用渐变背景与 `backdrop-filter`。** 见 §10。
-6. **Host 端的重活要缓存。** 磁盘余量、资产体积这类「慢慢才变」的数，用几秒的
-   TTL 缓存；每轮轮询都去 `statfs` 一遍是白费力气。
-
-### 测的时候要小心
-
-- **CPU 必须 A/B 对照。** DSH 的会话界面本身就在忙（流式输出、动画），
-  单看一个数没有意义——**差值**才是插件的开销。
-- **第一轮是冷的，要单独量。** 插件刚装完 / DSH 刚重启时缓存是空的：
-  体检器要起子进程、磁盘要 `statfs`、抽帧要跑 ffmpeg。实测 `snapshot` 冷启动
-  曾到 **276 ms**，而热态只要 16 ms。冷启动**不是**轮询开销
-  （它发生在面板挂载那一刻），把它算进 p95 只会让闸门随机失败。
-  所以 `perf.mjs` 每端点先打一发热身、**单列「冷启动」列、不计入判定**。
-- **切换延迟要用「另一个主面板」来量**，不要点侧栏入口当开关（点它总是**选中**
-  这个面板，不会收起）。
-- **面板可能在 DOM 里但不可见。** 判「可见」看几何（宽高非零），不看「元素还在不在」。
-- **Windows PowerShell 5.1 把没有 BOM 的 `.ps1` 当 ANSI 读。** 探针脚本里
-  有中文字面量时**必须带 UTF-8 BOM**，否则直接语法错误。
-
-### 探针自己的失败模式
-
-探针也会骗人。它曾把「等一个永远不会出现的标志元素」当成 6 秒延迟，
-把「点击了工作区标题而不是会话行」当成面板没隐藏。
-**所以探针的每个判据都要能用截图或 DOM 查询独立验证**——
-探针报「超预算」时，先怀疑探针。
-
-> **更严重的一种：探针测不到，却报「通过」。**
-> 标志元素的文案一改，探针就找不到面板，于是延迟测成 `-1`、
-> CPU 测成 `0`——而 `-1 > 1200` 为假，于是「通过」。
-> 那是把「没测」说成「没问题」。
->
-> **对策（已落到代码里）**：
-> ① 标志元素用**插件独占**的一行字（`AI 短剧生产线`），不要用输入框的
->    placeholder —— 改一次文案探针就瞎了；
-> ② 探针**测不到就失败**：`switchAvg < 0` / `hiddenPolls < 0` 一律计入问题。
-
-> **第三条（2026-11-20）：窗口要按进程认，不要按标题认。**
-> `scripts/shot.ps1` 原来用窗口标题找 DSH 窗口，而**浏览器里开着的
-> DSH 网页版窗口标题也叫「DeepSeek Harness」**——于是「截桌面应用」
-> 截成了网页，截到哪一页全看运气。
-> 这一条让探针连续几次报「点了没反应」：**它点的是另一个窗口。**
-> 现在按进程名（`DeepSeek Harness.exe`）认窗口，取不到才退回按标题认。
-
-> **第四条（2026-11-20）：`powershell -File` 读 `.ps1` 时，中文注释会
-> 把脚本变成语法错误。** PowerShell 5.1 把没有 BOM 的 `.ps1` 当 ANSI 读，
-> UTF-8 的中文被误解码后可能带出反斜杠，把下一行续接掉。
-> `scripts/shot.ps1` 有中文注释，所以它**必须带 UTF-8 BOM**；
-> 用编辑工具改过它之后要重新补上 BOM（用 `node` 读原始字节再拼回去）。
-> 症状是 `ParserError: UnexpectedToken`，与脚本内容毫无关系。
-
-> **第五条（2026-11-20）：React effect 的依赖数组在渲染时求值。**
-> 所以 effect 里引用后面才声明的 `const`，会撞上
-> `ReferenceError: Cannot access 'showHome' before initialization`，
-> **整个面板直接崩掉**（控制台里是 `slot entry crashed in 'main'`）。
-> 要么把 effect 挪到那个 `const` 之后，要么别引用它。
->
-> 教训：**改完界面要看控制台**，不只是看画面——
-> 崩掉的 panel 在画面上只是「一片空白」，很容易被当成「没数据」。
+**量之前先确认宿主没有空转**——DSH 长时间运行后 Host 进程会自旋烧掉两三个核，能把
+12 ms 的量成 66 ms。归因方法、实测数据、探针的失败模式、缓存纪律（缓存**清单**，
+不缓存某一镜的判定）全在 `docs/dev/performance.md`。
 
 ---
 
 ## 12. 阶段语义：**点节点 = 切视图，不是改状态**
-
-> 用户的原话：「点击某个阶段的节点，直接切换过去，但为预览状态，
-> 只有在该状态明确进行修改后，才会变更总体的进度状态。」
-
-所以阶段条上有**两个**概念：
 
 | 概念 | 存在哪 | 谁改它 |
 |---|---|---|
 | **已提交的阶段**（committed） | `state.json` 的 `stage` | 状态机（Host） |
 | **正在看的阶段**（viewStage） | 客户端内存 | 用户点阶段节点 |
 
-规则：
+- **点阶段节点不发任何请求**，只是换视图（`setViewStage`）；没有确认框。
+- 预览时：已提交的阶段**实心**，正在预览的**虚线描边**，并有一条「预览中 · 已提交进度
+  仍停在 X」的横幅。
+- **任何写操作**都把 `viewStage` 一起发给 Host；Host **先保存内容**，再尝试推进阶段。
+- **保存与推进分离**：前置条件不满足时**内容照样保存**，缺口如实回报给用户。
+- 回退**永远允许**；正向推进按契约逐段校验。「已经在这一阶段」不算「没推进」。
+- **点当前所在的节点不许清载荷**（点了同一个节点 = `viewStage` 没变 = 补载荷的 effect
+  永远不跑 ⇒ 卡在「正在读取」）。只有真的换阶段才清，并留一个两秒的看门狗。
 
-- **点阶段节点不发任何请求。** 只是换视图（`setViewStage`）。
-  没有确认框，没有「再点一次」。
-- 预览时阶段条上：已提交的阶段是**实心**，正在预览的是**虚线描边**，
-  下面有一条「预览中 · 已提交进度仍停在 X」的横幅。
-- **任何写操作**都把 `viewStage` 一起发给 Host；Host **先保存内容**，
-  再尝试把 `state.json` 推进到那一阶段。
-- **保存与推进分离**：前置条件不满足时**内容照样保存**，只是进度不动，
-  缺口如实回报给用户。
-
-> 回退**永远允许**（契约明写：「分镜返工要能只重做第 7 个镜头」）。
-> 正向推进按契约 §11.2 逐段校验。
->
-> 「已经在这一阶段」**不算**「没推进」——那说明人还在这里干活。
-
-实现：`src/host/editors.js` 的 `commitStage()` +
-`src/host/service.js` 的 `commitStageFor()` + `client.js` 的 `runEdit()`。
-
-### ⚠️ 点**当前所在的**阶段节点：不许清载荷（2026-11-20 修掉的真 bug）
-
-阶段条上点一个节点，客户端做三件事：换 `viewStage`、清 `stagePayload`、
-清 `stageRevision`。
-
-**问题**：清掉的载荷**有人补**——补它的 effect 只在 `viewStage` **变了**
-的时候才跑。所以点**当前所在的**那个节点 = `viewStage` 没变 = 永远不补，
-于是面板卡在「正在读取」直到天荒地老（用户面前是一个转圈的页面，
-既没有内容也没有退路）。
-
-> 症状看起来像「Host 挂了 / 接口超时」，其实 Host 好得很——
-> `/api/stage` 实测 47 ms 返回。**先怀疑客户端的状态机。**
-
-**现在的规矩：**
-
-- `onPick` / `onGoto`：**只有真的换阶段才清载荷**。
-  点同一个节点 = 什么都不做（载荷不在时才补一次）。
-- 阶段视图加了**看门狗**：两秒还没拿到载荷，自动补一次请求，
-  并把「重新读取」摆出来。**任何一次请求丢了都不能让用户卡死。**
-
+实现：`editors.js` 的 `commitStage()` + `service.js` 的 `commitStageFor()` + 客户端的 `runEdit()`。
 
 ---
 
-## 13. 三条新踩的坑（2026-11-16）
+## 13. Windows / 跨语言四坑
 
-### ① Windows 的 `rename` 会 `EBUSY`
+1. Windows 的 `rename` 会 `EBUSY` → 原子写要重试，最后退化为就地覆盖（`fsx.js`）。
+2. 中文 Windows 的 Python stdout 是 GBK → 所有 `execFile` 调 Python 都带
+   `PYTHONIOENCODING=utf-8` / `PYTHONUTF8=1`，否则中文字段全变乱码。
+3. **不要用 PowerShell 改作品 JSON**（无 BOM UTF-8 会被当 ANSI 读，中文落到盘上是乱码，
+   还会带上 BOM）。用 Node，或走 service 方法。
+4. `.ps1` 带中文就必须带 **UTF-8 BOM**，否则 `ParserError: UnexpectedToken`。
 
-原子写是「写临时文件 → rename 覆盖目标」。目标文件正被别的进程打开时
-（杀毒软件、索引器、文件预览、甚至另一个读者），
-`rename` 会报 `EBUSY: resource busy or locked`，**整个写操作失败**。
-
-> 对策（`src/host/fsx.js` 的 `replaceFile()`）：
-> 重试几次（0 / 40 / 120 / 300 ms），仍不行就**就地覆盖**
-> （`copyFile` + 删临时文件）——那不原子，但**不丢数据**。
-
-### ② 中文 Windows 的 Python stdout 是 GBK
-
-体检器用 `ensure_ascii=False` 打印中文 JSON，Python 按 cp936 编码写 stdout，
-Node 按 UTF-8 解码 —— **每一个中文字段都变成乱码**（`无可拍动作` → `�޿��Ķ���`）。
-这条直接打到界面上（表演层的问题清单）。
-
-> 对策：所有 `execFile` 调 Python 的地方都带
-> `env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }`。
-> 涉及 `src/host/qc.js`、`src/host/compile.js`、`src/host/api.js`。
-
-### ③ 随包工具必须自成一体
-
-「重新编译」曾直接报 `ModuleNotFoundError: No module named 'slim_prompt'`：
-编译器 `import` 了一个**从来没被打包**的生成器。
-
-> 对策：
-> - `src/tools/` 现在自带 `slim_prompt.py`（通用默认生成器）与 `lighting.py`
->   （光参数预设）；
-> - 编译器在**找不到**生成器时**不崩**：跳过提示词生成、仍然重编译派生字段，
->   并在 JSON 里报 `note`；
-> - `scripts/build.mjs` 增加了检查：随包工具缺一个就**不许发布**。
+细节见 `docs/dev/windows.md`。
 
 ---
 
-## 14. 目录与文件的新增
+## 14. 构思会话 = 真会话
 
-```
-src/host/
-  service.js     主编排（一个操作，两个调用者）
-  api.js         HTTP 传输层（不含业务逻辑）
-  stages.js      阶段机（顺序、前置条件、推进判定）
-  stageviews.js  九个阶段的视图载荷
-  editors.js     写操作 + 阶段提交
-  posters.js     静帧（关键帧 / 缓存帧 / ffmpeg 抽帧）
-  hostinfo.js    宿主真实配置（模型路由 / 目录选择器 / 作品列表）
-  workspace.js   作品读写
-  qc.js          体检器驱动
-  compile.js     编译器驱动
-  locations.js   路径解析（Windows 已知文件夹）
-  fsx.js         文件系统助手（原子写 + Windows 重试）
-src/tools/
-  compile_prompts.py  编译器驱动（派生字段 + 提示词产物 + 人工覆盖）
-  slim_prompt.py      通用默认提示词生成器
-  lighting.py         光参数 preset
-  desk_qc.py          体检器驱动
-```
+- **不许自己画聊天**：不折叠宿主会话事件仿造聊天、不用 iframe。用 `sessions.retain()`
+  拿宿主已经折叠好的 `eventSource`，输入框接 `session.prompt()`。
+- **开会话之前先 `workspaceRegistry.resolveByPath()`，没有就 `create()`**；新开与恢复
+  走同一条路（`ensureDshWorkspace()`）。
+- **`agents.create()` 不接受「没有模型」**，显式带 `agentDefaultModel.currentSelection()`。
+- **随包技能必须注册**（`ctx.skills.registerProvider()`），且**按 cwd 过闸门**：
+  只有落在短剧总根之内的会话才看得到这些 Skill；别处的候选目录返回**空目录**
+  （`complete: true`，不是「发现失败」）。
+- **带点的服务路径必须显式 inject**（`ctx.get('remote.userQuestions')` 不 inject 会抛）。
+  宿主没有公开的「渲染这个槽」API，所以嵌入形态是**驱动**宿主渲染，不是搬运渲染器。
 
-界面与 Host 的契约写在 `docs/API.md`——**那是接口的唯一真源**。
-改接口先改它。
+会话、工作区、技能的完整规矩见 `docs/dev/dsh-integration.md`。
 
 ---
 
-## 15. 构思会话 = 真会话，且必须有工作区（2026-11-16）
+## 15. 文档地图
 
-### ① 不要自己画聊天
-
-`dsh-doc` 的 `practices.md` 说得很清楚：插件**不许**把宿主的 Client 包
-当模块加载，**不许**自己折叠会话事件去仿造聊天，也**不许**用 iframe。
-所以「构思」用的是**真的 DSH 会话**：
-
-```
-Host:  agents.create({ sessionId, meta:{ cwd }, agentOptions })
-Client: ctx.sessions.retain(id, {source:'controllerOperation'})
-        → binding.session（running / blank / prompt / cancel）
-        → binding.eventSource（已经折叠好的会话窗口）
-```
-
-小窗只做三件事：把窗口按「谁说的」摊开、把输入框接到 `session.prompt()`、
-给一个「完整对话」按钮跳回宿主自己的面板（工具卡片、推理、审批都在那边）。
-
-### ② 会话**必须**挂在 DSH 工作区下
-
-只给 `meta.cwd` 而不注册工作区时，会话会变成一段**没有归处**的对话：
-侧栏找不到、所属工作区的会话列表里没有，用户只能从工作台小窗看它。
-
-> 规则：**开会话之前先 `workspaceRegistry.resolveByPath()`，没有就 `create()`。**
-> cwd = 短剧项目根；一个短剧项目 = 一个 DSH 工作区。
-> 新开与恢复走**同一条路**（`ensureDshWorkspace()`），不要一边有一边没有。
-
-### ③ `agents.create()` 不接受「没有模型」
-
-它会直接拒：`AgentOptions.provider and AgentOptions.model or record a model selection`。
-所以显式带上 `agentDefaultModel.currentSelection()`。
-
-### ④ 随包技能必须注册，否则等于没打包
-
-`build/skills/` 里躺着 8 份 SKILL.md，但宿主的技能发现只扫
-`<root>/.dsh/skills` / `<root>/.agents/skills`——**`package.json` 里没有
-`bundledSkillDir`、`index.js` 也没注册 provider，这些技能从来没被加载过**。
-现在由 `src/host/skills.js` 用 `ctx.skills.registerProvider()` 注册。
-
-> **注册在全局层，可见性按 cwd 判。**
->
-> 宿主注册表是「全局层 + scope 层」：插件挂在宿主层 → provider 落进全局层
-> → 对**所有**工作区的会话可见。但这些 Skill 只描述短剧流水线，
-> 只在**短剧项目总根**（§15⑥）里有意义——挂到别处等于往别人的目录里塞方法论。
->
-> 所以 provider 用 `options.cwd` 过闸门：cwd 落在总根之内才贡献候选项；
-> 其他工作区返回**空目录**（`complete: true`——是「这里没有短剧 Skill」，
-> 不是「发现失败」，注册表因此不会把目录标成不完整、不会反复重试）。
-> 加载正文（`get()`）也过同一道闸门。
->
-> 总根由 service 解析（§3「规范只有一份」）：`skills.js` 只负责问，
-> 并按 promise 缓存，避免并发查找各跑一次解析。
-
-验证方式：在**短剧工作区**里开会话 → 技能目录里有 `drama-conceive`；
-在**别的**会话里 → 看不到它。
-
-### ⑤ 一行代码的教训：**不要用 PowerShell 改作品 JSON**
-
-PowerShell 5.1 的 `Get-Content -Raw` 把**无 BOM 的 UTF-8** 当 ANSI 读，
-中文在内存里就变成乱码；再 `Set-Content -Encoding UTF8` 写回去，
-乱码就**落到盘上**了（`演示作品` → `婕旂ず浣滃搧`），而且会带上 BOM 让
-`JSON.parse` 直接失败。
-
-> 改 `state.json` / `scenes.json` 这类文件，**用 Node**（`readFileSync(p,'utf8')`），
-> 或者干脆走插件自己的 service 方法。写坏了就用 `scripts/make_demo_work.py --force` 重建。
-
-### ⑥ 一个工作台只有一个总根（不许碎）
-
-> 用户的原话：「工作区太碎了太散了绝对不行……集中是最好的。」
-
-所以默认项目根 = **`「视频」目录/DSH-DRAMA-DESK`**（`locations.js` 的 `defaultRoot`，
-第一次解析时自动建出来）。所有短剧项目都是它下面的 `workspaces/<work-id>/`：
-
-```
-<「视频」目录>/DSH-DRAMA-DESK/     ← 唯一的总根 = 唯一的 DSH 工作区
-├── workspaces/
-│   ├── <work-id>/                 一部短剧 = 一个自包含目录
-│   └── <work-id>/
-└── （由插件自动创建）
-```
-
-**不要给每个项目开一个 DSH 工作区。** 侧栏碎成一堆工作区是治理灾难：
-用户说不清哪份是最新的，会话也散落各处。
-
-### ⑦ 共用一个工作区 → 每段对话都要 `@` 锚定项目
-
-共用一个工作区意味着 agent 能看见**别的**项目。所以每段构思对话的开场白
-第一行就是 `@workspaces/<work-id>/`，并明说「只读写这个目录、不要混用别的项目」——
-这就是「防止串台」。新项目还会有额外一句「这是一个刚建的新项目，目录还是空的」。
-
-### ⑧ 「新对话」
-
-`POST /conceive-session {fresh:true}`：收掉当前 agent、清掉 `state.json` 里的
-`desk_session_id`、开一段新的。**旧会话不删**，它还留在 DSH 的会话列表里。
-
-### ⑨ 侧栏常驻，但会话由用户发起（2026-11-16）
-
-> 用户的原话：「必须点顶栏上的聊天图标才唤起对话侧栏 → 唤起侧栏后立即触发对话，
-> 这是一个比较糟糕的功能设计。正常的功能逻辑应该是，创意阶段侧栏常驻，
-> 会话应该由用户主动发起。」
-
-- **常驻**：`chatVisible` 不再看「用户点没点那个图标」。首页和 conceive 阶段
-  这扇窗都在；顶栏图标只负责**收起 / 展开**（屏幕挤不下时的应急，不是唤起开关）。
-- **不自动开聊**：进阶段、展开侧栏，**都不发送任何东西**。会话由用户点侧栏里的
-  「开始对话」才建（`POST /conceive-session`）。「唤起即触发」看着像 AI 自己
-  在跟自己说话。
-- **开场白不丢，但换时机**：它仍然是 Host 单点生成的 `seed`，只是从
-  「自动发一条用户消息」改成**搭在用户主动发出的第一条消息上**
-  （`<system-reminder>` 框住一起送）。模型读得到，界面不显示。
-  **不要**在客户端重写这段文案——那会变成第二份真相。
-
-### ⑩ 会话窗能复用宿主的什么、不能复用什么（2026-11-22 实测）
-
-插件的客户端作用域里**能**拿到（`ctx.get`）：
-
-| 服务 | 用来做什么 |
+| 文档 | 什么时候读 |
 |---|---|
-| `sessions` | 保留会话、读事件流、收消息 |
-| `remote` | Remote Events（下面那条提问通道） |
-| **`remote.userQuestions`** | **把答案回传给 agent** |
-| `uiConversation` | 宿主的会话装配：每会话绑定、快照、**原生视图** |
-| `uiSession` / `slots` / `locale` | 宿主 UI 基础设施 |
-
-**不能**拿到的：**宿主的对话渲染器**。`ctx.slots` 只有
-`register` / `registerFactory` / `inject` —— **没有公开的「渲染这个槽」API**，
-而宿主的 `conversation.chat.node` / `tool.call.toolview` 都是 `kind:'keyed'`
-且**已被宿主占住**的条目。所以原生聊天主界面**搬不进插件面板**。
-
-> 于是「轻量嵌入」的可落地形态是**驱动**而不是**搬运**：
-> 插件把「这段会话 + 这个视图」交给宿主，让宿主自己渲染。
-> 会话窗里的「轨迹」按钮就是这么做的：它切到宿主的**原生轨迹视图**
-> （`uiConversation.binding(sessionId).activate('trajectory')`），
-> 工具卡片、推理、审批、提问卡全在那边——**不复刻，请过来**。
-
-### ⑪ Cordis 对带点的服务路径有静态保护
-
-`ctx.get('remote.userQuestions')` 会抛：
-
-```
-Error: cannot get property "remote.userQuestions" without inject
-```
-
-作用域**必须显式 inject** 那些带点的路径服务，插件的客户端清单里写：
-
-```js
-inject: ['slots', 'locale', 'remote', 'remote.userQuestions', 'uiConversation'],
-```
-
-（`ctx.get('remote')` 能拿到，但 `remote.userQuestions` 是**另一个**路径——取不到。）
-
-### ⑫ 推理强度是**每个模型自己的**
-
-同一个 provider 下，A 模型给 low/high/max，B 模型只给 medium。
-所以档位**不能写死在插件里**——问适配器：
-
-```
-llm.resolveModelInfo(provider, model) → { reasoning: { efforts: [{id, name}], defaultEffort } }
-```
-
-这条路径**可能去问 provider**，所以它是一条**按需**的接口
-（`GET /api/model-info`），**不进轮询**：模型菜单打开时才问一次。
-
-
----
-
-## 16. 界面物质语言（2026-11-19）
-
-工作台的视觉系统写在 `client.js` 顶部的 `CSS` 常量里。它不是「随便调调」，
-是一套有纪律的**物质语言**。改界面前先读这一节。
-
-### ① 四套字，各司其职
-
-| 角色 | 字族 | 用在哪 |
-|---|---|---|
-| 仪表 `--f-gauge` | Bahnschrift（DIN 骨架） | **纯拉丁**的编号、微标签、单位（SHOTS / DURATION / FAIL） |
-| 正文 `--f-ui` | Segoe UI Variable → Noto Sans SC | 界面文字与中文标题 |
-| 读数 `--f-mono` | Cascadia Mono | 镜号、秒数、路径、金额、表格数字 |
-| 文学 `--serif` | Noto Serif SC | **只有**简报、台词、场次名、镜名这类「作品内容」 |
-
-规则：**中英混排时 Latin 与 CJK 各取所长**，不要用同一族硬扛。
-仪表字体只出现在纯拉丁的地方——给中文套 .16em 字距是有意的，不是失误。
-
-### ② 深浅靠光影，不靠「亮一点」
-
-每一层表面都有**顶光**（`inset 0 1px 0 var(--hl)`）与**落影**。
-亮色主题顶光弱、落影重；暗色主题顶光一线冷白、落影更深。
-**没有顶光的卡片就是一张纸。** 新增任何带边框的块，都要带上顶光。
-
-### ③ 信号盘是导播台自有的
-
-```
-红 = FAIL   琥珀 = WARN   绿 = PASS   青 = 在途/未体检   空 = 未生成
-```
-
-它们**刻意不与宿主 UI 的强调色同族**（宿主 link 是蓝的）。
-灯是给人从远处一眼读的，不能和链接、悬停、选中混在一起。
-
-> **两套词不要混。**
-> `shot.status` 是**生产状态**（pending/submitted/succeeded/failed/verified），
-> `shot.qc.verdict` 是**体检判定**（PASS/WARN/FAIL）。
-> 灯的颜色跟**判定**走，生产状态只决定「还没拍」还是「拍了还没验」。
-> 客户端的 `shotSignal(shot)` 就是这个映射，别在别处再写一遍。
-
-### ④ 能用形与位说清的，不写小字说明
-
-- 阶段进度是一条**被点亮的轨道**（`.dd-link.lit`），不是几个彩色圆点。
-- 右栏没有选中镜头时给**场次概览**（`.dd-sheet`），不是「在网格里点一镜」。
-- 阶段标题条与工具条**合成一条**（`.dd-deck`），不要又加一条横栏。
-- 眼下的例外：`.dd-deck-id .sd3` 那句阶段说明，窄台面（<1240px）自动隐藏。
-
-### ⑤ 渲染层的既有血泪教训仍然有效（§10）
-
-- 顶栏 / 抽屉 / 浮层**不用 backdrop-filter**，用半透明纯色。
-- 图片入场动画**只用 opacity**，不许有 `filter`。
-- 纵向 flex 滚动容器的直接子项一律 `flex:0 0 auto`。
-- 横向 flex 里的中文标题要给 `min-width`，不许被压成一列。
-
-### ⑥ 旧 token 名是别名，不是第二套体系
-
-`--r-sm` / `--card` / `--accent` / `--draft` 这些名字还在，但它们是
-**指向新体系的别名**（见 `CSS` 里的「兼容别名」块）。行内样式还在用它们。
-新写代码用新名字（`--rx-*` / `--raised` / `--hot` / `--sig-*`）。
-
-### ⑦ 改东西只有一种手势：**读态是读态，编辑靠手动触发**（2026-11-22 统一重做）
-
-> 用户的原话（2026-11-20）：「随意点击【场次标题】【这一场发生了什么】这些区域，
-> 鼠标点击上去直接进入编辑模式，然后底部必须点【撤销】或者【保存】按钮……
-> 一方面这些交互体验很差，另一方面这些大按钮占据了大量的空间，有点浪费。」
-
-2026-11-22 用户又提了一次，而且说得更准：**「默认都是预览模式，只有手动触发才编辑，
-而非点击内容直接跳成编辑模式——这也是这个需求要改的最重要的痛点之一」**。
-
-于是整个工作台的文本编辑**统一重做**成 `src/client/41-editing.js` 的
-`Editable`（＋放大窗口 `TextDialog`）：
-
-| | 规则 |
-|---|---|
-| **默认是预览** | 字段**默认是读态**。点内容**不会**跳进编辑态——误触一次就进编辑、页面又跳一下，是最让人烦躁的那种体验。 |
-| **编辑靠手动触发** | 右上角两枚按钮：**✎** 就地改、**⤢** 放大窗口里改。它们**常驻**（默认低透明度，悬停才亮）——不能藏到「只有鼠标刚好扫过去」才出现。 |
-| **读态是内容** | 不是表单控件：没有 sunken 盒子、没有描边、没有「保存 / 撤销」按钮行。只有一条悬停才浮现的虚线（`.dd-ed-val:hover`），意思是「这一项可以改」。 |
-| **读态按 markdown 渲染** | 多行文本渲染成**给人看的排版**（`MarkdownLite`），不是源码。提示词这类**产物**用 `markdown:false` 保持原样。 |
-| **编辑态原地接管** | 输入框占住读态那一块地方；进入编辑时**量一下读态盒子的实际高度**并用它，⇒ **页面不跳**。读态与编辑态的最小高度也相同（多行 44px / 单行 28px）——以前读态 21px、编辑态 66px，那个 45px 的差就是「一直跳」的来源。 |
-| **存** | **失焦即存**。Enter 提交（多行是 Ctrl+Enter），Esc 撤销。右上角那两枚小图标（✓ / ✗）只是**保险**。 |
-| **放大窗口也是预览优先** | `TextDialog` 默认落在「预览」态，要切到「编辑」才动手。有未保存改动时关不掉，但一定给出路。 |
-| **只读** | 派生字段与机器读数用 `readOnly`：不假装可编辑（没有虚线、没有手型光标、**没有编辑按钮**）。 |
-
-> **为什么不是「编辑 → 保存」两段式**：那要求用户每改一处就**再点一次按钮**。
-> 一次大纲有 72 个字段，每场 6 个；两段式意味着一次审阅要点几十次按钮，
-> 而按钮把一屏大纲吃掉一半。失焦即存把「改一处」的成本降到**一次点击**。
-
-**推论（写新界面时照着做）：**
-
-- 新增可编辑字段**一律用 `Editable`**，不要再写「读态 div → 编辑态 input →
-  保存 / 撤销按钮」那一套。
-- **只有真正需要「一次改多处再统一提交」的地方**才用表单 + 提交按钮
-  （设置抽屉就是）。逐字段修改的场景不要用表单。
-- 改文案要改**标签本身**（`label` + `labelTitle`），不要在标签旁边再补一句说明。
-- **别再手写第二套编辑器**：`ConceiveView` 与 `PromptEditor` 各写过一套
-  （textarea + ✓/✗），它们是本轮被消灭的对象。
-- **别再让「点内容 = 进编辑」**：那是本轮被点名的那条痛点。
-
-
-
-**契约上的一个坑：`beat.mode` 与 `beat.delivery` 必须同时满足。**
-数据契约 §6 规定台词拍必须有语气阶梯（`delivery` 非空）。
-所以用户点「画内音 / 画外音」时，若语气还是空的，**mode 先不落盘**——
-等语气填上了，mode 与语气一起存。否则用户会先撞上一句 Host 的报错，
-而界面上又没有地方让他补语气。
-
-### ⑧ 品牌标记：**胶片三格**（2026-11-21 重做）
-
-> 上一版是一块深色板 + 六颗灰绿/蓝/红小格子——缩到 36px 就是一团糊，
-> 语义也读不出来。用户原话：「意义不明的寡绿方块要多丑有多丑」。
-
-现在的标记是**一条胶片**：厚片身、顶边四枚片孔、中间三个画格——
-**中间那格亮着琥珀色**，正是正在产的那一镜。
-
-| 位置 | 形态 | 颜色 |
-|---|---|---|
-| 插件图标 `icon.svg` | 64 网格 · 彩色 | 冷蓝 `#2F6BE0` 片身 + 暖琥珀 `#F5A524` 在产的那格 |
-| 工作台顶栏 `DramaDeskMark` | 64 网格 · 彩色 | `var(--brand-blue)` + `var(--brand-amber)` |
-| 侧栏字形 `DramaDeskIcon` | 64 网格 · **单色减法** | `currentColor` |
-
-**三处同源，但侧栏是「减法」不是「缩小」。** 侧栏只有 16px：
-胶片的片孔在那里会糊掉，整条片子变成一块深色方块（比邻居的线描重得多）。
-所以侧栏只画**那三格**——两头空心画格，中间一个实心（正在产的那一镜）。
-改形状要三处一起改：`client.js` 的 `FILM_STRIP` / `FILM_FRAME` /
-`FILM_GRID_L|M|R` 与 `icon.svg` 是同一套坐标。
-
-**三条纪律**：
-
-- **标志是产品的一部分，不随主题换色。** `--brand-blue` / `--brand-amber`
-  是**常量**，不是语义 token，别把它们塞进暗色/亮色的覆盖块里。
-- **同一枚 SVG 要在亮底与暗底都立得住。** 所以不用深色底板
-  （在插件列表的暗底上等于隐形），镂空是真透明而不是拿背景色去挖。
-- **镂空用 evenodd 子路径，不用 `<mask>`。** 插件管理器把 `icon.svg`
-  当 `data:image/svg+xml;base64,...` 塞进 `<img>`——那是**独立 SVG 文档**，
-  mask 在那条路上不保险，路径填充稳。
-
-> 顺带一条经验：**别信 SVG 直接放大。** 浏览器会重新插值，看着清楚，
-> 栅格化成 16px 真像素后可能是一团噪点。判断小尺寸可读性要
-> **canvas 栅格化后放大**（`tmp/logo/side2.mjs` 里有现成的做法）。
-
-### ⑨ 验收
-
-```bash
-node scripts/build.mjs --check        # 语法 + 运行时形状 + 等价性回归
-node scripts/render-probe.mjs --base http://127.0.0.1:<宿主端口>
-node scripts/perf.mjs --base http://127.0.0.1:<宿主端口>
-```
-
-> **端口不是固定的 13144。** 13144 是独立 `dsh web` 的端口；DSH Desktop 跑的时候
-> 宿主在另一个端口上（`netstat -ano` 找 DeepSeek Harness 那个进程）。
-> 探针连不上会报「测不到」，而「测不到」不是「通过」——所以要 `--base` 指过去。
-
-改完界面**必须截图看一眼**：§10 那三条的症状都是「DOM 在、几何对、就是不画」，
-自动化断言查不出来。截图用 `scripts/shot.ps1`。
-
----
-
-## 17. 性能：问对的问题（2026-11-19）
-
-p95 超预算这件事查了两轮，结论与直觉相反，所以记在这里。
-
-### ① 先分清「谁的慢」
-
-同一个 `DramaDeskService`，同一份作品，两种服务器：
-
-| 端点 | 独立 Node 服务器 | DSH Host 里 | 倍数 |
-|---|---|---|---|
-| `/snapshot` | 12.0 ms | 66.3 ms | 5.5× |
-| `/pipeline` | 11.7 ms | 73.0 ms | 6.2× |
-| `/assets` | 14.1 ms | 82.0 ms | 5.8× |
-
-**我们的代码只值 12 ms。** 剩下的六倍是宿主环境给的。
-验证方式：`node scripts/profile.mjs`——把同一个 service 挂在一个普通
-`http.createServer` 上，用同样的作品、同样的请求量量一遍。
-
-> 所以「优化插件」这条路的天花板是 12 ms → 0 ms，
-> 而 66 ms → 12 ms 那一段**不在插件手里**。
-
-### ② 真正的元凶：宿主进程自己在空转
-
-量的时候发现 DSH 的 Host 进程（`--expose-internals` 那个 node）在**完全空闲**时
-烧 **254% 的一个核**：
-
-```
-PID 19744  CPU 98.8%  Running      ← 一个纯自旋的线程
-PID 20108  CPU 40.0%
-PID 20116  CPU 36.3%
-PID 20112  CPU 34.8%
-PID 20120  CPU 33.8%
-```
-
-同时 10 秒内只有 **167 次文件读**——所以那不是 I/O 等待，是**纯 CPU 自旋**。
-
-定位过程（每一步都被证伪过，值得记下来）：
-
-| 猜测 | 证伪方式 | 结果 |
-|---|---|---|
-| 是 drama-desk 干的 | 禁用 drama-desk 再量 | 253.7% —— **不是** |
-| 是别的插件干的 | 逐个禁用 context / ide-workbench / pocket / better-sidebar / codegraph / rewind / media-desk / bridge-next | 始终 253–263% —— **不是** |
-| 是内存泄漏 | 看工作集是否增长 | 稳定在 895–936 MB —— **不是** |
-| 是磁盘 IO | 看文件读次数 | 10 秒 167 次 —— **不是** |
-| 是长会话的产物 | **重启 DSH** 再量 | **254% → 2.7%** —— **是** |
-
-> **结论：这是 DSH 宿主在长时间运行后的一个缺陷，不是插件的。**
-> 它会污染所有在同一进程里量出来的数字。
->
-> **量性能之前先看宿主进程在不在空转。** 一个空转的宿主能让
-> 12 ms 的代码量出 66 ms——那不是代码的问题。
-> 复现步骤：DSH 开着不放几天 → Host 进程 CPU 异常 → 重启 → 恢复正常。
-
-### ③ 但插件自己的账也要算清
-
-宿主的问题归宿主，插件自己的问题归插件。查的过程中量出了**插件自己的**六笔账：
-
-| 位置 | 原来 | 改成 | 现在 |
-|---|---|---|---|
-| `assets()` 逐个探测 101 个文件是否存在 | 10.6 ms 串行 | 有上限的并发池（`fsx.js` 的 `mapLimit`，上限 32） | ~2.5 ms |
-| `pipeline()` 逐镜探测 72 份验收报告 | 6.8 ms（69 次失败探测） | 一次 `readdir` 拿全，只读真存在的 | ~0.3 ms |
-| 生成台每开一次就起一个 **Python 子进程** | **268 ms** | 结果按**真源的指纹**缓存（`scenes.json` + `shots.json` 的 mtime+size） | 0.3 ms |
-| 72 镜的提示词产物逐镜读 | 33.8 ms（144 次探测） | 两个目录各列一次，并行读 | ~2 ms |
-| 72 镜的封面来源逐镜找 | 35.8 ms（360 次探测） | 三个目录各列一次 | ~1 ms |
-| 一轮快照里 `listWorkspaces()` 被问四次 | 4×2.2 ms | 一秒 TTL 的清单缓存 | 一次 |
-
-一轮刷新（面板实际用的那个端点）：**66 ms → 12.8 ms**。
-生成阶段视图：**362 ms → 16 ms**。
-
-> **两处「逐个问」改「一次列目录」的通用道理：**
-> 「这个文件在不在」用 `stat` 回答一次；「这一堆文件里有哪些」用
-> 一次 `readdir` 回答全部。**失败探测也是往返**——目录里没有文件时，
-> 你为「不在」这个事实付了一次往返的价钱。
-
-### ④ 缓存的纪律：缓存**清单**，不缓存**某一镜的判定**
-
-这一条是踩过的坑，值得单独说。
-
-`check()` 原本要跑编译器。给它加缓存时，第一版把**整个答案**存了下来——
-而答案里的 `stale` / `changed` 是**某一镜**的判定。于是先问 A 镜、
-再问 B 镜时，**B 镜拿到的是 A 镜的答案**。
-
-界面照样渲染，只是内容是假的——**静默的错误比慢更糟**。
-
-> **规则：一个缓存项里如果混着「与请求无关的部分」和「与请求相关的部分」，
-> 就只能缓存前者。**
-> 这里缓存的是「哪些镜过期了」这份**清单**；单镜的判定由清单现算。
->
-> 而且必须**证明**两种口径等价：编译器带 `--shot X` 与不带 `--shot`
-> 对 X 这一镜的判定一致（`tests/equivalence.mjs` 里的第 3b 项）。
-
-### ⑤ 等价性要有闸门
-
-```bash
-node tests/equivalence.mjs
-```
-
-**优化过的答案必须与优化前逐字节相同。** 优化改的是「怎么问」，
-不是「答什么」；答错了界面照样渲染，只是内容是假的。
-`scripts/build.mjs` 会跑它——没有演示作品时它自己跳过（不是假装通过）。
-
-### ⑥ 阶段视图以前**根本没有闸门**
-
-`perf.mjs` 只量被轮询的端点。**打开一个阶段**走的 `/api/stage` 不在里面——
-于是它 350 毫秒的成本（其中 268 毫秒是每次都起一个 Python 子进程）
-从来没被量过。现在它在表里了，预算 400 ms（点开的路径，慢一点没关系，
-但不能慢到让人等）。
-
-> **教训：闸门只量你量过的东西。** 加一条新路径时，记得给它也加一道闸门。
-
+| [`docs/PRD.md`](docs/PRD.md) | 产品功能、验收口径 |
+| [`docs/API.md`](docs/API.md) | **接口唯一真源**——改接口先改它 |
+| [`docs/DETAIL.md`](docs/DETAIL.md) | 插件详情页文案 |
+| [`docs/dev/architecture.md`](docs/dev/architecture.md) | 目录树、文件职责、操作↔tool↔service 对照表、Client 拼装 |
+| [`docs/dev/rendering.md`](docs/dev/rendering.md) | 改界面前；界面「不画 / 空白」时 |
+| [`docs/dev/performance.md`](docs/dev/performance.md) | 动性能、加新接口、跑闸门、量到的数不对劲时 |
+| [`docs/dev/ui-language.md`](docs/dev/ui-language.md) | 改视觉、加可编辑字段、动品牌标记 |
+| [`docs/dev/dsh-integration.md`](docs/dev/dsh-integration.md) | 动构思会话、工作区、技能注册、宿主服务 |
+| [`docs/dev/windows.md`](docs/dev/windows.md) | 文件写坏了、脚本报 `ParserError`、中文乱码 |
+
+**维护约定**：踩到新坑，先判断它是「一条必须照做的规矩」还是「一段复盘」。
+规矩写进本文（一行 + 一条链接），复盘写进 `docs/dev/` 对应的那篇。
+**本文的目标是让人和 agent 花五分钟读完就能动手，不是留档。**

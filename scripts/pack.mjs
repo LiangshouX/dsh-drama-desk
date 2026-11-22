@@ -5,7 +5,7 @@
  *   node scripts/pack.mjs          # 构建 + 打包 → release/dsh-drama-desk-<version>.tgz
  *   node scripts/pack.mjs --pack   # 只打包（不重新构建）
  *
- * **为什么要有这一步**（AGENTS.md §安装纪律）：
+ * **为什么要有这一步**（AGENTS.md §1 安装纪律）：
  *
  * `plugin_manager install_bundle` 指向**源码目录**时，profile 里留下的是指向
  * 仓库的软链。于是：
@@ -72,7 +72,7 @@ async function main() {
   console.log(`\n✓ 发布物：release/${tarball}（${(info.size / 1024).toFixed(1)} KiB，版本 ${version}）`)
   console.log('  安装它：')
   console.log(`    plugin_manager install_bundle  target: ${join(RELEASE, tarball)}`)
-  console.log('  不要把源码目录当安装目标（见 AGENTS.md §安装纪律）。')
+  console.log('  不要把源码目录当安装目标（见 AGENTS.md §1 安装纪律）。')
 }
 
 main().catch(error => {

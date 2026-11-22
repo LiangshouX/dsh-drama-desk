@@ -6,7 +6,8 @@
 > - 插件（Client UI）—— **给人读**：现在是什么状态、能决定什么
 > - `spec/` 与 `tools/` —— 两者共用的规范真源与可执行形式
 
-包名 `dsh-drama-desk`。**产品说明书见 `docs/PRD.md`；开发纪律见 `AGENTS.md`。**
+包名 `dsh-drama-desk`。**产品说明书见 `docs/PRD.md`；开发纪律见 `AGENTS.md`
+（细节参考在 `docs/dev/`）。**
 
 ---
 
@@ -31,9 +32,10 @@ dsh-drama-desk/
 ├── package.json              插件包清单
 ├── cordis.patch.yml          Host patch（含 config）
 ├── index.js                  Host 半边（service + HTTP 路由 + agent 工具）
-├── client.js                 Client 半边（浏览器 bundle，无构建步骤）
+├── client.js                 Client 半边（浏览器 bundle，**生成物**，由 src/client/ 拼装）
 ├── icon.svg  locale/  docs/  显示元信息
-├── AGENTS.md                 ★ 开发纪律（安装方式、硬边界、渲染层教训、检查清单）
+├── AGENTS.md                 ★ 开发纪律（短版：安装方式、硬边界、检查清单、文档地图）
+├── docs/dev/                 开发参考详版（架构 / 渲染 / 性能 / 界面 / 宿主集成 / Windows）
 ├── scripts/
 │   ├── build.mjs             构建 + 发布前校验（语法 + 运行时冒烟）
 │   ├── pack.mjs              打包 npm bundle → release/
@@ -46,7 +48,7 @@ dsh-drama-desk/
 │   ├── skills/<name>/SKILL.md   Skill 源码（薄）
 │   ├── tools/                体检器 + 编译器 + 驱动器
 │   ├── host/                 Host service / HTTP 路由 / agent 工具
-│   └── client/               （预留：将来放需要构建的 Client 源码）
+│   └── client/               Client 半边源码（分模块，build-client.mjs 拼成 client.js）
 │
 └── build/  release/          发布物（gitignore）
     ├── skills/               通过校验的 Skill（bundledSkillDir 指向这里）
@@ -221,7 +223,9 @@ brief  场次   角色卡  beats   分镜  视频+提示词 验收报告 版本 
 
 - **产品说明书**：`docs/PRD.md` —— **唯一现行产品说明书**（功能、界面、阶段语义、判定、硬边界，可单独阅读）
   - 工作区根部的 `PRD.md` 是 v0.3 的**历史规划稿**，已归档；两者不一致时以 `docs/PRD.md` 为准
-- **开发纪律**：`AGENTS.md` —— 安装方式、硬边界、渲染层教训、提交前检查清单
+- **开发纪律**：`AGENTS.md` —— 安装方式、硬边界、检查清单、文档地图（五分钟读完）
+- **开发参考详版**：`docs/dev/` —— 架构与源码布局、渲染层陷阱、性能闸门与归因、
+  界面物质语言、宿主集成、Windows 坑
 - **接口契约**：`docs/API.md` —— Host ⇄ Client 的唯一真源
 - **数据契约**：`src/spec/core/数据契约.md`
 - **铁律**：`src/spec/models/minimax/rules.md`

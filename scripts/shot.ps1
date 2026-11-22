@@ -2,7 +2,7 @@
 <#
   截一张 DSH Desktop 的图（用来**亲眼确认**界面画出来了）。
 
-  为什么需要它：AGENTS.md §10 那几条渲染层陷阱，症状都是
+  为什么需要它：`docs/dev/rendering.md` 那几条渲染层陷阱，症状都是
   「DOM 在、几何对、就是不画」——自动化断言查不出来，只有截图能。
 
   用法：
@@ -39,7 +39,7 @@ param(
 )
 
 # 这份脚本里有中文字面量。**必须带 UTF-8 BOM**——PowerShell 5.1 把没有 BOM 的
-# .ps1 当 ANSI 读，中文会变成乱码，匹配不到任何元素（§11）。
+# .ps1 当 ANSI 读，中文会变成乱码，匹配不到任何元素（`docs/dev/windows.md` W4）。
 $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Drawing

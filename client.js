@@ -1712,7 +1712,7 @@ select.dd-input{
 
     // ══ 文本编辑组件（统一）═══════════════════════════════════════════════
     //
-    // 这一块是**整个工作台唯一的改法**（AGENTS.md §16⑦）。规则来自长期记忆里的
+    // 这一块是**整个工作台唯一的改法**（`docs/dev/ui-language.md` U6）。规则来自长期记忆里的
     // 《文本编辑组件最佳实践》，逐条落在这里：
     //
     //   · **读态是内容**，不是表单控件：多行文本按 **markdown** 渲染，读起来是
@@ -3409,7 +3409,7 @@ select.dd-input{
           wantsDialogue
             ? h(Editable, {
               label: '台词', value: beat.text || '', multiline: true, disabled,
-              // 台词是**作品内容**：用文学字族（AGENTS.md §16①）。
+              // 台词是**作品内容**：用文学字族（`docs/dev/ui-language.md` U1）。
               serif: true,
               placeholder: '这一拍说出口的话',
               onSave: value => commit({ text: value }),
@@ -4017,7 +4017,7 @@ select.dd-input{
      * **回答是直接回传给 agent 的**，走宿主那条 Remote 通道：
      * `ctx.remote.userQuestions.answer(sessionId, callId, { answers: [{ id, selected }] })`。
      * 这不是插件自己造的路——**就是宿主对话面板用的那一条**
-     * （AGENTS.md §15①：不许自己折叠会话事件去仿造宿主的行为）。
+     * （`docs/dev/dsh-integration.md` D1：不许自己折叠会话事件去仿造宿主的行为）。
      *
      * 通道不在（老宿主 / 没有那个服务）时，退回「复制答案 + 去完整对话里答」，
      * **而不是**留一个点了没反应的按钮。
@@ -4736,7 +4736,7 @@ select.dd-input{
     // ── 构思会话窗的样式 ──────────────────────────────────────────────────
     CSS_PARTS.push(`
 /* ── 构思会话窗 ───────────────────────────────────────────────────────── */
-/* 头部挤不下时**换行**，绝不把中文标题压成一列（AGENTS.md §10⑤）。 */
+/* 头部挤不下时**换行**，绝不把中文标题压成一列（docs/dev/rendering.md R5）。 */
 .dd-chat-head{display:flex;align-items:center;gap:9px;padding:11px 14px;box-shadow:0 1px 0 var(--line);flex:none;flex-wrap:wrap}
 .dd-chat-title{flex:1 1 132px;min-width:132px}
 .dd-chat-title .ch-t{font-size:12.5px;font-weight:600}
@@ -5458,7 +5458,7 @@ select.dd-input{
       // 以前这里写着「`if (!ledger) return …`」然后才写 `useMemo`——
       // 于是第一次渲染（还没数据）hook 少两个，第二次渲染（数据到了）hook 多两个，
       // React 直接报 #310（渲染的 hook 比上一次多），
-      // **整个面板崩成空白**（AGENTS.md §11⑤ 的那条教训）。
+      // **整个面板崩成空白**（`docs/dev/rendering.md` R7 的那条教训）。
       //
       // 现在：hook 全在前，无条件跑；数据没到就早退。
       if (!ledger) return h('div', { className: 'dd-empty' }, '正在读取台账…')

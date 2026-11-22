@@ -19,7 +19,7 @@
  * 在跟短剧毫无关系的会话里也能被调到——那等于往别人的目录里塞方法论。
  *
  * 但这些 Skill 只描述**短剧流水线**，只在**短剧工作台自己的工作区**
- * （短剧项目总根，见 AGENTS.md §15⑥）里有意义。
+ * （短剧项目总根，见 `AGENTS.md` §7）里有意义。
  *
  * 宿主为此留了正确的机制：`SkillProvider.list(options)` 与
  * `get(candidate, options)` 收到的 `options.cwd` 就是「这次查找属于哪个工作区」——
@@ -71,7 +71,7 @@ export function splitFrontmatter(text) {
 /**
  * `cwd` 是不是插件自己的工作区（短剧项目总根），或者在它里面。
  *
- * 只比路径：短剧项目总根是插件唯一的项目根（§15⑥），而在
+ * 只比路径：短剧项目总根是插件唯一的项目根（`AGENTS.md` §7），而在
  * `<root>/workspaces/<work-id>/` 下开的会话要和在总根上开的会话看到同样的 Skill。
  *
  * Windows 上路径不区分大小写，所以先折叠再比；否则 `D:\Code` 与 `d:\code`

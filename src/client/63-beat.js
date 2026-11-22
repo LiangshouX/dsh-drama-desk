@@ -76,7 +76,7 @@
           wantsDialogue
             ? h(Editable, {
               label: '台词', value: beat.text || '', multiline: true, disabled,
-              // 台词是**作品内容**：用文学字族（AGENTS.md §16①）。
+              // 台词是**作品内容**：用文学字族（`docs/dev/ui-language.md` U1）。
               serif: true,
               placeholder: '这一拍说出口的话',
               onSave: value => commit({ text: value }),

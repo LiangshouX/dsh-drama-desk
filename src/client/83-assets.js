@@ -273,7 +273,7 @@
       // 以前这里写着「`if (!ledger) return …`」然后才写 `useMemo`——
       // 于是第一次渲染（还没数据）hook 少两个，第二次渲染（数据到了）hook 多两个，
       // React 直接报 #310（渲染的 hook 比上一次多），
-      // **整个面板崩成空白**（AGENTS.md §11⑤ 的那条教训）。
+      // **整个面板崩成空白**（`docs/dev/rendering.md` R7 的那条教训）。
       //
       // 现在：hook 全在前，无条件跑；数据没到就早退。
       if (!ledger) return h('div', { className: 'dd-empty' }, '正在读取台账…')
