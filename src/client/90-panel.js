@@ -40,18 +40,9 @@
       const [busy, setBusy] = useState(false)
       const [toast, setToast] = useState(null)
       const [viewer, setViewer] = useState(null)
-      /**
-       * 放大编辑窗口的请求。
-       *
-       * 字段们（Editable）不自己渲染浮层——它们只喊一声，**根组件**统一渲染。
-       * 这样浮层永远在根上：不被任何中间容器的 `overflow` 裁掉，也不被
-       * 别的浮层盖住。
-       */
-      const [textDialog, setTextDialog] = useState(null)
-      useEffect(() => {
-        TEXT_DIALOG_HOST = setTextDialog
-        return () => { TEXT_DIALOG_HOST = null }
-      }, [])
+      // 文本编辑**不再有浮层**：多行字段在原地展开一块编辑面（见 41-editing.js）。
+      // 用户明确否掉了「点击 → 弹出窗口」这个动作，浮层以及它的宿主全删了。
+      // 面板根组件因此也不再需要「替字段渲染弹窗」的那套间接层。
 
       // ── 侧栏宽度 ────────────────────────────────────────────────────────
       // 右侧两块（镜详情 / 构思会话）各自记住自己的宽度。
@@ -1061,20 +1052,6 @@
             onClose: () => setViewer(null),
           })
           : null,
-        // ── 放大编辑窗口 ──────────────────────────────────────────────────
-        // 浮层里最后渲染 ⇒ 它在最上面。
-        textDialog
-          ? h(TextDialog, {
-            title: textDialog.title,
-            value: textDialog.value,
-            placeholder: textDialog.placeholder,
-            serif: textDialog.serif,
-            mono: textDialog.mono,
-            initialMode: textDialog.initialMode,
-            onSave: textDialog.onSave,
-            onClose: () => setTextDialog(null),
-          })
-          : null,
       )
     }
 
@@ -1116,7 +1093,7 @@
      */
     if (typeof globalThis !== 'undefined' && globalThis.__DRAMA_DESK_SELF_CHECK__ === true) {
       globalThis.__DRAMA_DESK_INTERNALS__ = {
-        Editable, TextDialog, LedgerView, AssetsView, ImageViewer, ConceiveChat, MarkdownLite,
+        Editable, LedgerView, AssetsView, ImageViewer, ConceiveChat, MarkdownLite,
       }
     }
 
