@@ -131,21 +131,38 @@ provider，这些技能从来没被加载过**。现在由 `src/host/skills.js` 
 **不要给每个项目开一个 DSH 工作区。** 侧栏碎成一堆工作区是治理灾难：用户说不清哪份
 是最新的，会话也散落各处。
 
-### 共用一个工作区 → 项目范围走 **prompt context**，不塞用户消息
+### 共用一个工作区 → 项目范围走 **prompt context**，每段会话都钉一次
 
-共用一个工作区意味着 agent 能看见**别的**项目。所以每段构思对话都得先钉死
-「这次只谈 `workspaces/<work-id>/`」。
+共用一个工作区意味着 agent 能看见**别的**项目。所以每段构思对话都得钉死
+「这次只谈 `workspaces/<work-id>/`（作品名「…」）」——**目录 ID 与作品名都要在，
+且对应关系不许变**。
 
 **这件事交给宿主的 prompt registry，不要塞进用户的第一条消息。**
 
 ```
-agent.ctx.systemPrompt.context({ name:'drama-desk/project', order:40, text, required:true })
+agent.ctx.systemPrompt.context({ name:'drama-desk/project', order:40, text: fn, required:true })
   ↑ 首选：进模型历史（宿主把本次所有 context 合成一条 user-role 消息，对话流里不显示正文）
 agent.ctx.systemPrompt.section({ … })   ← 退一步：进 system prompt，看不见但一定读得到
 ```
 
-注册在**这个 agent 自己的作用域**上（`agent.ctx`），所以只有这一段会话带着它；
-disposer 交给 `ctx.effect`，作用域一收跟着走。
+注册在**这个 agent 自己的作用域**上（`agent.ctx`），所以只有这一段会话带着它。
+
+**四条不许省掉的细节（都踩过）：**
+
+1. **`text` 传函数，不传字符串。** 宿主的类型是 `string | ((context) => string)`，
+   每一步装配都重取；传字符串等于把范围冻结在「开话那一刻」。
+2. **谁被显示，就给谁挂上。** 会话窗能选的对话不全是工作台开的（宿主侧栏自己开的、
+   插件重装前开的都在），那些从来没有过范围 → agent 只能猜 → 串台。入口是
+   `POST /conceive-scope`，客户端**每次绑住一段会话**都调（幂等）。
+3. **disposer 要跨插件重载还找得到**：记在 `agent[Symbol.for('dsh-drama-desk/scope')]`。
+   宿主的 prompt registry 是**进程级**的，插件重装后我们这一代模块的 Map 全没了，
+   而 agent 与那条旧注册还在——不认这个记号，重装后就撞名字挂不上。
+4. **冷会话先记账**：会话还没有 agent 时（刚建的作品、宿主归档后又点开的对话），
+   范围进 `coldScopes`，等 `agent/created` 一到就挂。那个钩子在宿主的**会话创建链**上
+   （serial，抛出去等于让对话开不起来），所以**整个钩子包在 try 里，绝不抛**。
+
+**归属优先于当前作品**：一段会话按台账属于别的作品时，按它自己的作品挂，并回报
+`match:false`。把当前作品的范围盖到别人的对话上，等于把一段谈 A 的对话引到 B 去。
 
 > 以前那段话是 `<system-reminder>` 包着搭在用户第一条消息上、再由客户端抹掉的——
 > 那是**给模型看的说明冒充了人说的话**，对话流里会露出一整坨 instruction。
@@ -155,12 +172,17 @@ disposer 交给 `ctx.effect`，作用域一收跟着走。
 > 它在会话日志里是一条和宿主 `reme-memory` / `runtime-context` **合并**的
 > `user/message`；宿主只给自己的 producer 列名（「上下文注入 reme-memory」），
 > 我们这条不列名 —— 这正是要的效果。
+>
+> **实测（2026-11-22 晚，改成按会话挂之后）**：拿一段**不是这次开的**会话
+> （`demo-pawnshop` 的构思会话）直接问三件事，它答出作品名、目录 ID 与
+> `workspaces/demo-pawnshop/`，1 秒、零工具调用。
 
 ### 「新对话」
 
 `POST /conceive-session {fresh:true}`：收掉当前 agent、清掉 `state.json` 里的
 `desk_session_id`、开一段新的。**旧会话不删**，它还留在 DSH 的会话列表里
-（也还在工作区账本里）。
+（也还在工作区账本里），并**记进 `desk_session_ids`** —— 否则「新对话」之后
+那段旧的会变成无主会话，在任何作品下都能被选走（= 串台）。
 
 ## D6 侧栏常驻，但会话由用户发起
 
@@ -168,8 +190,10 @@ disposer 交给 `ctx.effect`，作用域一收跟着走。
   顶栏图标只负责**收起 / 展开**（屏幕挤不下时的应急，不是唤起开关）。
 - **不自动开聊**：进阶段、展开侧栏，**都不发送任何东西**。会话由用户点侧栏里的
   「开始对话」才建（`POST /conceive-session`）。
-- **开场白不进对话流**：它由 Host 单点生成（`seedPrompt()`），以 prompt context 的
-  形式交给宿主（见 D5）。客户端**不再**拼这段文案——那会变成第二份真相。
+- **开场白不进对话流**：它由 Host 单点生成（`scopePrompt()`），以 prompt context 的
+  形式交给宿主（见 D5），而且**每绑一段会话就重挂一次**（`POST /conceive-scope`）。
+  客户端**不再**拼这段文案——那会变成第二份真相（界面上只画一条「只谈 X · id」的
+  范围条，让人看得见它挂没挂上）。
 
 ## D7 会话窗能复用宿主的什么
 

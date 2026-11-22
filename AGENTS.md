@@ -312,8 +312,13 @@ node scripts/render-probe.mjs --base http://127.0.0.1:<宿主端口> # 渲染开
   cwd = 短剧总根、**并且 `workspace.attachSession(sessionId)` 把会话挂进账本**。
   只做前两条 = 会话掉进侧栏的「未分组」（D2）。
 - **`agents.create()` 不接受「没有模型」**，显式带 `agentDefaultModel.currentSelection()`。
-- **项目范围走 prompt context，不塞用户消息**：`agent.ctx.systemPrompt.context(...)`，
-  注册在**这个 agent 的作用域**上（D5）。
+- **项目范围走 prompt context，且「每段会话都钉一次」**：`scopePrompt()` 生成
+  「作品名 + 目录 ID + 路径」三件套，`agent.ctx.systemPrompt.context(...)` 挂到
+  **这一段 agent** 上，文本传**函数**（每步重取）。入口是 `POST /conceive-scope`：
+  客户端**每次绑住一段会话**都调——「开会话时装一次」不够，会话窗里还有宿主侧栏
+  自己开的、插件重装前开的对话，它们从来没有过范围。**归属优先于当前作品**；
+  别的作品的会话在下拉里是**禁用项**；「新对话」要把旧 id 记进 `desk_session_ids`，
+  否则旧对话变成无主会话、在哪个作品下都能被选走（= 串台）。
 - **随包技能必须注册**（`ctx.skills.registerProvider()`），且**按 cwd 过闸门**：
   只有落在短剧总根之内的会话才看得到这些 Skill；别处的候选目录返回**空目录**
   （`complete: true`，不是「发现失败」）。

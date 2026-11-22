@@ -16,19 +16,36 @@
  * 「DSH-DRAMA-DESK」下面**没有它**，它掉进「未分组」。所以现在**新开与恢复
  * 之后都要 `attachSession()`**（见 `attachDeskSession`）。
  *
- * 上下文纪律（2026-11-22 修）
- * --------------------------
+ * 上下文纪律（2026-11-22 修，2026-11-22 晚 再修）
+ * ------------------------------------------------
  * 「这次只谈 `workspaces/<id>/`」这段话以前是**塞进用户的第一条消息**里
  * （`<system-reminder>` 包着），靠客户端把它抹掉才不显得像人说的话。
- * 现在交给宿主的 **prompt context**：它作为 user-role 上下文进模型历史，
- * 宿主的对话面板会把它折成一行「上下文」——**不占用户的话**（见 `installSeed`）。
+ * 后来改成交给宿主的 **prompt context**：它作为 user-role 上下文进模型历史，
+ * 宿主的对话面板会把它折成一行「上下文」——**不占用户的话**。
+ *
+ * 但「开会话时装一次」不够：会话窗里能选的对话**不全是这里开的**
+ * （用户在宿主侧栏自己开的、插件重装前开的、别的作品开的都在清单里）。
+ * 那种会话从来没有过项目范围，agent 只能靠猜——猜就是串台。
+ *
+ * 所以现在是 **按会话钉住**（`installScope`）：谁被显示，就给谁挂上；
+ * 而且交给宿主的是一段**函数**文本，每一步装配都重取——整段对话都不会漂。
  */
 import { randomUUID } from 'node:crypto'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 import { readJsonIfExists, writeJsonAtomic } from './fsx.js'
 
 /** `state.json` 里记住构思会话 id 的字段。 */
 export const SESSION_FIELD = 'desk_session_id'
+
+/**
+ * `state.json` 里**这个作品用过的所有**构思会话 id（新的在前）。
+ *
+ * 为什么要有它：会话属于哪个作品得有个出处。会话的 `cwd` 是**总根**
+ * （所有作品共用同一个 DSH 工作区，`AGENTS.md` §7），从 cwd 分不出作品；
+ * 只有这张台账说得清「这段对话是哪一部戏的」。没有它，「换一个对话」里
+ * 就分不清谁是谁 —— 那正是串台。
+ */
+export const SESSION_LIST_FIELD = 'desk_session_ids'
 
 /** 这段会话的上下文在宿主 prompt registry 里的名字（重复注册会抛，重装即去重）。 */
 export const SEED_CONTEXT = 'drama-desk/project'
@@ -42,103 +59,172 @@ export const SEED_CONTEXT = 'drama-desk/project'
 const SEED_ORDER = 40
 
 /**
- * 这段构思会话要带给模型的**上下文**。
+ * 挂在 agent 对象上的记号（`Symbol.for` 跨模块实例稳定，插件重载也认得出）。
  *
- *   一个工作台只有一个总根（`「视频」/DSH-DRAMA-DESK`），所有短剧项目都是它下面的
- *   子目录，共用同一个 DSH 工作区。共用一个工作区意味着 agent 能看见**别人的**
- *   项目——所以每一段构思对话都先把「这次只谈哪个项目」钉死，并明说
- *   不要动别的目录。这就是「防止串台」。
+ * 宿主的 prompt registry 是**进程级**的：插件重装后我们这一代模块里的 Map
+ * 全没了，agent 还在、它身上那条旧注册也还在。再挂一次会撞名字抛错，于是
+ * 表现成「重装之后范围挂不上」。记号里存着那条注册的 disposer：换作品时
+ * 先收掉再挂。
+ */
+const SCOPE_STAMP = Symbol.for('dsh-drama-desk/scope')
+
+/**
+ * 这段对话要带给模型的**作品范围**。
+ *
+ *   一个工作台只有一个总根，所有短剧项目都是它下面的子目录，共用同一个 DSH
+ *   工作区。共用一个工作区意味着 agent 能看见**别人的**项目——所以每一段
+ *   构思对话都要把「这次只谈哪个项目」钉死，而且**目录 ID 与作品名的对应
+ *   关系不能变**。这就是「防止串台」。
+ *
+ * 两个名字都写上是刻意的：目录 ID 是机器认的那个（`demo-epic`），作品名是
+ * 人认的那个（「演示·潮信」）。读文件用 ID，跟人说话用名字。
  *
  * 注意这里**不写 `@路径`**：那是用户消息里的文件引用语法，在 prompt context 里
  * 没有意义（也没有引用块可解析），写成普通路径更诚实。
+ *
+ * @param {{id: string, title?: string, path?: string, fresh?: boolean}} scope
+ * @returns {string}
  */
-export function seedPrompt(workspace, projectRoot, options = {}) {
-  const name = workspace.title !== undefined && workspace.title !== '' ? workspace.title : workspace.id
-  const workPath = typeof projectRoot === 'string' && projectRoot !== ''
-    ? relative(projectRoot, workspace.dir).split('\\').join('/')
-    : workspace.dir
-  const fresh = options.isNew === true
+export function scopePrompt(scope) {
+  const id = typeof scope.id === 'string' ? scope.id : ''
+  const name = typeof scope.title === 'string' && scope.title !== '' ? scope.title : id
+  const path = typeof scope.path === 'string' && scope.path !== '' ? scope.path : `workspaces/${id}`
   return [
-    `# 这次对话的范围`,
+    `# 当前作品（整段对话的固定范围）`,
     '',
-    `只谈一个短剧项目：\`${workPath}/\`（作品名「${name}」）。`,
+    `- 作品名：「${name}」`,
+    `- 目录 ID：\`${id}\``,
+    `- 路径：\`${path}/\`（在本次工作区的总根之下）`,
     '',
-    fresh
-      ? `这是一个**刚建的新项目**，目录还是空的。用 \`drama-conceive\` 技能跟我一起把它的创意想出来。`
-      : `用 \`drama-conceive\` 技能继续「${name}」的构思。`,
-    `先问我三到五个真正影响故事的问题；聊清楚之后把创意写进 \`${workPath}/creative/brief.md\`，再告诉我你写了什么。`,
+    `这一页打开的就是「${name}」，它的目录 ID 是 \`${id}\`——这个对应关系不会变。`,
+    `**只读写 \`${path}/\` 下的文件**：不要读、不要改总根下别的目录，也不要把别的作品的`,
+    `角色、剧情、镜头混进来。别的目录就是别的戏。`,
     '',
-    `⚠️ 这个工作区里还有别的短剧项目：**只读写 \`${workPath}/\` 下的文件**，不要碰别的目录，也不要混用别的项目的角色与数据。`,
+    scope.fresh === true
+      ? `这是一个**刚建的新作品**，目录还是空的。用 \`drama-conceive\` 技能跟我一起把创意想出来。`
+      : `继续「${name}」的构思时用 \`drama-conceive\` 技能；要改稿就先读 \`${path}/\` 里的文件。`,
   ].join('\n')
 }
 
 /**
- * 把这段会话的上下文交给宿主的 **prompt registry**。
+ * 把「只谈这个作品」挂到**这一段会话**上（挂上之后整段对话每一步都在）。
  *
- * 为什么不用「注入一条用户消息」：那会让导演看到满屏给模型看的说明
- * （宿主的折叠规则也不归我们管）。prompt 这边有两条正规通道，按优先级试：
+ * 为什么不是「开会话时装一次」：会话窗里能选的对话**不全是这里开的**——
+ * 用户在宿主侧栏自己开的那段、插件重装前开的那段、别的作品开的那段，都在这份
+ * 清单里。它们从来没有过项目范围，agent 只能靠猜；猜就是串台。所以规矩改成
+ * **谁被显示，就给谁挂上**。
+ *
+ * 两条正规通道，按优先级试：
  *
  *   ① `context()` —— **动态模型上下文**，落成一条 user-role 快照。
  *      宿主自己的对话面板会把它折成一行「上下文」，不占用户的话。
+ *      文本传**函数**（宿主类型是 `string | ((context) => string)`）：
+ *      每一步装配都重取，于是整段对话都不会漂。
  *   ② `section()` —— 退一步进 system prompt：看不见但模型一定读得到。
  *
- * 注册在**这个 agent 自己的作用域**上（`agent.ctx`），所以只有这一段会话带着它；
- * 作用域一收，上下文跟着走（注册返回的 disposer 交给 `ctx.effect`）。
+ * 注册在**这个 agent 自己的作用域**上（`agent.ctx`），所以只有这一段会话带着它。
+ * 同一个作品重复挂 = 只换文本（幂等，不重注册）；换了作品 = 先收旧的再挂。
  *
- * @returns {boolean} 装上了没有（宿主版本不支持时如实返回 false）
+ * @param {object} service
+ * @param {string} sessionId
+ * @param {{id: string, title?: string, path?: string, fresh?: boolean}} scope
+ * @returns {{seeded: boolean, reason?: 'cold'|'host'|'rejected'}}
  */
-export function installSeed(service, sessionId, text) {
-  if (service.deskSeeds === undefined) service.deskSeeds = new Set()
-  if (service.deskSeeds.has(sessionId)) return true
-
+export function installScope(service, sessionId, scope) {
   const agents = service.ctx?.get?.('agents')
   const agent = agents !== undefined && typeof agents.get === 'function' ? agents.get(sessionId) : undefined
-  const scoped = agent !== undefined && agent !== null ? agent.ctx : undefined
-  const prompt = scoped !== undefined && scoped !== null ? scoped.systemPrompt : undefined
-  if (prompt === undefined || prompt === null) return false
+  if (agent === undefined || agent === null) return { seeded: false, reason: 'cold' }
+  const prompt = agent.ctx !== undefined && agent.ctx !== null ? agent.ctx.systemPrompt : undefined
+  if (prompt === undefined || prompt === null) return { seeded: false, reason: 'host' }
 
-  const install = () => {
-    try {
-      if (typeof prompt.context === 'function') {
-        const off = prompt.context({
-          name: SEED_CONTEXT,
-          order: SEED_ORDER,
-          text,
-          // 关掉「可选运行时上下文」时也别把它丢掉：没有它 agent 会串台。
-          required: true,
-        })
-        if (typeof off === 'function') return off
-      }
-    } catch {
-      // 这个名字已经注册过，或作用域已销毁：往下试 section。
-    }
-    try {
-      if (typeof prompt.section === 'function') {
-        const off = prompt.section({ name: SEED_CONTEXT, order: SEED_ORDER, text })
-        if (typeof off === 'function') return off
-      }
-    } catch {
-      // 两条通道都不行：如实回报。
-    }
-    return undefined
-  }
-
-  let done = false
+  const text = scopePrompt(scope)
+  let previous
   try {
-    if (typeof scoped.effect === 'function') {
-      scoped.effect(() => {
-        const off = install()
-        done = off !== undefined
-        return off
-      }, 'drama-desk: 构思会话的上下文')
-    } else {
-      done = install() !== undefined
-    }
+    previous = agent[SCOPE_STAMP]
   } catch {
-    done = false
+    previous = undefined
   }
-  if (done) service.deskSeeds.add(sessionId)
-  return done
+  // 同一个作品：只换文本，不重新注册（重名会抛，而且没必要）。
+  if (previous !== undefined && previous !== null && previous.scopeId === scope.id) {
+    previous.record.title = scope.title
+    previous.record.path = scope.path
+    previous.record.fresh = scope.fresh
+    previous.record.text = text
+    return { seeded: true }
+  }
+  if (previous !== undefined && previous !== null) {
+    try {
+      previous.dispose()
+    } catch {
+      // 已经随作用域销毁了：忽略。
+    }
+    try {
+      delete agent[SCOPE_STAMP]
+    } catch {
+      // 宿主对象不可写：让下面的注册自己去撞，撞了会如实返回 rejected。
+    }
+  }
+
+  const record = { id: scope.id, title: scope.title, path: scope.path, fresh: scope.fresh, text }
+  /** 每一步装配都会调它：整段对话拿到的都是**当下**这份范围。 */
+  const provider = () => record.text
+  let dispose
+  try {
+    dispose = prompt.context({ name: SEED_CONTEXT, order: SEED_ORDER, text: provider, required: true })
+  } catch {
+    dispose = undefined
+  }
+  if (typeof dispose !== 'function') {
+    try {
+      dispose = prompt.section({ name: SEED_CONTEXT, order: SEED_ORDER, text: provider })
+    } catch {
+      dispose = undefined
+    }
+  }
+  if (typeof dispose !== 'function') return { seeded: false, reason: 'rejected' }
+  try {
+    agent[SCOPE_STAMP] = { scopeId: scope.id, record, dispose }
+  } catch {
+    // 记不上就记不上：这一段照样带着范围，只是下次得重挂。
+  }
+  return { seeded: true }
+}
+
+/**
+ * 会话**一出生**就把它欠着的那份范围挂上。
+ *
+ * 有一类会话在界面上是「能打字、但 agent 还没起来」的：刚建的作品、被宿主自己
+ * 归档又点开的对话、插件重装后的旧对话。宿主会在**用户发出第一条消息时**才把
+ * agent 造出来——而那第一条消息最需要知道「只谈哪部戏」。等它造完再去挂就晚了。
+ *
+ * 所以 `conceiveScope` 遇到冷会话时把范围记在这里（`service.coldScopes`），
+ * 等宿主的 `agent/created` 一来就挂上。**钩子绝不抛**：它是宿主的会话创建链上
+ * 的一环（serial），抛出去等于让一段对话开不起来。
+ */
+export function watchAgentBirth(service) {
+  if (service.agentWatch !== undefined) return
+  const ctx = service.ctx
+  if (ctx === undefined || ctx === null || typeof ctx.on !== 'function') return
+  if (service.coldScopes === undefined) service.coldScopes = new Map()
+  try {
+    service.agentWatch = ctx.on('agent/created', payload => {
+      try {
+        const agent = payload !== undefined && payload !== null ? payload.agent : undefined
+        const id = agent !== undefined && agent !== null ? String(agent.id ?? '') : ''
+        if (id === '') return
+        const wanted = service.coldScopes !== undefined && service.coldScopes !== null
+          ? service.coldScopes.get(id)
+          : undefined
+        if (wanted === undefined) return
+        const install = installScope(service, id, wanted)
+        if (install.seeded === true) service.coldScopes.delete(id)
+      } catch {
+        // 挂不上就留给界面的下一次请求，绝不打断宿主的创建链。
+      }
+    })
+  } catch {
+    service.agentWatch = undefined
+  }
 }
 
 /**
@@ -318,9 +404,16 @@ export async function ensureDeskSession(service, workspace, options = {}) {
   // **挂账本**：cwd 对了只说明它在工作目录下；在 `sessionIds` 里才说明
   // 它属于这个工作区——DSH 侧栏就是按账本分组的。
   const attached = await attachDeskSession(dshWorkspace, sessionId)
+  // **记账**：`desk_session_id` 是「现在用哪一段」，`desk_session_ids` 是
+  // 「这个作品用过哪些」——后者是会话→作品的唯一出处（见 SESSION_LIST_FIELD）。
+  // 「新对话」只是换掉前者，历史仍然留着，所以旧的对话不会被认成别的作品的。
+  const history = Array.isArray(state[SESSION_LIST_FIELD])
+    ? state[SESSION_LIST_FIELD].filter(id => typeof id === 'string' && id !== sessionId)
+    : []
   await writeJsonAtomic(join(workspace.dir, 'state.json'), {
     ...state,
     [SESSION_FIELD]: sessionId,
+    [SESSION_LIST_FIELD]: [sessionId, ...history].slice(0, 20),
     updated_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
   })
   service.invalidateWork(workspace.dir)
@@ -329,11 +422,32 @@ export async function ensureDeskSession(service, workspace, options = {}) {
 
 /** 插件卸载时把这次会话的 agent 收掉（会话本身留在磁盘上）。 */
 export async function disposeDeskAgents(service) {
-  service.deskSeeds = undefined
+  service.coldScopes = undefined
+  if (typeof service.agentWatch === 'function') {
+    try {
+      service.agentWatch()
+    } catch {
+      // 已经随作用域销毁：忽略。
+    }
+    service.agentWatch = undefined
+  }
+  const agents = service.ctx?.get?.('agents')
   const map = service.deskAgents
   if (map === undefined) return
   service.deskAgents = new Map()
-  for (const handle of map.values()) {
+  for (const [sessionId, handle] of map) {
+    // 范围注册跟着这一段会话走，卸载就该一起收掉——否则插件被删了，
+    // agent 的 prompt 里还挂着一句「只谈 <作品>」。
+    try {
+      const agent = agents !== undefined && typeof agents.get === 'function' ? agents.get(sessionId) : undefined
+      if (agent !== undefined && agent !== null) {
+        const held = agent[SCOPE_STAMP]
+        if (held !== undefined && held !== null) held.dispose()
+        delete agent[SCOPE_STAMP]
+      }
+    } catch {
+      // 收不掉就算了：作用域销毁时会带走。
+    }
     try {
       await handle.dispose()
     } catch {

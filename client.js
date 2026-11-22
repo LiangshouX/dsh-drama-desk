@@ -3951,17 +3951,27 @@ select.dd-input{
      *
      * 用原生 `<select>` 而不是自造弹出层：它会键盘可用、会跟随系统主题、
      * 在窄侧栏里也不会被裁掉。会话一多，浏览器自己会滚。
+     *
+     * **别的作品的对话不让选。** 会话的 `cwd` 是总根（所有作品共用同一个
+     * DSH 工作区），所以清单里混着别的戏的对话；选进来就等于把一段谈
+     * 《A》的对话当成《B》继续，那正是串台。归属由 Host 按各作品的
+     * `state.json` 台账算（见 `service.sessionOwners`），这里只负责如实标注。
      */
     function ConceiveSessionMenu(props) {
-      const { sessions, current, onPick, titles } = props
+      const { sessions, current, onPick, titles, workspaceId } = props
       const list = Array.isArray(sessions) ? sessions : []
       const known = current === undefined ? false : list.some(item => item && item.id === current)
       const currentTitle = current !== undefined && titles !== undefined ? titles[current] : undefined
+      const ownerName = item => (typeof item.workspaceTitle === 'string' && item.workspaceTitle !== ''
+        ? item.workspaceTitle
+        : String(item.workspaceId))
+      const isForeign = item => item.workspaceId !== undefined && item.workspaceId !== null
+        && item.workspaceId !== '' && item.workspaceId !== workspaceId
       return h('select', {
         className: 'dd-chat-session',
         value: current === undefined ? '' : current,
         disabled: list.length === 0 && !known,
-        title: '这个工作区里的对话（含你在宿主的侧栏里自己开的）',
+        title: '这个工作区里的对话（含你在宿主的侧栏里自己开的）；别的作品的对话不能在这里选',
         onChange: event => {
           const id = event.target.value
           if (id !== '' && typeof onPick === 'function') onPick(id)
@@ -3976,7 +3986,14 @@ select.dd-input{
         list.length === 0
           ? h('option', { key: '__empty', value: '' }, '（这个工作区里只有这一段）')
           : null,
-        list.map(item => h('option', { key: item.id, value: item.id }, sessionLabel(item, titles))),
+        list.map(item => h('option', {
+          key: item.id,
+          value: item.id,
+          disabled: isForeign(item),
+          title: isForeign(item)
+            ? '这是「' + ownerName(item) + '」的对话：先切到那个作品再选它'
+            : undefined,
+        }, sessionLabel(item, titles) + (isForeign(item) ? '（属「' + ownerName(item) + '」）' : ''))),
       ])
     }
 
@@ -3985,12 +4002,15 @@ select.dd-input{
      *
      * 会话**不是**这里发起的：Host 侧用 `agents.create()` 开真会话、把它挂进
      * DSH 工作区的账本、再把「这次只谈哪个项目」作为 **prompt context** 交给宿主。
-     * 这扇窗只负责「把那段会话显示出来 + 让人能切、能新开、能跳过去」。
+     * 这扇窗负责「把那段会话显示出来 + 让人能切、能新开、能跳过去」。
+     *
+     * 还有一条常被忽略的：**每绑住一段会话，都要把作品范围重新钉一次**
+     * （`conceive-scope`）。清单里的对话不全是工作台开的，不钉就等于让它猜。
      */
     function ConceiveChat(props) {
       const {
-        sessionId, onClose, onFresh, onStart, canStart, busy, seeded,
-        panelControls, dshWorkspaceId, SessionProvider, renderSlot,
+        sessionId, onClose, onFresh, onStart, canStart, busy,
+        workspaceId, panelControls, dshWorkspaceId, SessionProvider, renderSlot,
       } = props
       const [activeId, setActiveId] = useState(sessionId)
       /**
@@ -4114,6 +4134,51 @@ select.dd-input{
 
       const hasSession = activeId !== undefined && activeId !== null && activeId !== ''
 
+      /**
+       * 这一段对话**钉在哪个作品上**。
+       *
+       * 为什么要在这里问，而不是开会话时问一次就完：会话窗里能选的对话不全是
+       * 工作台开的——你在宿主侧栏自己开的、插件重装前开的、别的作品开的都在
+       * 清单里。它们从来没有「只谈哪部戏」这句话，agent 只能猜；猜就是串台。
+       *
+       * 所以规矩是「**谁被显示，就给谁挂上**」：每绑住一段会话就请 Host 把
+       * 当前作品的目录 ID 与作品名挂成这段会话的 prompt context（幂等）。
+       *
+       * `reason: 'cold'` 是正常的中间态：会话还没活过来。等 `retain()` 之后
+       * 宿主把它 resume 起来（`openState === 'open'`），这个 effect 会自己再挂一次。
+       */
+      const [scope, setScope] = useState(null)
+      const [scopeTry, setScopeTry] = useState(0)
+      const askedScope = useRef('')
+      useEffect(() => {
+        if (!hasSession || workspaceId === undefined || workspaceId === null || workspaceId === '') {
+          setScope(null)
+          askedScope.current = ''
+          return undefined
+        }
+        const alive = openState === 'open' ? 'open' : 'cold'
+        const key = workspaceId + '|' + activeId + '|' + alive
+        if (askedScope.current === key) return undefined
+        askedScope.current = key
+        // 会话还冷着、而上一轮已经挂上了：范围还在这一段会话上，不必再问。
+        if (alive === 'cold' && scope !== null && scope.seeded === true) return undefined
+        let cancelled = false
+        apiPost('conceive-scope', { workspaceId, sessionId: activeId })
+          .then(value => { if (!cancelled) setScope(value) })
+          .catch(problem => {
+            if (cancelled) return
+            setScope({ ok: false, error: problem instanceof Error ? problem.message : String(problem) })
+          })
+        return () => { cancelled = true }
+      }, [workspaceId, activeId, openState, scopeTry])
+
+      /** 没挂上时点一下就重来（宿主换了、或者会话刚活过来）。 */
+      const retryScope = useCallback(() => {
+        askedScope.current = ''
+        setScope(null)
+        setScopeTry(count => count + 1)
+      }, [])
+
       /** 用户主动发起：真的开一段会话（此前没有会话 id）。 */
       const start = useCallback(async () => {
         if (starting || typeof onStart !== 'function') return
@@ -4170,7 +4235,7 @@ select.dd-input{
           h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起这扇窗（顶栏的图标能再展开）' }, h(Icon, { name: 'close', size: 13 })),
         ),
         h('div', { className: 'dd-chat-bar' },
-          h(ConceiveSessionMenu, { sessions: list, current: activeId, onPick: setActiveId, titles }),
+          h(ConceiveSessionMenu, { sessions: list, current: activeId, onPick: setActiveId, titles, workspaceId }),
           h('button', {
             className: 'dd-btn sm', onClick: onFresh, disabled: !hasSession || busy,
             title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）',
@@ -4220,15 +4285,43 @@ select.dd-input{
             h(SessionProvider, { session: reference },
               renderSlot('drama-desk.conversation', {}))))
 
-      // 宿主没接住项目上下文时的**如实提示**（只有刚开的那一段会回报这件事）。
-      // 不说清楚的话，agent 会一本正经地在**整个总根**里乱翻别人的项目。
-      const seedWarning = seeded === false
-        ? h('div', { className: 'dd-chat-warn' },
-          '这段会话没带上「只谈哪个项目」的上下文（宿主不支持 prompt context）：',
-          '在消息里点明 `workspaces/<作品>/` 更保险。')
-        : null
+      /**
+       * 范围条：**这一段对话只谈哪部戏**，一眼能看见。
+       *
+       * 以前这件事看不见（它只在 prompt context 里，界面上什么都没有），
+       * 于是「有没有带上」「带的是不是当前这一部」全靠猜。现在把它画出来：
+       * 目录 ID 是固定的那一个，作品名是人认的那一个，两个都露。
+       */
+      const scopeWork = scope !== null && scope.ok !== false ? scope.work : undefined
+      const scopeBroken = scope !== null && scope.seeded !== true && scope.reason !== 'cold'
+      const scopeOther = scope !== null && scope.match === false
+      const scopeCold = scope !== null && scope.seeded !== true && scope.reason === 'cold'
+      const scopeStrip = scopeWork === undefined
+        ? null
+        : h('div', {
+          className: 'dd-chat-scope',
+          'data-state': scopeOther ? 'other' : scope.ok === false || scopeBroken ? 'off' : scopeCold ? 'cold' : 'on',
+          title: scopeOther
+            ? '这段对话属于「' + scopeWork.title + '」（' + scopeWork.id + '），工作台现在打开的是「'
+              + (scope.current !== undefined ? scope.current.title : '—') + '」：换个对话，或先切到那个作品'
+            : scope.ok === false
+              ? String(scope.error) + '（点一下重试）'
+              : scopeBroken
+                ? '宿主没接住这条 prompt context（点一下重试）；先在消息里点明 `' + scopeWork.path + '/` 更保险'
+                : scopeCold
+                  ? '会话一打开就会把「只谈 ' + scopeWork.title + '（' + scopeWork.id + '）」挂上去'
+                  : '这段对话的每一步都带着它：只读写 `' + scopeWork.path + '/`',
+          onClick: scopeBroken || scope.ok === false ? retryScope : undefined,
+        },
+          h(Icon, { name: 'project', size: 11 }),
+          h('span', { className: 'sc-a' }, scopeOther ? '属于' : '只谈'),
+          h('b', { title: scopeWork.title }, scopeWork.title),
+          h('span', { className: 'sc-id' }, scopeWork.id),
+          scopeBroken ? h('span', { className: 'sc-warn' }, '范围没挂上 · 点一下重试') : null,
+          scope.ok === false ? h('span', { className: 'sc-warn' }, '问不到范围 · 点一下重试') : null,
+        )
 
-      return h('div', { className: 'dd-chat' }, head, seedWarning, body)
+      return h('div', { className: 'dd-chat' }, head, scopeStrip, body)
     }
 
     // ── 会话窗的样式 ──────────────────────────────────────────────────────
@@ -4266,12 +4359,31 @@ select.dd-input{
   margin:auto;max-width:320px;padding:22px 16px;text-align:center;
   font-size:12.5px;line-height:1.8;color:var(--ink3);
 }
-/* 如实提示条（例如：项目上下文没交给宿主）。不用红色：它不是错误，是缺一件保险。 */
-.dd-chat-warn{
-  flex:none;padding:7px 12px;font-size:11px;line-height:1.7;color:var(--ink2);
-  background:color-mix(in srgb,var(--sig-warn) 12%,transparent);
-  box-shadow:inset 0 -1px 0 var(--line);
+/* 范围条：这一段对话**只谈哪部戏**（目录 ID + 作品名）。
+   它是事实，不是装饰：以前这件事只活在 prompt context 里，界面上看不见，
+   于是「带没带上」「带的是不是当前这一部」全靠猜。目录 ID 用等宽字，
+   因为它是模型读写文件时认的那个名字。 */
+.dd-chat-scope{
+  flex:none;display:flex;align-items:center;gap:6px;min-width:0;
+  padding:5px 12px;font-size:11px;line-height:1.6;color:var(--ink3);
+  background:var(--sunken);box-shadow:inset 0 -1px 0 var(--line);
 }
+.dd-chat-scope svg{flex:none;opacity:.65}
+.dd-chat-scope .sc-a{flex:none;opacity:.85}
+.dd-chat-scope b{flex:0 1 auto;min-width:0;font-weight:600;color:var(--ink2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dd-chat-scope .sc-id{flex:none;font-family:var(--f-mono);font-size:10.5px;color:var(--ink3)}
+.dd-chat-scope .sc-id::before{content:'·';margin-right:5px;opacity:.55}
+.dd-chat-scope .sc-warn{margin-left:auto;flex:none;color:var(--sig-warn)}
+/* 没挂上 / 属于别的作品：这也是「如实回报」，不是错误页。点一下重挂。 */
+.dd-chat-scope[data-state='off']{
+  background:color-mix(in srgb,var(--sig-warn) 12%,transparent);cursor:pointer;
+}
+.dd-chat-scope[data-state='other']{
+  background:color-mix(in srgb,var(--sig-warn) 12%,transparent);
+}
+/* 会话还没活过来：范围挂上去了但还没生效——别装作已经生效。 */
+.dd-chat-scope[data-state='cold']{opacity:.72}
 /* 空态：还没有会话时的引导。 */
 .dd-chat-empty{margin:auto;text-align:center;color:var(--ink3);font-size:12.5px;line-height:1.85;padding:20px 14px;max-width:300px}
 `)
@@ -7560,6 +7672,9 @@ select.dd-input{
                 sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
                 busy,
                 canStart: workspaceId !== '',
+                // **范围钉在哪个作品上**：会话窗每绑住一段会话就请 Host 把这个
+                // 作品的目录 ID 与作品名挂成它的 prompt context（见 conceive-scope）。
+                workspaceId,
                 onStart: () => openConceive(false),
                 onClose: () => {
                   setChatWanted(false)
@@ -7568,9 +7683,6 @@ select.dd-input{
                 onFresh: () => openConceive(true),
                 panelControls: chatControls,
                 dshWorkspaceId: conceive && conceive.dshWorkspace ? conceive.dshWorkspace.id : undefined,
-                // Host 回报「项目范围有没有作为 prompt context 交给宿主」。
-                // false = 宿主版本不支持那条通道，agent 不知道这次只谈哪个项目 → 界面要如实说。
-                seeded: conceive && conceive.created === true ? conceive.seeded !== false : undefined,
                 // 这两样是**宿主发给槽占位者**的标准道具（见 apply 里 main 的
                 // `children` 声明）：只有声明了 session 作用域的子槽，宿主才会把
                 // `SessionProvider` 与 `renderSlot` 交过来——原生对话就靠它嵌进来。

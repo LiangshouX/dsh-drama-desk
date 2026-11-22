@@ -306,6 +306,10 @@ async function runAction(service, action, body) {
       return await service.pickFolder({ target: body.target })
     case 'conceive-session':
       return await service.conceiveSession({ workspaceId: body.workspaceId, create: true, fresh: body.fresh === true })
+    case 'conceive-scope':
+      // 按会话钉住作品范围：客户端每绑定一段会话就调一次（幂等）。
+      // 不创建会话、不写盘——它只给这一段 agent 挂一段 prompt context。
+      return await service.conceiveScope({ workspaceId: body.workspaceId, sessionId: body.sessionId })
     case 'create-directory':
       return await service.makeDirectory({ path: body.path, name: body.name })
     case 'workspace':

@@ -23,7 +23,8 @@ import { resolveConfig, SPEC_DIR } from './paths.js'
 import { resolveOutputRoot, resolveProjectRoot } from './locations.js'
 import { describeStages, decideMove, stageOrder } from './stages.js'
 import {
-  attachDeskSession, deskSessionState, ensureDeskSession, installSeed, seedPrompt,
+  attachDeskSession, deskSessionState, ensureDeskSession, installScope, watchAgentBirth,
+  SESSION_FIELD, SESSION_LIST_FIELD,
 } from './conceive.js'
 import { buildStageView, readStagePrompt, shotSummary, STAGE_VIEWS } from './stageviews.js'
 import { resolvePoster, resolvePosterSource } from './posters.js'
@@ -68,6 +69,15 @@ const DISK_CACHE_MS = 4000
  * 所以新作品最多晚一轮出现——和面板自己的刷新节奏一样，看不出差别。
  */
 const WORKSPACE_CACHE_MS = 1000
+
+/**
+ * 会话→作品归属台账的缓存时长。
+ *
+ * 它只在「绑定一段会话」和「拉一次会话清单」时被问，几秒内答案不会变；
+ * 而每一次都要读每个作品的 `state.json`（作品数 × 一个小文件）。三秒足够
+ * 把一次绑定里的两问合成一次，又短到「刚开的新对话」下一轮就认得出。
+ */
+const OWNER_CACHE_MS = 3000
 
 /**
  * How many asset existence probes run at once.
@@ -115,6 +125,12 @@ export class DramaDeskService {
     this.adapterCache = undefined
     /** The discovered work list, cached for one second (see `listWorkspaces`). */
     this.workspaceCache = undefined
+    /** 会话→作品的归属台账（见 `sessionOwners`）。 */
+    this.ownerCache = undefined
+    /** 还没出生（没有 agent）的会话欠着的那份作品范围（见 `conceiveScope`）。 */
+    this.coldScopes = new Map()
+    /** `agent/created` 监听器的 disposer（`watchAgentBirth`）。 */
+    this.agentWatch = undefined
     /** The "are the prompt artifacts stale" answer, keyed by the source fingerprint. */
     this.checkCache = undefined
   }
@@ -190,6 +206,8 @@ export class DramaDeskService {
     // 而真源变了指纹就变了；这里清掉是为了覆盖「只改了产物」的情况。
     this.workspaceCache = undefined
     this.checkCache = undefined
+    // 「这段会话是哪部戏的」也跟着作品走：刚开的新对话要立刻认得出。
+    this.ownerCache = undefined
   }
 
   // ── workspaces ───────────────────────────────────────────────────────────
@@ -1279,6 +1297,15 @@ export class DramaDeskService {
     const account = workspace !== undefined && Array.isArray(workspace.sessionIds)
       ? new Set(workspace.sessionIds.map(id => String(id)))
       : undefined
+    // 归属：这段对话是哪部戏的。**cwd 分不出来**（所有作品共用总根），
+    // 只有作品自己的 `state.json` 说得清。界面靠它把「别的作品的对话」
+    // 标出来并不让选中——选错了就是串台（见 70-chat.js 的会话下拉）。
+    const owners = await this.sessionOwners()
+    const rows = await this.listWorkspaces()
+    const titleOf = id => {
+      const row = rows.find(one => one.id === id)
+      return row !== undefined ? row.title : id
+    }
     const out = []
     for (const session of store.list()) {
       const header = session && session.header ? session.header : undefined
@@ -1295,11 +1322,16 @@ export class DramaDeskService {
           continue
         }
       }
+      const ownerId = owners.get(id)
       out.push({
         id,
         title: typeof header?.title === 'string' ? header.title : '',
         cwd,
         createdAt: typeof header?.createdAt === 'number' ? header.createdAt : 0,
+        // 缺省 = 不知道它是哪部戏的（例如你在宿主侧栏直接开的对话）：
+        // 那种会话可以被任何作品「接住」，挂上当前作品的范围。
+        workspaceId: ownerId,
+        workspaceTitle: ownerId === undefined ? undefined : titleOf(ownerId),
       })
     }
     out.sort((a, b) => b.createdAt - a.createdAt)
@@ -1648,10 +1680,118 @@ export class DramaDeskService {
       return { ...state, workspacePath: projectRoot, dshWorkspace }
     }
     const result = await ensureDeskSession(this, workspace, { fresh: options.fresh === true })
-    // **上下文交给宿主的 prompt context**，不再塞进用户的第一条消息。
-    // 装不上也不影响这段会话能聊（客户端有它在 /api 状态里如实回报）。
-    const seeded = installSeed(this, result.sessionId, seedPrompt(workspace, projectRoot, { isNew }))
-    return { ...result, workspacePath: projectRoot, dshWorkspace, seeded }
+    // **作品范围交给宿主的 prompt context**，不塞进用户的第一条消息。
+    // 这里挂一次，是为了「开会话就能立刻聊」；真正保证整段对话都不串台的，
+    // 是客户端每次绑定会话时再调的 `conceiveScope()`（见那个方法）。
+    const install = installScope(this, result.sessionId, await this.scopeOf(workspace, isNew))
+    return { ...result, workspacePath: projectRoot, dshWorkspace, seeded: install.seeded, seedReason: install.reason }
+  }
+
+  /**
+   * 一个作品的**范围记录**（交给 prompt context 的那份事实）。
+   *
+   * 目录 ID 与作品名必须同时出现，而且对应关系不能变：ID 是模型读写文件时
+   * 认的那个，作品名是跟导演说话时用的那个。路径给**相对总根**的形式，
+   * 因为 agent 的 cwd 就是总根（`AGENTS.md` §7：一个工作台一个总根）。
+   *
+   * @param {{id: string, dir: string, title?: string}} workspace
+   * @param {boolean} [fresh] 是不是「刚建、还没开始设计」
+   */
+  async scopeOf(workspace, fresh) {
+    const locations = await this.locations()
+    const projectRoot = locations.project.path
+    const isNew = fresh === undefined ? await this.isFreshWork(workspace) : fresh === true
+    const path = relative(projectRoot, workspace.dir).split('\\').join('/')
+    return {
+      id: workspace.id,
+      title: workspace.title !== undefined && workspace.title !== '' ? workspace.title : workspace.id,
+      path: path === '' ? '.' : path,
+      fresh: isNew,
+    }
+  }
+
+  /**
+   * **按会话钉住作品范围**：把「只谈这个作品（目录 ID + 作品名）」挂到这一段
+   * DSH 会话上，此后它的每一步请求都带着它。
+   *
+   * 为什么不是「开会话时装一次」：会话窗的「选择对话」里，除了这里开的会话，
+   * 还有**用户在宿主侧栏自己开的**、**插件重装前开的**、**别的作品开的**——
+   * 它们从来没有过范围，agent 只能猜。猜就会串台。所以规矩是：**谁被显示，
+   * 就给谁挂上**，而且客户端每次绑定会话时都会再挂一次（幂等）。
+   *
+   * 会话的归属以 `state.json` 的 `desk_session_id(s)` 台账为准：一段会话如果
+   * 属于**别的作品**，就按它自己的作品挂（`match: false` 如实回报），绝不把
+   * 当前作品的范围盖到别人的对话上——那会把一段谈 A 的对话引到 B 去。
+   *
+   * @param {{workspaceId?: string, sessionId?: string}} options
+   */
+  async conceiveScope(options = {}) {
+    const sessionId = typeof options.sessionId === 'string' ? options.sessionId : ''
+    if (sessionId === '') throw new Error('缺少 sessionId 参数')
+    const requested = await this.requireWorkspace(options)
+    const owners = await this.sessionOwners()
+    const ownerId = owners.get(sessionId)
+    const owner = ownerId === undefined
+      ? undefined
+      : await this.resolveWorkspace(ownerId)
+    const target = owner !== undefined ? owner : requested
+    const scope = await this.scopeOf(target)
+    const install = installScope(this, sessionId, scope)
+    // 冷会话：agent 还不存在（要等用户说出第一句话，宿主才会造出来）。
+    // 那就先记下来，等 `agent/created` 一到就挂——否则第一条消息正是没带范围的那条。
+    watchAgentBirth(this)
+    if (this.coldScopes === undefined) this.coldScopes = new Map()
+    if (install.seeded === true) this.coldScopes.delete(sessionId)
+    else this.coldScopes.set(sessionId, scope)
+    return {
+      ok: true,
+      // 这一段会话实际钉在哪个作品上。
+      work: { id: scope.id, title: scope.title, path: scope.path },
+      // 工作台此刻打开的是哪个作品（两者不同 = 这段对话不是这一部戏的）。
+      current: { id: requested.id, title: requested.title },
+      match: target.id === requested.id,
+      seeded: install.seeded,
+      reason: install.reason,
+    }
+  }
+
+  /**
+   * 会话 → 作品的归属台账。
+   *
+   * 宿主的会话 `cwd` 是**总根**（所有作品同一个工作区），从 cwd 分不出作品；
+   * 唯一说得清的是作品自己的 `state.json`：`desk_session_id` 是现在用的那一段，
+   * `desk_session_ids` 是用过的全部。两个都算。
+   *
+   * 短 TTL：一次绑定/一次清单问一遍，几秒内不会变。写操作会 `invalidateWork`
+   * 把它清掉，所以「刚开的新对话」不会晚一轮才被认出来。
+   *
+   * @returns {Promise<Map<string, string>>} sessionId → 作品 id
+   */
+  async sessionOwners() {
+    const now = Date.now()
+    const cached = this.ownerCache
+    if (cached !== undefined && now - cached.at < OWNER_CACHE_MS) return cached.value
+    const map = new Map()
+    const found = await discoverWorkspaces(await this.projectRoot())
+    for (const entry of found) {
+      const [work, state] = await Promise.all([
+        this.cachedJson(join(entry.dir, 'work.json')),
+        this.cachedJson(join(entry.dir, 'state.json')),
+      ])
+      const id = entry.id !== '' ? entry.id : (typeof work?.work_id === 'string' ? work.work_id : 'work')
+      const seen = new Set()
+      const take = value => {
+        if (typeof value !== 'string' || value === '' || seen.has(value)) return
+        seen.add(value)
+        map.set(value, id)
+      }
+      take(state?.[SESSION_FIELD])
+      if (Array.isArray(state?.[SESSION_LIST_FIELD])) {
+        for (const one of state[SESSION_LIST_FIELD]) take(one)
+      }
+    }
+    this.ownerCache = { at: now, value: map }
+    return map
   }
 
   /**

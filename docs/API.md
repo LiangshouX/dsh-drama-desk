@@ -668,12 +668,14 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 |---|---|
 | `created` | `true` 这一段是刚开的，`false` 是恢复/复用 |
 | `attached` | **会话已挂进工作区的会话账本**（`sessionIds`）。`false` = 分组没成功，但会话照样能聊 |
-| `seeded` | **项目范围已作为 prompt context 交给宿主**（`agent.ctx.systemPrompt`）。`false` = 宿主不支持这条通道，agent 不知道这次只谈哪个项目——界面要如实提示 |
+| `seeded` | **作品范围已挂成这段会话的 prompt context**。`false` = 没挂上（`seedReason` 说原因），界面要如实提示 |
+| `seedReason` | `'cold'` / `'host'` / `'rejected'`，见 `POST /conceive-scope` |
 
 **幂等**：已有会话就恢复它（`agents.resume`），活的就直接返回。
 
 `fresh: true` = 开一段新对话：收掉当前 agent、清掉 `desk_session_id`、重开。
-**旧会话不删**（它还留在 DSH 的会话列表里）。
+**旧会话不删**（它还留在 DSH 的会话列表里），并**留在 `desk_session_ids` 里**——
+那是「这段对话是哪部戏的」的台账（见上面的 `GET /sessions`）。
 
 ### 工作区里的会话清单：`GET /sessions?workspace=<id>`
 
@@ -682,7 +684,14 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
   "ok": true,
   "data": {
     "sessions": [
-      { "id": "24eaed05-…", "title": "", "cwd": "D:/Default/Videos/DSH-DRAMA-DESK", "createdAt": 1794771973604 }
+      {
+        "id": "24eaed05-…",
+        "title": "",
+        "cwd": "D:/Default/Videos/DSH-DRAMA-DESK",
+        "createdAt": 1794771973604,
+        "workspaceId": "demo-epic",        // 这一段是哪部戏的；缺省 = 不知道
+        "workspaceTitle": "演示 · 潮信"
+      }
     ]
   }
 }
@@ -691,10 +700,16 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 - **先按工作区的会话账本取**（`workspace.sessionIds`）——DSH 侧栏就是这么分组
   「DSH-DRAMA-DESK」这一组的，我们照同一个口径，才不会出现「侧栏里有、选不到」。
   拿不到账本（旧宿主 / 注册表没起来）才退回 **cwd 前缀匹配**。
+- **`workspaceId` 是归属，不是 cwd**：会话的 cwd 是**总根**，所有作品共用，
+  从它分不出作品。归属只认各作品 `state.json` 里的 `desk_session_id` /
+  `desk_session_ids`（见 `service.sessionOwners`）。缺省 = 不知道（例如你在宿主
+  侧栏直接开的对话）——那种会话**可以被当前作品接住**，挂上它的范围。
 - 客户端**拿不到**完整会话目录（`ctx.sessions` 的客户端门面没有 `list`），
   所以这一条由 Host 半边出：`ctx.get('sessions').list()`。
 - 用途：构思会话窗的「选择对话」——对话固定发生在这个工作区里，
   于是「换一个对话」就是在**这一个工作区**里换。
+  **别的作品的对话在界面上是禁用项**（标注「属「演示 · 潮信」」）：
+  选进来就等于把一段谈 A 的对话当 B 继续，那正是串台。
 - **`title` 一般是空的，这不是 bug**：宿主的 `SessionHeader` 里**没有标题字段**——
   标题是 `session-title` 投影的产物（第一句话之后由宿主摘要生成）。
   客户端显示标题时读的是**宿主会话清单里的 `SessionSummary.title`**
@@ -702,21 +717,25 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
   所以别在这里自己拿第一句话摘要，会变成第二套标题。
 - 按 `createdAt` 倒序。宿主没有 `sessions` 服务时返回空数组（不是报错）。
 
-### 项目范围：走 prompt context，不塞用户消息
+### 项目范围：每段会话都钉住「只谈哪个作品」
 
+```markdown
+# 当前作品（整段对话的固定范围）
+
+- 作品名：「<作品名>」
+- 目录 ID：`<work-id>`
+- 路径：`workspaces/<work-id>/`（在本次工作区的总根之下）
+
+这一页打开的就是「<作品名>」，它的目录 ID 是 `<work-id>`——这个对应关系不会变。
+**只读写 `workspaces/<work-id>/` 下的文件**：不要读、不要改总根下别的目录，
+也不要把别的作品的角色、剧情、镜头混进来。别的目录就是别的戏。
+
+继续「<作品名>」的构思时用 `drama-conceive` 技能；要改稿就先读 `workspaces/<work-id>/` 里的文件。
 ```
-# 这次对话的范围
 
-只谈一个短剧项目：`workspaces/<work-id>/`（作品名「…」）。
-
-用 `drama-conceive` 技能继续「…」的构思。
-先问我三到五个真正影响故事的问题；聊清楚之后把创意写进 `workspaces/<work-id>/creative/brief.md`，再告诉我你写了什么。
-
-⚠️ 这个工作区里还有别的短剧项目：只读写 `workspaces/<work-id>/` 下的文件，不要碰别的目录……
-```
-
-一个总根 = 一个 DSH 工作区，所有项目共用它，所以每段对话都得先钉死「这次只谈哪个项目」
-——否则会串台。
+一个总根 = 一个 DSH 工作区，所有项目共用它，所以每段对话都得钉死「这次只谈哪个项目」
+——否则会串台。**作品名（人认的）与目录 ID（模型读写文件时认的）必须同时出现，
+且对应关系不许变。**
 
 **这段文字是给模型的，不是给导演的**，所以它走宿主的 prompt registry：
 
@@ -725,20 +744,66 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 | ① | `agent.ctx.systemPrompt.context({ name:'drama-desk/project', order:40, text, required:true })` | 进模型历史：宿主把**本次所有** context 合成一条 user-role 消息（`<system-reminder>` 开头），对话流里**不显示正文** |
 | ② | `agent.ctx.systemPrompt.section({ … })` | 进 system prompt：看不见，但模型一定读得到 |
 
-注册在**这个 agent 自己的作用域**上，所以只有这一段会话带着它；作用域一收，
-上下文跟着走（disposer 交给 `ctx.effect`）。
+注册在**这个 agent 自己的作用域**上，所以只有这一段会话带着它。
+
+- **`text` 传的是函数，不是字符串**（宿主的类型是 `string | ((context) => string)`）：
+  每一步装配都重取，改个作品名、题材变了，整段对话跟着走，不会停在开话时那一版。
+- **谁被显示，就给谁挂上**——不是「开会话时装一次」。会话窗「选择对话」里的会话
+  不全是工作台开的（你在宿主侧栏自己开的、插件重装前开的都在），那些从来没有过范围。
+- **挂的位置是可跨插件重载的**：disposer 记在 `agent[Symbol.for('dsh-drama-desk/scope')]`
+  上。宿主的 prompt registry 是进程级的——插件重装后我们这一代模块的 Map 全没了，
+  而 agent 与它身上那条旧注册还活着；没有这个记号，重装后就会撞名字挂不上。
+- **冷会话欠着**：会话还没有 agent 时（刚建的作品、宿主归档后又点开的对话），
+  范围先记进 `coldScopes`，等宿主的 `agent/created` 一到就挂——那钩子**绝不抛**
+  （它在宿主的会话创建链上，抛出去等于让一段对话开不起来）。
 
 > **实测（2026-11-22，DSH 重启后）**：新建会话回报 `seeded:true`；问它
 > 「这次对话只谈哪个项目的目录」，它答 `workspaces/demo-epic/` —— 说明上下文真的
 > 到了模型。会话日志里它在 `seq 12` 的 `user/message` 中，和宿主的
 > `reme-memory` / `runtime-context` **合并在同一条**里。
 >
+> **实测（2026-11-22 晚，改成「按会话挂」之后）**：拿一段**不是这次开的**会话
+> （`demo-pawnshop` 的构思会话）直接问「作品名 / 目录 ID / 你只允许读哪个目录」，
+> 它答「演示 · 当铺的旧契」/ `demo-pawnshop` / `workspaces/demo-pawnshop/`，
+> 用时 1 秒、没调工具——范围确实每一步都在。
+>
 > 对话流里**看不到正文**（宿主只给自家 producer 列名——`上下文注入 reme-memory`、
-> `上下文注入 runtime-context`，我们这条不列名）。**这正是想要的效果**：
-> 模型读得到，导演看不见。
+> `上下文注入 runtime-context`，我们这条不列名）。所以**界面上另外画了一条范围条**
+> （侧栏会话窗顶部的「只谈 演示 · 潮信 · demo-epic」）：模型读得到，导演看得见，
+> 但别指望在对话流里找到它。
 >
 > 早期版本把它用 `<system-reminder>` 包着搭在用户第一条消息上、再由客户端抹掉，
 > 结果是对话流里露出一整坨 instruction——那条路径**已废弃**（`seed` 字段也随之下线）。
+
+### 按会话钉住范围：`POST /conceive-scope` `{ "workspaceId": "…", "sessionId": "…" }`
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "work": { "id": "demo-epic", "title": "演示 · 潮信", "path": "workspaces/demo-epic" },
+    "current": { "id": "demo-pawnshop", "title": "演示 · 当铺的旧契" },
+    "match": false,
+    "seeded": true
+  }
+}
+```
+
+| 字段 | 含义 |
+|---|---|
+| `work` | 这一段会话**实际钉在**哪个作品上 |
+| `current` | 工作台此刻打开的是哪个作品 |
+| `match` | 两者是否同一个。`false` = 这段对话不是这一部戏的，界面要如实说 |
+| `seeded` | 挂上了没有 |
+| `reason` | `'cold'`（agent 还没出生，已记账等 `agent/created`）/ `'host'`（没有 systemPrompt）/ `'rejected'`（两条通道都拒了） |
+
+- **幂等**：同一段会话反复调只换文本，不重复注册。
+- **不写盘、不开会话**：它只给这段 agent 挂一段 prompt context。
+- 客户端在**每次绑住一段会话**时调它（换作品、换对话、会话从冷变活各一次）。
+- **归属优先于当前**：如果这段会话按台账属于**别的作品**，就按它自己的作品挂
+  （`match:false`），绝不把当前作品的范围盖到别人的对话上——那会把一段谈 A 的
+  对话引到 B 去。归属的出处是各作品 `state.json` 的
+  `desk_session_id` 与 `desk_session_ids`（后者是新对话留下的历史，见 §7.5 的建会话）。
 
 ### 硬规则
 

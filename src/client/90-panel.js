@@ -982,6 +982,9 @@
                 sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
                 busy,
                 canStart: workspaceId !== '',
+                // **范围钉在哪个作品上**：会话窗每绑住一段会话就请 Host 把这个
+                // 作品的目录 ID 与作品名挂成它的 prompt context（见 conceive-scope）。
+                workspaceId,
                 onStart: () => openConceive(false),
                 onClose: () => {
                   setChatWanted(false)
@@ -990,9 +993,6 @@
                 onFresh: () => openConceive(true),
                 panelControls: chatControls,
                 dshWorkspaceId: conceive && conceive.dshWorkspace ? conceive.dshWorkspace.id : undefined,
-                // Host 回报「项目范围有没有作为 prompt context 交给宿主」。
-                // false = 宿主版本不支持那条通道，agent 不知道这次只谈哪个项目 → 界面要如实说。
-                seeded: conceive && conceive.created === true ? conceive.seeded !== false : undefined,
                 // 这两样是**宿主发给槽占位者**的标准道具（见 apply 里 main 的
                 // `children` 声明）：只有声明了 session 作用域的子槽，宿主才会把
                 // `SessionProvider` 与 `renderSlot` 交过来——原生对话就靠它嵌进来。
