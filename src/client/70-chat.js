@@ -1,7 +1,36 @@
-    // ── 宿主客户端服务的接线 ───────────────────────────────────────────────
+    // ── 构思会话：把**宿主自己的对话装配**嵌进侧栏 ──────────────────────────
     //
-    // Client 半边拿不到 `ctx`，只有 `apply(ctx)` 拿得到。把 ctx 记在这里，
-    // 组件才用得上 `sessions` / `uiWorkspace` / `layout` 这些宿主服务。
+    // 设计（2026-11-22 重做，推翻了之前「自己画消息流」的做法）
+    // ------------------------------------------------------------
+    // 宿主的 `conversation.content` 是一个 **Component Factory**
+    // （`SlotFactoryMap` 里的注释原话：「Reusable Conversation content instantiated
+    // by presentation hosts」），并且明确支持两种出现形态：
+    //
+    //   variant: 'main'      —— 主面板那份（带头部、带宽度把手）
+    //   variant: 'embedded'  —— 嵌进别处那份（**不带头部**、不带宽度把手）
+    //
+    // 右侧栏的「子 agent 对话」用的就是 embedded——它就是宿主自己背书的
+    // 「把原生聊天嵌进侧边栏」的形态。插件照同一条路走，就能一行聊天渲染都不用写：
+    //
+    //   ① 自己的槽注册里声明一个 **session 作用域的子槽**
+    //      ⇒ 宿主才会把 `SessionProvider` 与 `renderSlot` 这两件标准道具交给我们
+    //   ② `sessions.retain(id)` 拿引用，`SessionProvider` 把这段会话**绑住**
+    //   ③ `renderFactorySlot('conversation.content', { variant: 'embedded' })`
+    //
+    // 拿到的是宿主**自己的**一整套：消息与 markdown、每个工具的自定义卡片
+    // （read / write / edit / bash / 子 agent… 全是宿主实现的）、思考折叠、
+    // **提问卡片（点选即回传）**、上下文折叠、审批、队列与引导、停止与重试、
+    // 以及 composer 里的**模型与思考强度选择**。
+    //
+    // 这扇窗只补宿主没做的三件事：
+    //   · 贴住作品：会话清单按 **DSH 工作区的账本**取（所以要 Host 侧 attach）
+    //   · 头部的会话切换 / 新对话 / 跳完整对话面板
+    //   · 还没开会话时的空态引导
+    //
+    // 反面教训（为什么以前那版是错的）：自己把 `eventSource` 折叠成
+    // 「我说的话 / 它说的话 / 处理过程」三种行，等于**用 300 行僭越了宿主
+    // 几个包**——工具卡只有一行 `name(args)`，提问卡是个假按钮，
+    // 注入的上下文糊成一屏。那不是「轻量嵌入」，那是重造一个更差的聊天。
 
     /** 订阅一个 ObservableSnapshot（宿主自己的增量机制），返回它当前的值。 */
     function useStore(source) {
@@ -28,759 +57,240 @@
       return value
     }
 
-    /** 一条消息里所有 text 块的纯文本。 */
-    function textOf(message) {
-      if (message === undefined || message === null) return ''
-      const content = message.content
-      if (!Array.isArray(content)) return typeof message.text === 'string' ? message.text : ''
-      const parts = []
-      for (const block of content) {
-        if (block !== null && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') {
-          parts.push(block.text)
-        }
+    /** 稳定空值：给标准道具缺失时的兜底（换新对象会让订阅每次重连）。 */
+    const EMPTY_SESSION = { blank: true, running: false, awaitingFirstTurn: false, promptAttempted: false, openState: 'cold' }
+
+    const EMPTY_CONVERSATION = { activeTargets: new Set() }
+
+    /** 宿主的会话服务；拿不到就返回 undefined（由调用方如实说明）。 */
+    function sessionsService() {
+      if (CTX === null || CTX === undefined || typeof CTX.get !== 'function') return undefined
+      try {
+        const service = CTX.get('sessions')
+        return service !== undefined && service !== null && typeof service.retain === 'function'
+          ? service
+          : undefined
+      } catch {
+        return undefined
       }
-      return parts.join('')
     }
 
-    /** 一条消息里调用了哪些工具（assistant 消息的工具调用藏在 content 块里）。 */
-    function toolsOf(message) {
-      const content = message === undefined || message === null ? undefined : message.content
-      if (!Array.isArray(content)) return []
-      const names = []
-      for (const block of content) {
-        if (block !== null && typeof block === 'object' && block.type === 'tool-call' && typeof block.name === 'string') {
-          names.push(block.name)
-        }
-      }
-      return names
-    }
-
-    /** 一条消息里的推理文本（宿主的「轨迹」视图里叫 reasoning）。 */
-    function reasoningOf(message) {
-      const content = message === undefined || message === null ? undefined : message.content
-      if (!Array.isArray(content)) return ''
-      const parts = []
-      for (const block of content) {
-        if (block !== null && typeof block === 'object' && block.type === 'reasoning' && typeof block.text === 'string') {
-          parts.push(block.text)
-        }
-      }
-      return parts.join('\n')
+    /** 会话清单里的时间戳：「今天」只露时分，更早露月-日。拿不到就空着。 */
+    function sessionStamp(createdAt) {
+      if (typeof createdAt !== 'number' || !Number.isFinite(createdAt) || createdAt <= 0) return ''
+      // 毫秒还是秒：宿主的 header 是毫秒，但这里不赌——小到不像毫秒就按秒算。
+      const date = new Date(createdAt > 1e12 ? createdAt : createdAt * 1000)
+      if (Number.isNaN(date.getTime())) return ''
+      const pad = value => String(value).padStart(2, '0')
+      const now = new Date()
+      const sameDay = date.getFullYear() === now.getFullYear()
+        && date.getMonth() === now.getMonth()
+        && date.getDate() === now.getDate()
+      const clock = pad(date.getHours()) + ':' + pad(date.getMinutes())
+      return sameDay ? clock : pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + clock
     }
 
     /**
-     * 抹掉宿主注入的上下文块。
+     * 会话清单里的显示名。
      *
-     * DSH 会把 `[system-reminder]`、记忆检索结果这类东西拼进**用户消息**里，
-     * 宿主的对话面板会把它们折叠成「上下文」节点；我们这扇小窗没有那套节点，
-     * 所以直接抹掉——导演想看的是自己说的话，不是系统提示。
-     *
-     * 同一个框也用来**藏**我们自己的开场白：它跟着用户的第一条消息一起送，
-     * 模型读得到，界面上不显示（见 `ConceiveChat` 里的 `seedPending`）。
+     * 这些会话大多**没起名**（标题空），所以露 id 的一段 + 创建时间——
+     * 光露 id 前八位的话，`session-xxxx` 会显示成两个一模一样的「会话 session-」。
      */
-    function stripInjected(text) {
-      return String(text ?? '')
-        .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-        .replace(/\[system-reminder\][\s\S]*$/m, '')
-        .trim()
+    function sessionLabel(session) {
+      const title = session && typeof session.title === 'string' ? session.title.trim() : ''
+      if (title !== '') return title
+      const id = session && typeof session.id === 'string' ? session.id : ''
+      const bare = id.replace(/^session-/, '')
+      const stamp = sessionStamp(session ? session.createdAt : undefined)
+      const name = bare === '' ? '未命名对话' : '会话 ' + bare.slice(0, 8)
+      return stamp === '' ? name : name + ' · ' + stamp
     }
 
     /**
-     * 这条用户消息是不是**注入的上下文**（而不是人写的话）。
+     * 这一个 View 槽里放什么：**固定走宿主的「对话」视图**。
      *
-     * 判据刻意保守：以 markdown 一级标题开头、且明显很长。
-     * 人写的话极少长这样；认错了也只是多一次点击展开。
-     *
-     * @param {string} text
-     * @returns {boolean}
+     * 这一格是聊天窗，不是轨迹台——轨迹在「宿主面板」那一侧看。
+     * `renderSlot` 是工厂给的（`conversation.content` 的 `views` 位置）。
      */
-    function isInjectedContext(text) {
-      const value = String(text ?? '')
-      if (value.length < 200) return false
-      return /^#{1,3}\s+\S/.test(value)
+    function DeskChatView(props) {
+      return props.renderSlot('conversation.session', { view: 'chat' })
     }
 
     /**
-     * 一条对话行。
+     * 会话体：宿主 `conversation.content` 的 **embedded** 出现形态。
      *
-     * `kind === 'context'` 是**注入的上下文**（长期记忆、别的插件塞的资料）——
-     * 它不是人写的话，所以**默认折起来**，只露一个标题。
+     * `phase` / `hero` 决定宿主渲染哪一屏（空白首屏 / 正在接续 / 正文）。
+     * 这段判定照抄宿主的 `sidebar-chat`：它是「这段会话现在是空、是刚开、
+     * 还是已经有内容」的**宿主自己的**口径，我们不该另发明一套。
      */
-    function MsgRow(props) {
-      const { kind, text } = props
-      const [open, setOpen] = useState(false)
-      const isContext = kind === 'context'
-      const long = kind !== 'tool' && typeof text === 'string' && text.length > 420
-      const title = isContext ? (String(text).split('\n')[0].replace(/^#+\s*/, '') || '上下文') : ''
-      const shown = isContext
-        ? (open ? text : '')
-        : (long && !open ? text.slice(0, 420) + '…' : text)
-      return h('div', { className: 'dd-msg ' + kind },
-        h('div', { className: 'who' },
-          isContext ? '上下文' : kind === 'user' ? '我' : kind === 'assistant' ? 'AI' : kind === 'tool' ? '工具' : '出错'),
-        isContext
-          ? h('button', {
-            className: 'dd-ctx-head',
-            type: 'button',
-            title: '宿主注入的上下文（默认折起）',
-            onClick: () => setOpen(!open),
-          },
-            h(Icon, { name: 'chevron', size: 12 }),
-            h('span', { className: 'nm' }, title),
-            h('span', { className: 'dd-note' }, open ? '收起' : '展开'),
-          )
-          : null,
-        isContext
-          ? (open ? h('div', { className: 'body' }, shown) : null)
-          : h('div', { className: 'body' }, shown),
-        long && !isContext
-          ? h('button', {
-            className: 'dd-btn sm ghost',
-            style: { alignSelf: 'flex-start' },
-            onClick: () => setOpen(!open),
-          }, open ? '收起' : '展开全文')
-          : null,
+    function DeskConversationBody(props) {
+      const { sessionId, useSession, useConversation, useSessions, renderFactorySlot } = props
+      // 标准道具可能因为宿主版本不同而缺席——缺席也不能让 hook 顺序变。
+      const readSession = typeof useSession === 'function' ? useSession : value => value
+      const readConversation = typeof useConversation === 'function' ? useConversation : value => value
+      const readSessions = typeof useSessions === 'function' ? useSessions : value => value
+      const session = readSession(value => value) || EMPTY_SESSION
+      const conversation = readConversation(value => value) || EMPTY_CONVERSATION
+      const summaryBlank = readSessions(state => (state && state.byId ? state.byId[sessionId] : undefined)?.blank)
+
+      const active = conversation.activeTargets.size > 0
+        || (session.blank !== true && session.awaitingFirstTurn !== true)
+        || session.running === true
+      const shellPhase = active ? 'active' : session.promptAttempted === true ? 'engaging' : 'blank'
+      const settling = shellPhase === 'blank' && session.openState === 'loading' && summaryBlank !== true
+      const hero = shellPhase === 'blank' && (session.openState === 'open' || summaryBlank === true)
+      const phase = settling ? 'settling' : hero ? 'hero' : 'active'
+
+      if (typeof renderFactorySlot !== 'function') {
+        return h('div', { className: 'dd-chat-note' },
+          '这个宿主没有提供对话装配接口（renderFactorySlot）：需要更新的 DSH 桌面版或 dsh web。')
+      }
+      return renderFactorySlot(
+        'conversation.content',
+        { variant: 'embedded', phase, hero },
+        { slots: { views: DeskChatView } },
       )
     }
 
     /**
-     * 「处理过程」：一组工具调用 / 推理，**默认折叠**。
+     * 会话切换：这个 **DSH 工作区**里的对话。
      *
-     * 这是宿主对话面板里「轨迹」视图的轻量版。折叠起来是因为导演要的是
-     * 「它说了什么」，不是「它调了七次工具」；但那七次工具调用**必须能看见**
-     * ——「AI 一句话没说就停了」是最让人困惑的现象。
+     * 用原生 `<select>` 而不是自造弹出层：它会键盘可用、会跟随系统主题、
+     * 在窄侧栏里也不会被裁掉。会话一多，浏览器自己会滚。
      */
-    function ChatProcess(props) {
-      const { steps } = props
-      const [open, setOpen] = useState(false)
-      if (!Array.isArray(steps) || steps.length === 0) return null
-      const running = steps.some(step => step.status === 'run')
-      const failed = steps.some(step => step.status === 'fail')
-      return h('div', { className: 'dd-process' + (open ? ' open' : '') },
-        h('button', {
-          className: 'dd-process-head',
-          type: 'button',
-          onClick: () => setOpen(!open),
-          title: open ? '收起处理过程' : '展开处理过程',
-        },
-          h(Icon, { name: 'chevron', size: 12 }),
-          h('span', null, running ? '正在处理…' : '处理过程'),
-          h('span', { className: 'dd-process-count num' }, steps.length + ' 步'),
-          failed ? h('span', { className: 'dd-badge fail' }, '有失败') : null,
-        ),
-        open
-          ? h('div', { className: 'dd-process-body' },
-            steps.map(step => h('div', { key: step.key, className: 'dd-process-step ' + step.status },
-              h('span', { className: 'dot ' + step.status }),
-              h('span', { className: 'nm' }, step.name),
-              step.detail ? h('span', { className: 'dt' }, step.detail) : null,
-              // 这一步改的文件：**看得见**，不用去目录里翻 mtime。
-              step.path ? h('span', { className: 'dp' }, '改 ' + step.path) : null,
-            )))
-          : null,
-      )
-    }
-
-    /**
-     * 模型 / 推理强度。
-     *
-     * 复用宿主的**同一个真源**（`agentDefaultModel`）——不是插件自己存一份。
-     * 改的是**宿主的默认选择**，所以对**新开的会话**生效；当前这段会话
-     * 用的是它自己开起来时的模型（界面里写清楚了，不含糊）。
-     *
-     * 形状是**一个两字段的表单**：先选模型、再选档位、最后「应用」——
-     * 而不是「一点就立刻写宿主」。理由：档位是**每个模型自己的**，
-     * 换了模型而档位还留着，宿主会拒（不支持的 effort 在发请求前就被拒）。
-     * 所以两边一起选、一起应用。
-     */
-    function ChatModelMenu(props) {
-      const { hostModel, providers, onChange, onClose } = props
-      const [open, setOpen] = useState(false)
-      /** 菜单里**正在挑**的选择（还没写进宿主）。 */
-      const [pickedProvider, setPickedProvider] = useState('')
-      const [pickedModel, setPickedModel] = useState('')
-      const [pickedEffort, setPickedEffort] = useState('')
-      /** 当前选中的**那个模型**的推理档位目录（按需问宿主一次）。 */
-      const [efforts, setEfforts] = useState([])
-      const [effortsFor, setEffortsFor] = useState('')
-      const list = Array.isArray(providers) ? providers : []
-
-      const hostProvider = hostModel && hostModel.provider ? hostModel.provider : ''
-      const hostModelId = hostModel && hostModel.model ? hostModel.model : ''
-      const hostEffort = hostModel && hostModel.reasoningEffort ? hostModel.reasoningEffort : ''
-
-      // 菜单打开时，先把「正在挑的」对齐到宿主当前的选择。
-      useEffect(() => {
-        if (!open) return
-        setPickedProvider(hostProvider)
-        setPickedModel(hostModelId)
-        setPickedEffort(hostEffort)
-      }, [open, hostProvider, hostModelId, hostEffort])
-
-      const catalogKey = pickedProvider !== '' && pickedModel !== '' ? pickedProvider + '/' + pickedModel : ''
-
-      // 问一次「这个模型有哪些档位」。
-      //
-      // **档位是每个模型自己的**（同一个 provider 下，A 模型给 low/high/max，
-      // B 模型只给 medium），所以不能写死——**问适配器**（`llm.resolveModelInfo`）。
-      // 这条路径可能去问 provider，所以**按需**：菜单开着才问，不进轮询。
-      useEffect(() => {
-        if (!open || catalogKey === '' || catalogKey === effortsFor) return
-        let cancelled = false
-        const [provider, model] = catalogKey.split('/')
-        apiGet('model-info', { provider, model })
-          .then(value => {
-            if (cancelled) return
-            setEffortsFor(catalogKey)
-            setEfforts(value && Array.isArray(value.efforts) ? value.efforts : [])
-          })
-          .catch(() => {
-            if (cancelled) return
-            setEffortsFor(catalogKey)
-            setEfforts([])
-          })
-        return () => { cancelled = true }
-      }, [open, catalogKey, effortsFor])
-
-      // 换模型 → 档位重来（旧的档位可能不支持）。
-      const chooseModel = (providerId, modelId) => {
-        setPickedProvider(providerId)
-        setPickedModel(modelId)
-        setPickedEffort('')
-      }
-
-      const apply = () => {
-        if (pickedProvider === '' || pickedModel === '') return
-        onChange(pickedProvider, pickedModel, pickedEffort)
-        setOpen(false)
-      }
-
-      const modelLabel = hostModelId === '' ? '—' : hostModelId
-      const levelLabel = hostEffort === '' ? '默认' : hostEffort
-
-      const panel = open
-        ? h('div', { className: 'dd-pop' },
-          h('div', { className: 'dd-pop-title' }, '模型（宿主的默认选择）'),
-          list.length === 0
-            ? h('div', { className: 'dd-note' }, '这个宿主没有公布模型目录。')
-            : list.map(entry => h('div', { key: entry.id, className: 'dd-pop-group' },
-              h('div', { className: 'dd-pop-lab' }, entry.name || entry.id),
-              (entry.models || []).map(model => h('button', {
-                key: model.id,
-                type: 'button',
-                className: 'dd-pop-item' + (pickedProvider === entry.id && pickedModel === model.id ? ' on' : ''),
-                onClick: () => chooseModel(entry.id, model.id),
-              }, model.name || model.id)),
-            )),
-          h('div', { className: 'dd-pop-title' }, '推理强度'),
-          // 档位来自**这个模型自己的目录**（问适配器，不写死）。
-          efforts.length > 0
-            ? h('div', { className: 'dd-pop-efforts' },
-              efforts.map(entry => h('button', {
-                key: entry.id,
-                className: 'dd-pop-effort' + (pickedEffort === entry.id ? ' on' : ''),
-                type: 'button',
-                title: entry.description,
-                onClick: () => setPickedEffort(entry.id),
-              },
-                h('span', { className: 'nm' }, entry.name),
-                h('span', { className: 'id num' }, entry.id),
-              )),
-              h('button', {
-                className: 'dd-pop-effort' + (pickedEffort === '' ? ' on' : ''),
-                type: 'button',
-                title: '让模型用它自己的默认档位',
-                onClick: () => setPickedEffort(''),
-              }, h('span', { className: 'nm' }, '默认')),
-            )
-            : h('div', { className: 'dd-note' },
-              catalogKey === '' ? '先选一个模型。' : '这个模型没有公布推理档位（或者宿主没答上来）。'),
-          h('div', { className: 'dd-pop-foot' },
-            h('button', {
-              className: 'dd-btn sm primary',
-              type: 'button',
-              disabled: pickedProvider === '' || pickedModel === '',
-              onClick: apply,
-            }, '应用'),
-            h('button', { className: 'dd-btn sm', type: 'button', onClick: () => setOpen(false) }, '取消'),
-          ),
-          h('div', { className: 'dd-note' }, '改的是**宿主的默认选择**：新开的会话会用它。当前这段会话仍用开起来时的模型。'),
-        )
-        : null
-
-      return h('div', { className: 'dd-pop-wrap' },
-        h('button', {
-          className: 'dd-chip click dd-chat-model',
-          type: 'button',
-          title: '模型与推理强度',
-          onClick: () => setOpen(value => !value),
-        }, h(Icon, { name: 'settings', size: 12 }), h('span', null, modelLabel), h('span', { className: 'lv' }, '· ' + levelLabel)),
-        panel,
-      )
-    }
-
-    /**
-     * 会话选择：同一�� DSH 工作区里的会话。
-     *
-     * 对话是**固定在一个工作区**里发生的（一个短剧项目 = 一个 DSH 工作区），
-     * 所以这里列的就是那个工作区里的会话——不是全局的会话列表。
-     */
-    function ChatSessionMenu(props) {
-      const { sessions, current, onPick, onClose } = props
-      const [open, setOpen] = useState(false)
+    function ConceiveSessionMenu(props) {
+      const { sessions, current, onPick } = props
       const list = Array.isArray(sessions) ? sessions : []
-      const panel = open
-        ? h('div', { className: 'dd-pop' },
-          h('div', { className: 'dd-pop-title' }, '这个作品里的对话'),
-          list.length === 0
-            ? h('div', { className: 'dd-note' }, '这个工作区里还没有别的会话。')
-            : list.map(entry => h('button', {
-              key: entry.id,
-              className: 'dd-pop-item' + (entry.id === current ? ' on' : ''),
-              onClick: () => { onPick(entry.id); setOpen(false) },
-            },
-              h('span', { className: 'nm' }, entry.title || '（未命名会话）'),
-              h('span', { className: 'dt num' }, entry.id.slice(0, 8)),
-            )),
-        )
-        : null
-      return h('div', { className: 'dd-pop-wrap' },
-        h('button', {
-          className: 'dd-btn sm',
-          type: 'button',
-          title: '切换对话（同一个短剧工作区里的会话）',
-          onClick: () => setOpen(value => !value),
-        }, '对话'),
-        panel,
-      )
-    }
-
-    /**
-     * Agent 向用户提问。
-     *
-     * **回答是直接回传给 agent 的**，走宿主那条 Remote 通道：
-     * `ctx.remote.userQuestions.answer(sessionId, callId, { answers: [{ id, selected }] })`。
-     * 这不是插件自己造的路——**就是宿主对话面板用的那一条**
-     * （`docs/dev/dsh-integration.md` D1：不许自己折叠会话事件去仿造宿主的行为）。
-     *
-     * 通道不在（老宿主 / 没有那个服务）时，退回「复制答案 + 去完整对话里答」，
-     * **而不是**留一个点了没反应的按钮。
-     */
-    function ChatQuestion(props) {
-      const { question, options, items, callId, sessionId, onOpenHost } = props
-      const [picked, setPicked] = useState({})
-      const [copied, setCopied] = useState(false)
-      const [state, setState] = useState('idle')
-      const list = Array.isArray(items) && items.length > 0 ? items : [{ id: '', question, options }]
-
-      const toggle = (itemId, label) => {
-        setCopied(false)
-        setPicked(current => {
-          const chosen = current[itemId] ?? []
-          return {
-            ...current,
-            [itemId]: chosen.includes(label)
-              ? chosen.filter(item => item !== label)
-              : chosen.concat(label),
-          }
-        })
-      }
-
-      const answerText = Object.keys(picked)
-        .map(itemId => picked[itemId].join('；'))
-        .filter(text => text !== '')
-        .join(' / ')
-
-      const copy = () => {
-        if (answerText === '') return
-        try {
-          if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
-            void navigator.clipboard.writeText(answerText)
-          }
-        } catch {
-          // 剪贴板不可用就算了：下面那行字还能手动选中复制。
-        }
-        setCopied(true)
-      }
-
-      /** 把答案回传给 agent。 */
-      const submit = async () => {
-        // 宿主的回答通道：`remote.userQuestions.answer(sessionId, callId, { answers })`。
-        // 插件在作用域里**显式 inject** 了它（见 90-panel.js 的 inject 列表）——
-        // Cordis 对带点的服务路径有静态保护，不 inject 就取不到。
-        let channel
-        try {
-          const remote = CTX ? CTX.get('remote') : undefined
-          channel = remote !== undefined && remote !== null ? remote.userQuestions : undefined
-        } catch {
-          channel = undefined
-        }
-        if (channel === undefined || typeof channel.answer !== 'function') {
-          setState('nochannel')
-          return
-        }
-        const answers = list
-          .filter(item => (picked[item.id] ?? []).length > 0)
-          .map(item => ({ id: item.id, selected: picked[item.id] }))
-        if (answers.length === 0) return
-        setState('sending')
-        try {
-          await channel.answer(sessionId, callId, { answers })
-          setState('sent')
-        } catch {
-          setState('failed')
-        }
-      }
-
-      const canSubmit = list.some(item => (picked[item.id] ?? []).length > 0)
-
-      return h('div', { className: 'dd-question' },
-        h('div', { className: 'dd-question-head' },
-          h(Icon, { name: 'note', size: 13 }),
-          h('span', null, 'AI 需要你回答'),
-        ),
-        list.map((item, index) => h('div', { key: item.id || ('q' + index), className: 'dd-question-item' },
-          list.length > 1 ? h('div', { className: 'dd-question-q' }, item.question) : null,
-          (item.options || []).length > 0
-            ? h('div', { className: 'dd-question-opts' },
-              item.options.map(option => h('button', {
-                key: option.label,
-                className: 'dd-question-opt' + ((picked[item.id] ?? []).includes(option.label) ? ' on' : ''),
-                type: 'button',
-                onClick: () => toggle(item.id, option.label),
-              },
-                h('span', { className: 'nm' }, option.label),
-                option.description ? h('span', { className: 'dt' }, option.description) : null,
-              )))
-            : null,
-        )),
-        answerText !== ''
-          ? h('div', { className: 'dd-question-answer' },
-            h('span', { className: 'dd-note' }, '你的选择：'),
-            h('span', { className: 'dd-question-answer-text' }, answerText))
+      const known = current === undefined ? false : list.some(item => item && item.id === current)
+      return h('select', {
+        className: 'dd-chat-session',
+        value: current === undefined ? '' : current,
+        disabled: list.length === 0 && !known,
+        title: '这个工作区里的对话（含你在宿主的侧栏里自己开的）',
+        onChange: event => {
+          const id = event.target.value
+          if (id !== '' && typeof onPick === 'function') onPick(id)
+        },
+      }, [
+        // 当前这段不在清单里（清单还没刷出来）时也要有个选项，否则 select 会空值。
+        current !== undefined && !known
+          ? h('option', { key: '__current', value: current }, '当前对话 ' + current.replace(/^session-/, '').slice(0, 8))
           : null,
-        h('div', { className: 'dd-question-foot' },
-          h('button', {
-            className: 'dd-btn sm primary',
-            type: 'button',
-            disabled: !canSubmit || state === 'sending' || state === 'sent',
-            onClick: () => { void submit() },
-          }, state === 'sending' ? '回传中…' : state === 'sent' ? '已回传' : '回传答案'),
-          h('button', {
-            className: 'dd-btn sm',
-            type: 'button',
-            disabled: !canSubmit,
-            onClick: copy,
-          }, copied ? '已复制' : '复制答案'),
-          h('button', {
-            className: 'dd-btn sm',
-            type: 'button',
-            title: '在宿主自己的对话面板里回答（那里有原生的提问卡片）',
-            onClick: onOpenHost,
-          }, '在完整对话里回答'),
-        ),
-        state === 'sent'
-          ? h('div', { className: 'dd-note dd-question-hint' }, '答案已经回传给 agent 了。')
-          : state === 'failed'
-            ? h('div', { className: 'dd-note dd-question-hint' }, '回传没成功（agent 可能已经不等了）。可以复制答案，去完整对话里回。')
-            : state === 'nochannel'
-              ? h('div', { className: 'dd-note dd-question-hint' }, '这个宿主没有把提问的回答通道开给插件，所以这里只能复制答案、去完整对话里回。')
-              : null,
-      )
+        list.length === 0
+          ? h('option', { key: '__empty', value: '' }, '（这个工作区里只有这一段）')
+          : null,
+        list.map(item => h('option', { key: item.id, value: item.id }, sessionLabel(item))),
+      ])
     }
 
     /**
-     * 构思会话面板。
+     * 构思会话窗。
      *
-     * **它不画一个仿造的聊天界面。** 会话是真的（真模型、真工具、
-     * `drama-conceive` 技能、工作目录就是这个作品目录），这里把
-     * 宿主已经折叠好的会话窗口按「谁说的」摊开，并把输入框接到
-     * `session.prompt()` 上。要看完整对话（工具卡片、推理、审批），
-     * 一个按钮跳回宿主自己的对话面板。
-     *
-     * 复用宿主能力的三处：**模型与推理强度**（同一个 `agentDefaultModel` 真源）、
-     * **会话目录**（Host 半边按工作区过滤过的清单）、
-     * **处理过程与提问**（宿主事件流里的工具调用与提问，按可折叠 / 可回答呈现）。
+     * 会话**不是**这里发起的：Host 侧用 `agents.create()` 开真会话、把它挂进
+     * DSH 工作区的账本、再把「这次只谈哪个项目」作为 **prompt context** 交给宿主。
+     * 这扇窗只负责「把那段会话显示出来 + 让人能切、能新开、能跳过去」。
      */
     function ConceiveChat(props) {
       const {
-        sessionId, seed, onClose, onFresh, onStart, canStart, busy,
-        settings, panelControls, onSwitchSession, onGoto, dshWorkspaceId,
+        sessionId, onClose, onFresh, onStart, canStart, busy, seeded,
+        panelControls, dshWorkspaceId, SessionProvider, renderSlot,
       } = props
-      const [reference, setReference] = useState(null)
-      const [error, setError] = useState(null)
-      const [draft, setDraft] = useState('')
+      const [activeId, setActiveId] = useState(sessionId)
+      /**
+       * 绑住的会话引用 **连同它属于哪一段会话**。
+       *
+       * 只存引用是不够的：换会话时 React 会先用**旧的**引用渲染一帧，而旧引用的
+       * 释放发生在上一轮 effect 的 cleanup 里 —— 那一帧里 `SessionProvider`
+       * 就会拿到一个已经 released 的引用，宿主直接抛
+       * `Session reference "…" is released`。
+       *
+       * 所以这里记上 id，渲染时**只认 id 与当前一致的那一个**：换了会话的那一刻
+       * `liveReference` 就是 null，那一帧显示「正在打开」，不会把死引用交出去。
+       */
+      const [bound, setBound] = useState({ id: undefined, reference: null })
+      const [problem, setProblem] = useState(null)
+      const [list, setList] = useState([])
       const [starting, setStarting] = useState(false)
-      /** 这段会话的「开场白」送出去了没有（送过就不再重复）。 */
-      const seeded = useRef(false)
-      const flowRef = useRef(null)
-      /** 面板当前在看哪一段会话（默认是这个作品的构思会话）。 */
-      const [viewSession, setViewSession] = useState(sessionId)
-      /** 这个短剧工作区里的会话清单。 */
-      const [sessionList, setSessionList] = useState([])
+      /** 自愈重试计数：绑定失败 → 请 Host 把这段会话恢复成活的 → 再绑一次。 */
+      const [attempt, setAttempt] = useState(0)
+      const repairedRef = useRef(false)
+      /**
+       * `onStart` 每次渲染都是新函数（父组件里的内联箭头），放进依赖会让 effect
+       * 每帧重跑（retain/release 抖动）。所以走 ref：值是最新的，身份不参与依赖。
+       */
+      const startRef = useRef(onStart)
+      startRef.current = onStart
 
-      useEffect(() => { setViewSession(sessionId) }, [sessionId])
+      // 作品换了自己的会话 → 跟着走。
+      useEffect(() => { setActiveId(sessionId) }, [sessionId])
 
-      // 会话清单：只在窗口打开时拉一次（它是**清单**，不是某一镜的判定）。
+      // 清单：只在**换了会话/作品**（或自愈重连过一次）时拉。它是清单，不是某一镜的
+      // 判定，所以不进轮询——开会话那一次 `conceive-session` 之后会重渲染，够用。
       useEffect(() => {
         let cancelled = false
         apiGet('sessions').then(value => {
-          if (cancelled) return
-          setSessionList(value && Array.isArray(value.sessions) ? value.sessions : [])
-        }).catch(() => { if (!cancelled) setSessionList([]) })
+          if (!cancelled) setList(value && Array.isArray(value.sessions) ? value.sessions : [])
+        }).catch(() => { if (!cancelled) setList([]) })
         return () => { cancelled = true }
-      }, [])
+      }, [sessionId, attempt])
 
-      const activeId = viewSession
+      // **绑定**这一段会话：用宿主自己的 retain（共享它的历史开屏与增量）。
+      //
+      // `attempt` 是自愈重试：见下面的 catch —— 插件重装 / 宿主重启之后，
+      // 这段会话可能已经不在宿主的活目录里（客户端 retain 会报
+      // `sessions.retain: unknown session`），此时请 Host 走一次
+      // `ensureDeskSession()`（本质是 `agents.resume`）把它带回来，再绑一次。
       useEffect(() => {
-        if (!activeId) return undefined
-        const sessions = CTX ? CTX.get('sessions') : undefined
-        if (sessions === undefined || sessions === null || typeof sessions.retain !== 'function') {
-          setError('这个宿主没有 sessions 服务：构思会话需要 DSH 桌面版或 dsh web。')
-          return undefined
-        }
-        let current
-        try {
-          current = sessions.retain(activeId, { source: 'controllerOperation' })
-        } catch (problem) {
-          setError(problem instanceof Error ? problem.message : String(problem))
-          return undefined
-        }
-        seeded.current = false
-        setReference(current)
-        setError(null)
-        return () => {
-          try {
-            current.release()
-          } catch {
-            // 引用已经释放过：忽略。
-          }
-          setReference(null)
-        }
+        repairedRef.current = false
+        return undefined
       }, [activeId])
 
-      const binding = reference === null ? undefined : reference.binding
-      const snapshot = useStore(binding === undefined ? undefined : binding.session)
-      const window_ = useStore(binding === undefined ? undefined : binding.eventSource)
-
-      /**
-       * 抹掉**我们自己的开场白**。
-       *
-       * 开场白是**上下文**，不是用户说的话。宿主可能把它拆成独立的一条用户
-       * 消息（那样 `<system-reminder>` 的标签就跟着不见了，`stripInjected` 抓不到）。
-       * 所以这里按**原文精确剔除**——只剔除我们自己塞进去的那一段。
-       *
-       * @param {string} text
-       * @returns {string}
-       */
-      const stripSeed = useCallback(text => {
-        let out = String(text ?? '')
-        if (typeof seed === 'string' && seed !== '') {
-          out = out.split(seed).join('')
+      useEffect(() => {
+        if (activeId === undefined || activeId === null || activeId === '') {
+          setBound({ id: undefined, reference: null })
+          return undefined
         }
-        return out.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
-      }, [seed])
-
-      /**
-       * 事件流 → 界面上的行。
-       *
-       * 三种行：**消息**（我说的话 / 它说的话）、**处理过程**（一组工具调用与推理，
-       * 默认折叠）、**提问**（Agent 要人回答）。
-       */
-      const rows = useMemo(() => {
-        const entries = window_ !== undefined && Array.isArray(window_.entries) ? window_.entries : []
-        const out = []
-        let streaming = ''
-        let process = null
-        const flush = () => {
-          if (process !== null) { out.push(process); process = null }
+        const service = sessionsService()
+        if (service === undefined) {
+          setBound({ id: undefined, reference: null })
+          setProblem('这个宿主没有会话服务：构思会话需要 DSH 桌面版或 dsh web。')
+          return undefined
         }
-        const pushStep = step => {
-          if (process === null) {
-            process = { kind: 'process', key: 'p' + step.key, steps: [step] }
-            return
-          }
-          process.steps.push(step)
-        }
-        const findStep = callId => {
-          const pools = [process]
-          for (const row of out) if (row.kind === 'process') pools.push(row)
-          for (const pool of pools) {
-            if (pool === null || pool === undefined) continue
-            for (const step of pool.steps) if (step.callId === callId) return step
+        let held
+        try {
+          held = service.retain(activeId, { source: 'controllerOperation' })
+        } catch (bad) {
+          setBound({ id: undefined, reference: null })
+          setProblem(bad instanceof Error ? bad.message : String(bad))
+          // **一次性自愈**：只试一次，失败就如实停在这里，不循环打接口。
+          if (repairedRef.current !== true && typeof startRef.current === 'function') {
+            repairedRef.current = true
+            Promise.resolve()
+              .then(() => startRef.current())
+              .then(() => setAttempt(count => count + 1))
+              .catch(() => { /* 恢复不了就让它停在提示上 */ })
           }
           return undefined
         }
-
-        for (const entry of entries) {
-          if (entry === null || typeof entry !== 'object') continue
-          if (entry.type === 'transient') {
-            const chunk = entry.event && entry.event.data ? entry.event.data.chunk : undefined
-            if (chunk !== undefined && chunk !== null && chunk.type === 'text-delta' && typeof chunk.text === 'string') {
-              streaming += chunk.text
-            }
-            continue
-          }
-          const event = entry.event
-          if (event === undefined || event === null) continue
-
-          if (event.type === 'user/message') {
-            flush()
-            const text = stripSeed(stripInjected(textOf(event.data)))
-            if (text === '') continue
-            // **注入的上下文要折起来。**
-            //
-            // 宿主（ReMe 的长期记忆、其它插件注入的资料）会把上下文**作为一条
-            // 用户消息**塞进来。宿主自己的对话面板会把它折成「上下文」节点，
-            // 我们这扇小窗没有那套节点——于是用户看到的是一整屏记忆原文，
-            // 自己的话被埋在下面。
-            //
-            // 判据要**保守**：以 markdown 一级标题开头、且明显很长——
-            // 人写的话极少长这样。认错了也只是多一次点击展开。
-            if (isInjectedContext(text)) {
-              out.push({ kind: 'context', text, key: 'c' + event.seq })
-              continue
-            }
-            out.push({ kind: 'user', text, key: 'u' + event.seq })
-            continue
-          }
-
-          if (event.type === 'assistant/message') {
-            const message = event.data ? event.data.message : undefined
-            const text = textOf(message)
-            const thinking = reasoningOf(message)
-            if (thinking !== '') {
-              pushStep({ key: 'r' + event.seq, name: '思考', detail: thinking.slice(0, 120), status: 'done' })
-            }
-            if (text !== '') {
-              flush()
-              out.push({ kind: 'assistant', text, key: 'a' + event.seq })
-            }
-            continue
-          }
-
-          if (event.type === 'tool/call') {
-            const data = event.data || {}
-            const name = typeof data.name === 'string' ? data.name : 'tool'
-            const args = typeof data.arguments === 'string' ? data.arguments : ''
-            // **Agent 向用户提问**：单独成一张卡，不混进「处理过程」。
-            if (name === 'ask_user_question') {
-              flush()
-              const parsed = parseQuestion(args)
-              out.push({
-                kind: 'question',
-                key: 'q' + event.seq,
-                callId: data.callId,
-                question: parsed.question,
-                options: parsed.options,
-                items: parsed.items,
-              })
-              continue
-            }
-            pushStep({
-              key: 't' + event.seq,
-              callId: data.callId,
-              name,
-              detail: args.slice(0, 90),
-              status: 'run',
-              // **这一步改了哪个文件。**
-              //
-              // 「看不到产出的资产改动」是用户点名的一条痛点：agent 改完了东西，
-              // 侧栏里**一个字都没留下**——你只能去作品目录里翻 mtime。
-              // 工具调用的参数里就有路径，直接读出来。
-              path: writtenPathOf(name, args),
-            })
-            continue
-          }
-
-          if (event.type === 'tool/result') {
-            const data = event.data || {}
-            const callId = data.message && typeof data.message.toolCallId === 'string' ? data.message.toolCallId : undefined
-            const step = findStep(callId)
-            if (step !== undefined) step.status = data.error ? 'fail' : 'done'
-            continue
-          }
-
-          if (event.type === 'turn/end') {
-            flush()
-            const reason = event.data ? event.data.reason : undefined
-            if (reason !== undefined && reason !== null && reason.kind === 'error') {
-              const why = reason.error && typeof reason.error.message === 'string' ? reason.error.message : '这一轮失败了'
-              out.push({ kind: 'err', text: why, key: 'e' + event.seq })
-            }
-            continue
+        setProblem(null)
+        setBound({ id: activeId, reference: held })
+        return () => {
+          try {
+            held.release()
+          } catch {
+            // 已经释放过：忽略。
           }
         }
-        if (streaming !== '') out.push({ kind: 'assistant', text: streaming, key: 'live' })
-        flush()
-        return out
-      }, [window_, stripSeed])
+      }, [activeId, attempt])
 
-      const running = snapshot !== undefined && snapshot.running === true
-      const openState = snapshot === undefined ? undefined : snapshot.openState
+      // 只认「当前这一段」的引用：换会话时旧引用已经不可用了（见 bound 的说明）。
+      const reference = bound.id === activeId ? bound.reference : null
 
-      /**
-       * **这一轮对话改掉了哪些文件。**
-       *
-       * 「看不到产出的资产改动」是用户点名的一条痛点：agent 改完了东西，
-       * 侧栏里一个字都没留下。工具调用里有路径，这里把它们收成一张清单，
-       * 摆在消息流的最上面——**改了什么，一眼就看到**。
-       */
-      const changedPaths = useMemo(() => {
-        const seen = new Set()
-        const out = []
-        for (const row of rows) {
-          if (row.kind !== 'process') continue
-          for (const step of row.steps) {
-            if (step.path === undefined || seen.has(step.path)) continue
-            seen.add(step.path)
-            out.push(step.path)
-          }
-        }
-        return out
-      }, [rows])
+      const snapshot = useStore(reference !== null && reference.binding ? reference.binding.session : undefined)
+      const running = snapshot !== undefined && snapshot !== null && snapshot.running === true
+      const openState = snapshot !== undefined && snapshot !== null ? snapshot.openState : undefined
 
-      // 新消息进来 → 滚到底。不这么做的话，AI 说完话你还停在几句之前。
-      useEffect(() => {
-        const element = flowRef.current
-        if (element === null) return
-        element.scrollTop = element.scrollHeight
-      }, [rows])
-
-      /**
-       * 开场白（`@workspaces/<id>/` 锚 + `drama-conceive` 技能 + 防串台约束）
-       * 还没送出去，而且这段会话里**你还没说过话**——那就把它搭在**第一条
-       * 用户消息**上一起送。
-       *
-       * 为什么不是「一开侧栏就自动发」：那是替用户开了个头，看着像 AI 自己
-       * 在跟自己说话。开场白是上下文，不是发言——它该跟着你真正说的第一句走。
-       */
-      const seedPending = seeded.current === false
-        && typeof seed === 'string' && seed !== ''
-        && activeId === sessionId
-        && !rows.some(row => row.kind === 'user')
-
-      const send = useCallback(async () => {
-        const text = draft.trim()
-        if (text === '' || binding === undefined) return
-        setDraft('')
-        setError(null)
-        // 用 `<system-reminder>` 框住：模型读得到，界面不显示（stripInjected 抹掉）。
-        const payload = seedPending
-          ? '<system-reminder>\n' + seed + '\n</system-reminder>\n\n' + text
-          : text
-        seeded.current = true
-        try {
-          const result = await binding.session.prompt([{ type: 'text', text: payload }], 'queue')
-          if (result !== undefined && result !== null && result.ok === false) {
-            seeded.current = false
-            setError(result.error && result.error.message ? result.error.message : '发送失败')
-          }
-        } catch (problem) {
-          seeded.current = false
-          setError(problem instanceof Error ? problem.message : String(problem))
-        }
-      }, [draft, binding, seed, seedPending])
+      const hasSession = activeId !== undefined && activeId !== null && activeId !== ''
 
       /** 用户主动发起：真的开一段会话（此前没有会话 id）。 */
       const start = useCallback(async () => {
@@ -793,472 +303,153 @@
         }
       }, [starting, onStart])
 
-      const stop = useCallback(() => {
-        if (binding === undefined) return
-        Promise.resolve(binding.session.cancel()).catch(() => {})
-      }, [binding])
-
       /**
-       * 宿主某个**视图**的槽 id。
+       * 打开**宿主的完整对话面板**，把这段会话放进去。
        *
-       * `binding.activate()` 认的是**槽 id**（`conversation.view` 的条目 id），
-       * 而 `uiConversation.views` 那边给的是**目标名**——两者不是一回事，
-       * 写死一个字符串就是猜。所以从槽注册表里取：
-       * `ctx.slots.entriesOfSlot('conversation.view')` → `options.id`。
+       * 为什么还要留这个出口：侧栏这一格是嵌进来的**窄**视图，宿主的完整面板
+       * 才有轨迹 / 上下文 / 编队 / 统计这几个标签。同一段会话，两个入口。
        *
-       * @param {string} want 目标名的一小段（大小写无关）
-       * @returns {string|undefined}
+       * 顺序不能反：工作区切换会把会话选择重置掉，所以**会话要先选**，
+       * 工作区随后。
        */
-      const resolveViewId = useCallback((want) => {
+      const openInPanel = useCallback(() => {
+        if (!hasSession) return
+        const helper = CTX === null ? undefined : CTX.get('uiWorkspace')
+        const layout = CTX === null ? undefined : CTX.get('layout')
         try {
-          const slots = CTX ? CTX.get('slots') : undefined
-          if (slots === undefined || slots === null || typeof slots.entriesOfSlot !== 'function') return undefined
-          const entries = slots.entriesOfSlot('conversation.view')
-          for (const entry of entries) {
-            const id = entry && entry.options ? entry.options.id : undefined
-            if (typeof id === 'string' && id.toLowerCase().includes(want)) return id
+          if (typeof helper?.openSession === 'function') helper.openSession(activeId)
+          if (dshWorkspaceId !== undefined && dshWorkspaceId !== ''
+            && typeof helper?.openWorkspace === 'function') {
+            helper.openWorkspace(dshWorkspaceId, () => {})
           }
+          if (typeof layout?.selectPanel === 'function') layout.selectPanel('conversation')
         } catch {
-          // 取不到就用默认视图。
+          // 打不开就算了：这扇窗里照常能聊。
         }
-        return undefined
-      }, [])
+      }, [activeId, dshWorkspaceId, hasSession])
 
-      /**
-       * 打开宿主的**对话面板**，把**这段会话**放进去。
-       *
-       * 这就是「把 DSH 原生的聊天主界面轻量嵌入」在这套架构里**能做到的形态**：
-       * 宿主没有公开的槽渲染 API（`ctx.slots` 只有 register / registerFactory /
-       * inject），所以插件**搬不动**它那些渲染器；但宿主的**会话装配**
-       * （`ctx.uiConversation`）是可达的——插件把「这段会话」交给宿主，
-       * 让宿主用**它自己的**界面渲染：工具卡片、推理、审批、提问卡、轨迹、
-       * 上下文、编队、统计，全在宿主那边。
-       *
-       * 所以这扇小窗**不复刻**宿主，只做宿主做不好的事（贴着作品、看得见
-       * 改动了哪些文件），其余「请过去」。
-       */
-      const openInPanel = useCallback((view) => {
-        const activate = () => {
-          if (view === undefined || activeId === undefined) return
-          try {
-            const uc = CTX ? CTX.get('uiConversation') : undefined
-            const binding = uc !== undefined && uc !== null && typeof uc.binding === 'function'
-              ? uc.binding(activeId)
-              : undefined
-            if (binding !== undefined && binding !== null && typeof binding.activate === 'function') {
-              // **视图 id 从槽注册表取**，不写死。
-              //
-              // `activate()` 认的是 `conversation.view` 的**条目 id**，
-              // 而 `uiConversation.views` 给的是**目标名**——两者不是一回事。
-              // `ctx.slots.entriesOfSlot('conversation.view')` → `options.id` 才是对的。
-              const viewId = resolveViewId(view)
-              binding.activate(viewId === undefined ? view : viewId)
-            }
-          } catch {
-            // 切不过去就算了：面板照常能打开，只是停在默认视图。
-          }
-        }
-        const helper = CTX ? CTX.get('uiWorkspace') : undefined
-        const layout = CTX ? CTX.get('layout') : undefined
-        try {
-          // **先开会话，再选工作区。**
-          //
-          // `openWorkspace(id, beforeOpen)` 的第二个参数是**宿主的钩子**
-          // （它拿 `nextId` 去做草稿搬迁），不是「替我打开某个会话」。
-          // 真正把会话放进面板的是 `openSession`。
-          //
-          // 顺序也不能反：工作区切换会把会话选择重置掉，所以**会话要先选**，
-          // 工作区随后（工作区里就这一个会话时，宿主的默认也是它）。
-          const workspaceId = dshWorkspaceId
-          if (workspaceId !== undefined && workspaceId !== ''
-            && helper !== undefined && helper !== null && typeof helper.openWorkspace === 'function') {
-            if (typeof helper.openSession === 'function') helper.openSession(activeId)
-            helper.openWorkspace(workspaceId, () => {})
-          } else if (helper !== undefined && helper !== null && typeof helper.openSession === 'function') {
-            helper.openSession(activeId)
-          }
-          if (layout !== undefined && layout !== null && typeof layout.selectPanel === 'function') layout.selectPanel('conversation')
-        } catch {
-          // 打不开就算了：面板里这段对话照常能聊。
-        }
-        // 视图切换要**等会话先打开**：宿主是打开会话时才把面板的绑定建起来的，
-        // 在那之前切视图没有对象可切。
-        if (view !== undefined) setTimeout(activate, 400)
-      }, [activeId, dshWorkspaceId, resolveViewId])
-
-      /** 改宿主默认模型（模型 + 推理强度）。 */
-      const changeModel = useCallback(async (provider, model, effort) => {
-        try {
-          await apiPost('update-settings', {
-            hostProvider: provider,
-            hostModel: model,
-            hostReasoningEffort: effort,
-          })
-          say('已改宿主默认模型：新开的会话会用它', 'ok')
-        } catch (problem) {
-          say(problem instanceof Error ? problem.message : String(problem), 'err')
-        }
-      }, [])
-
-      const hasSession = activeId !== undefined
-      const hostModel = settings ? settings.hostModel : undefined
-      const providers = settings ? settings.providers : undefined
-
-      /**
-       * 打开一个被改过的文件 → 落到它**能被看见**的那个阶段。
-       *
-       * 这就是「页面联动」在聊天窗里的样子：agent 改完 `creative/brief.md`，
-       * 你在消息流里点一下「改 creative/brief.md」，**直接落到创意阶段的简报**——
-       * 而不是自己再去找一遍那个文件在哪个视图里。
-       */
-      const onOpenPath = useCallback(path => {
-        if (typeof onGoto !== 'function') return
-        const p = String(path ?? '').replace(/\\/g, '/')
-        const stage = p.includes('creative/') || p.includes('brief.md') ? 'conceive'
-          : p.includes('characters') ? 'characters'
-            : p.includes('scenes') ? 'script'
-              : p.includes('shots') ? 'storyboard'
-                : p.includes('refs/') ? 'characters'
-                  : 'generate'
-        onGoto(stage)
-      }, [onGoto])
-
+      // 头部**两行**：第一行是「这是什么窗 + 收 / 全屏」，第二行是「哪一段对话 + 动作」。
+      //
+      // 一行塞不下：460px 里塞进标题 + 会话下拉 + 两个按钮，
+      // 中文标题会被压成一列（`docs/dev/rendering.md` 第 5 条）。
+      // 两行反而更清楚：上一行说身份，下一行说操作。
       const head = h('div', { className: 'dd-chat-head' },
-        h(Icon, { name: 'note', size: 14 }),
-        h('div', { className: 'dd-chat-title' },
-          h('div', { className: 'ch-t' }, '构思会话'),
-          h('div', { className: 'ch-sub' },
-            !hasSession ? '还没开始——点下面「开始对话」'
+        h('div', { className: 'dd-chat-titleline' },
+          h(Icon, { name: 'note', size: 14 }),
+          h('span', { className: 'ch-t' }, '构思会话'),
+          h('span', { className: 'ch-sub' },
+            !hasSession ? '还没开始'
               : openState === 'open' ? (running ? '正在想…' : '等你说话')
                 : openState === 'loading' ? '正在打开…'
                   : openState === 'error' ? '打不开这段会话'
                     : '准备中…'),
-        ),
-        h('span', { className: 'dd-spacer' }),
-        hostModel
-          ? h(ChatModelMenu, {
-            hostModel,
-            providers,
-            onChange: changeModel,
-          })
-          : null,
-        h(ChatSessionMenu, {
-          sessions: sessionList,
-          current: activeId,
-          onPick: id => setViewSession(id),
-        }),
-        h('button', {
-          className: 'dd-btn sm', onClick: onFresh, disabled: !hasSession || busy,
-          title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）',
-        }, '新对话'),
-        h('button', {
-          className: 'dd-btn sm', onClick: () => openInPanel(), disabled: !hasSession,
-          title: '打开宿主的对话面板（这段会话已就位）；顶部标签里有轨迹 / 上下文 / 编队 / 统计',
-        }, '宿主面板'),
-        panelControls,
-        h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起这扇窗（顶栏的图标能再展开）' }, h(Icon, { name: 'close', size: 13 })),
-      )
-
-      const flow = h('div', { className: 'dd-chat-flow', ref: flowRef },
-        // 本轮改动：摆在最上面，**改了什么一眼就看到**。
-        changedPaths.length > 0
-          ? h('div', { className: 'dd-changed' },
-            h('div', { className: 'dd-changed-head' },
-              h(Icon, { name: 'edit', size: 12 }),
-              h('span', null, '这一轮改掉了'),
-              h('span', { className: 'ct num' }, String(changedPaths.length)),
-              h('span', { className: 'dd-spacer' }),
-              h('span', { className: 'dd-note' }, '点一下去看')),
-            h('div', { className: 'dd-changed-list' },
-              changedPaths.map(path => h('button', {
-                key: path,
-                className: 'dd-changed-item',
-                type: 'button',
-                title: path,
-                onClick: () => onOpenPath(path),
-              }, path))),
-          )
-          : null,
-        rows.length === 0
-          ? h('div', { className: 'dd-chat-empty' },
-            h('div', null, '这里接的是真的 DSH 会话：'),
-            h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
-            hasSession
-              ? h('div', { style: { marginTop: '8px', color: 'var(--ink4)' } }, '它会把创意写进 creative/brief.md，你改一句它就改一句。')
-              : h('div', { style: { marginTop: '14px' } },
-                h('button', {
-                  className: 'dd-btn primary', onClick: start,
-                  disabled: starting || busy || !canStart,
-                  title: canStart ? '开一段真的构思会话' : '先选一个作品（构思会话是挂在作品上的）',
-                }, starting ? '正在开…' : '开始对话'),
-                h('div', { style: { marginTop: '10px', color: 'var(--ink4)' } },
-                  canStart
-                    ? '会话由你发起：开好之后你说的话，它会写进 creative/brief.md。'
-                    : '先选一个作品（或新建一个），构思会话是挂在作品上的。')))
-          : rows.map(row => {
-            if (row.kind === 'process') return h(ChatProcess, { key: row.key, steps: row.steps })
-            if (row.kind === 'question') {
-              return h(ChatQuestion, {
-                key: row.key,
-                question: row.question,
-                options: row.options,
-                items: row.items,
-                callId: row.callId,
-                sessionId: activeId,
-                onOpenHost: openInPanel,
-              })
-            }
-            return h(MsgRow, { key: row.key, kind: row.kind, text: row.text })
-          }),
-        error !== null
-          ? h('div', { className: 'dd-msg err' }, h('div', { className: 'body' }, error))
-          : null,
-      )
-
-      const composer = h('div', { className: 'dd-chat-composer' },
-        h('textarea', {
-          value: draft,
-          placeholder: hasSession
-            ? '跟它说你想拍什么…（Enter 发送，Shift+Enter 换行）'
-            : '先点「开始对话」开一段会话，然后就能跟它说了…',
-          disabled: busy || binding === undefined,
-          onChange: event => setDraft(event.target.value),
-          onKeyDown: event => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              send()
-            }
-          },
-        }),
-        h('div', { className: 'row' },
-          running
-            ? h('button', { className: 'dd-btn sm danger', onClick: stop }, '停止')
-            : h('button', { className: 'dd-btn sm primary', onClick: send, disabled: draft.trim() === '' || binding === undefined }, '发送'),
           h('span', { className: 'dd-spacer' }),
-          h('span', { className: 'hint' }, activeId === undefined ? '' : activeId.slice(0, 8)),
+          panelControls,
+          h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起这扇窗（顶栏的图标能再展开）' }, h(Icon, { name: 'close', size: 13 })),
+        ),
+        h('div', { className: 'dd-chat-bar' },
+          h(ConceiveSessionMenu, { sessions: list, current: activeId, onPick: setActiveId }),
+          h('button', {
+            className: 'dd-btn sm', onClick: onFresh, disabled: !hasSession || busy,
+            title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）',
+          }, '新对话'),
+          h('button', {
+            className: 'dd-btn sm', onClick: openInPanel, disabled: !hasSession,
+            title: '在宿主的完整对话面板里打开这段会话（那边有轨迹 / 上下文 / 编队 / 统计）',
+          }, '完整对话'),
         ),
       )
 
-      return h('div', { className: 'dd-chat' }, head, flow, composer)
+      /**
+       * 空态：还没有会话，或者宿主不给标准道具。
+       *
+       * 「宿主的原生对话嵌不进来」这件事要**说清楚**，不能给一个空白框让人猜。
+       */
+      const emptyState = h('div', { className: 'dd-chat-empty' },
+        h('div', null, '这里接的是真的 DSH 会话：'),
+        h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
+        h('div', { style: { marginTop: '14px' } },
+          h('button', {
+            className: 'dd-btn primary', onClick: start,
+            disabled: starting || busy || !canStart,
+            title: canStart ? '开一段真的构思会话' : '先选一个作品（构思会话是挂在作品上的）',
+          }, starting ? '正在开…' : '开始对话'),
+          h('div', { style: { marginTop: '10px', color: 'var(--ink4)' } },
+            canStart
+              ? '开好之后，聊天界面是宿主自己的那一套。'
+              : '先选一个作品（或新建一个），构思会话是挂在作品上的。')),
+      )
+
+      // 页面本体：绑上了会话就交给宿主渲染，否则说清楚缺什么。
+      const body = !hasSession || reference === null
+        ? (problem !== null
+          ? h('div', { className: 'dd-chat-note', title: problem },
+            h('div', null, '这段会话还没在宿主那边打开——插件重装、或 DSH 重启后会这样。'),
+            h('div', { style: { marginTop: '10px', color: 'var(--ink4)', fontSize: '11px' } },
+              '点「开始对话」让它重新打开；如果它已经不在了，点「新对话」。'))
+          : (hasSession && openState === 'error'
+            ? h('div', { className: 'dd-chat-note' }, '这段会话打不开：它在宿主那边可能已被删除或归档。')
+            : (hasSession ? h('div', { className: 'dd-chat-note' }, '正在打开这段会话…') : emptyState)))
+        : (typeof SessionProvider !== 'function' || typeof renderSlot !== 'function'
+          ? h('div', { className: 'dd-chat-note' },
+            '这个宿主没有把会话槽交给插件（SessionProvider / renderSlot 缺失）：'
+            + '原生对话嵌不进来。需要更新的 DSH 桌面版，或改用「完整对话」。')
+          : h('div', { className: 'dd-chat-host' },
+            h(SessionProvider, { session: reference },
+              renderSlot('drama-desk.conversation', {}))))
+
+      // 宿主没接住项目上下文时的**如实提示**（只有刚开的那一段会回报这件事）。
+      // 不说清楚的话，agent 会一本正经地在**整个总根**里乱翻别人的项目。
+      const seedWarning = seeded === false
+        ? h('div', { className: 'dd-chat-warn' },
+          '这段会话没带上「只谈哪个项目」的上下文（宿主不支持 prompt context）：',
+          '在消息里点明 `workspaces/<作品>/` 更保险。')
+        : null
+
+      return h('div', { className: 'dd-chat' }, head, seedWarning, body)
     }
 
-    /**
-     * 这个工具调用**写了哪个文件**。
-     *
-     * 宿主那几个写文件的工具（`write` / `edit` / `multi_edit` / `create_directory`…）
-     * 都把路径放在参数里，键名不统一（`path` / `file_path` / `path`…），
-     * 所以这里**认工具 + 扫参数**两条路都走。
-     *
-     * 认不出来就返回 `undefined`——**不猜**：编一个路径出来比没有更糟。
-     *
-     * @param {string} name 工具名
-     * @param {string} args 参数（JSON 字符串）
-     * @returns {string|undefined}
-     */
-    function writtenPathOf(name, args) {
-      const writers = ['write', 'edit', 'multi_edit', 'create_directory', 'apply_patch', 'write_file']
-      if (!writers.includes(name)) return undefined
-      let parsed
-      try {
-        parsed = JSON.parse(String(args ?? ''))
-      } catch {
-        return undefined
-      }
-      if (parsed === null || typeof parsed !== 'object') return undefined
-      for (const key of ['path', 'file_path', 'filePath', 'target', 'absolute_path']) {
-        const value = parsed[key]
-        if (typeof value === 'string' && value !== '') return value
-      }
-      return undefined
-    }
+    // ── 会话窗的样式 ──────────────────────────────────────────────────────
+    // 消息、工具卡、提问卡、composer 的样式**都在宿主那边**——这里只有
+    // 「装它的那个盒子」和三样我们自己的东西（头部、原生下拉、说明块）。
 
-    /**
-     * 解析 `ask_user_question` 的参数。
-     *
-     * 参数是**工具自己约定的形状**，所以这里**容错**：认不出来就给一句原文，
-     * 绝不假装解析成功。
-     *
-     * 回传答案要用到**每个问题的 id**（`answers: [{ id, selected }]`），
-     * 所以这里把 id 一起解析出来。
-     *
-     * @param {string} args
-     * @returns {{question: string, options: Array<{label: string, description?: string}>, items: Array<{id: string, question: string, options: Array<{label: string}>}>}}
-     */
-    function parseQuestion(args) {
-      const fallback = { question: String(args ?? '').slice(0, 400), options: [], items: [] }
-      let parsed
-      try {
-        parsed = JSON.parse(String(args ?? ''))
-      } catch {
-        return fallback
-      }
-      if (parsed === null || typeof parsed !== 'object') return fallback
-      const questions = Array.isArray(parsed.questions) ? parsed.questions : []
-      if (questions.length === 0) return fallback
-
-      const items = []
-      for (const entry of questions) {
-        if (entry === null || typeof entry !== 'object') continue
-        const options = Array.isArray(entry.options)
-          ? entry.options
-            .filter(option => option !== null && typeof option === 'object' && typeof option.label === 'string')
-            .map(option => ({ label: option.label, description: typeof option.description === 'string' ? option.description : undefined }))
-          : []
-        const parts = [
-          typeof entry.header === 'string' ? entry.header : '',
-          typeof entry.question === 'string' ? entry.question : '',
-          typeof entry.detail === 'string' ? entry.detail : '',
-        ].filter(part => part !== '')
-        items.push({
-          id: typeof entry.id === 'string' ? entry.id : '',
-          question: parts.join(' · '),
-          options,
-        })
-      }
-      if (items.length === 0) return fallback
-      const first = items[0]
-      return { question: first.question === '' ? fallback.question : first.question, options: first.options, items }
-    }
-
-    // ── 构思会话窗的样式 ──────────────────────────────────────────────────
     CSS_PARTS.push(`
-/* ── 构思会话窗 ───────────────────────────────────────────────────────── */
-/* 头部挤不下时**换行**，绝不把中文标题压成一列（docs/dev/rendering.md R5）。 */
-.dd-chat-head{display:flex;align-items:center;gap:9px;padding:11px 14px;box-shadow:0 1px 0 var(--line);flex:none;flex-wrap:wrap}
-.dd-chat-title{flex:1 1 132px;min-width:132px}
-.dd-chat-title .ch-t{font-size:12.5px;font-weight:600}
-.dd-chat-title .ch-sub{font-size:10.5px;color:var(--ink3);font-family:var(--f-mono)}
-/* 处理过程：默认折叠，但**必须看得见**（「AI 一句话没说就停了」最让人困惑）。 */
-.dd-process{
-  border-radius:var(--rx-2);background:var(--panel-2);overflow:hidden;
-  box-shadow:inset 0 0 0 .5px var(--line);
+/* 装宿主对话的盒子：它是一条**列向** flex 链的最后一环，必须能把高度
+   交给子项（宿主自己内部才是那个滚动容器）——所以 min-height:0 不能少。 */
+.dd-chat{width:100%;flex:1 1 auto;min-height:0;box-shadow:-1px 0 0 var(--line);
+  background:linear-gradient(180deg,var(--panel),var(--bg));
+  display:flex;flex-direction:column;overflow:hidden}
+.dd-chat-host{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.dd-chat-host>*{flex:1 1 auto;min-height:0;min-width:0}
+/* 头部：**两行**。第一行身份 + 收起 / 全屏，第二行会话选择 + 动作。
+   一行塞不下 460px —— 中文标题会被压成一列（rendering.md 第 5 条）。 */
+.dd-chat-head{flex:none;display:flex;flex-direction:column;gap:8px;
+  padding:10px 12px;box-shadow:0 1px 0 var(--line)}
+.dd-chat-titleline{display:flex;align-items:center;gap:7px;min-width:0}
+.dd-chat-head .ch-t{font-size:12.5px;font-weight:600;white-space:nowrap}
+.dd-chat-head .ch-sub{font-size:10.5px;color:var(--ink3);font-family:var(--f-mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.dd-chat-bar{display:flex;align-items:center;gap:6px;min-width:0}
+.dd-chat-bar .dd-btn{flex:0 0 auto}
+/* 会话切换：原生 <select>，压到与头部其它控件同一重量；宽度吃掉剩余空间。 */
+.dd-chat-session{
+  flex:1 1 auto;min-width:0;height:24px;padding:0 6px;border-radius:var(--rx-1);
+  background:var(--sunken);color:var(--ink2);border:none;box-shadow:inset 0 0 0 .5px var(--line-2);
+  font-family:inherit;font-size:11px;outline:none;text-overflow:ellipsis;
 }
-.dd-process-head{
-  display:flex;align-items:center;gap:7px;width:100%;padding:6px 10px;
-  font-size:11.5px;color:var(--ink3);text-align:left;
+.dd-chat-session:focus-visible{box-shadow:inset 0 0 0 .5px var(--line-2),0 0 0 1.5px var(--hot)}
+.dd-chat-session:disabled{opacity:.55}
+/* 说明块：空态 / 打不开 / 宿主不给槽——都不画假界面。 */
+.dd-chat-note{
+  margin:auto;max-width:320px;padding:22px 16px;text-align:center;
+  font-size:12.5px;line-height:1.8;color:var(--ink3);
 }
-.dd-process-head:hover{color:var(--ink)}
-.dd-process-head .dd-icon-btn,.dd-process-head svg{transition:transform var(--t-fast) var(--ease)}
-.dd-process.open .dd-process-head>svg:first-child{transform:rotate(90deg)}
-.dd-process-count{margin-left:auto;font-size:10px;color:var(--ink4)}
-.dd-process-body{display:flex;flex-direction:column;gap:3px;padding:2px 10px 8px}
-.dd-process-body>*{flex:0 0 auto}
-.dd-process-step{display:flex;align-items:baseline;gap:7px;font-size:11px;color:var(--ink3)}
-.dd-process-step .dot{width:5px;height:5px;border-radius:50%;flex:none;background:var(--ink4)}
-.dd-process-step .dot.done{background:var(--sig-pass)}
-.dd-process-step .dot.run{background:var(--hot)}
-.dd-process-step .dot.fail{background:var(--sig-fail)}
-.dd-process-step .nm{font-family:var(--f-mono);font-size:10.5px;color:var(--ink2)}
-.dd-process-step .dt{
-  font-family:var(--f-mono);font-size:10px;color:var(--ink4);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+/* 如实提示条（例如：项目上下文没交给宿主）。不用红色：它不是错误，是缺一件保险。 */
+.dd-chat-warn{
+  flex:none;padding:7px 12px;font-size:11px;line-height:1.7;color:var(--ink2);
+  background:color-mix(in srgb,var(--sig-warn) 12%,transparent);
+  box-shadow:inset 0 -1px 0 var(--line);
 }
-
-/* 弹出层（模型 / 会话）：贴在触发器下面。 */
-.dd-pop-wrap{position:relative;flex:none}
-.dd-pop{
-  position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:min(300px,78vw);
-  display:flex;flex-direction:column;gap:4px;padding:9px 10px;
-  border-radius:var(--rx-2);background:var(--raised);box-shadow:var(--e-4);
-  max-height:min(420px,60vh);overflow:auto;
-}
-.dd-pop>*{flex:0 0 auto}
-.dd-pop-title{
-  font-family:var(--f-gauge);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
-  color:var(--ink3);padding:4px 2px 1px;
-}
-.dd-pop-lab{font-size:11px;color:var(--ink3);padding:3px 2px}
-.dd-pop-item{
-  display:flex;align-items:baseline;gap:8px;width:100%;padding:5px 8px;border-radius:var(--rx-1);
-  font-size:12px;color:var(--ink2);text-align:left;
-}
-.dd-pop-item:hover{background:var(--sunken);color:var(--ink)}
-.dd-pop-item.on{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
-.dd-pop-item .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-pop-item .dt{font-family:var(--f-mono);font-size:10px;color:var(--ink4);flex:none}
-.dd-pop-row{display:flex;gap:6px;align-items:center}
-.dd-pop-row input{
-  flex:1 1 auto;min-width:0;height:26px;padding:0 9px;border-radius:var(--rx-1);
-  background:var(--sunken);box-shadow:var(--e-well);border:none;outline:none;
-  font-family:var(--f-mono);font-size:11.5px;color:var(--ink);
-}
-/* 推理档位：按**当前模型自己的目录**列出来，不写死。 */
-.dd-pop-efforts{display:flex;flex-direction:column;gap:2px}
-.dd-pop-effort{
-  display:flex;align-items:baseline;gap:8px;width:100%;padding:5px 8px;border-radius:var(--rx-1);
-  text-align:left;font-size:12px;color:var(--ink2);
-}
-.dd-pop-effort:hover{background:var(--sunken);color:var(--ink)}
-.dd-pop-effort.on{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
-.dd-pop-effort .nm{flex:1 1 auto;min-width:0}
-.dd-pop-effort .id{font-size:10px;color:var(--ink4);flex:none}
-.dd-pop-foot{display:flex;gap:7px;align-items:center;margin-top:6px;padding-top:6px;box-shadow:0 -1px 0 var(--line)}
-.dd-chat-model{gap:6px;max-width:150px;min-width:0}
-.dd-chat-model>span:not(.lv){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-chat-model .lv{font-family:var(--f-mono);font-size:10px;color:var(--ink4);flex:none}
-
-/* 注入的上下文：默认只露一个标题，像宿主对话面板的「上下文」节点。 */
-.dd-msg.context{background:transparent;box-shadow:none;padding:0}
-.dd-msg.context .who{color:var(--ink4)}
-.dd-ctx-head{
-  display:flex;align-items:center;gap:7px;width:100%;padding:5px 9px;
-  border-radius:var(--rx-1);font-size:11px;color:var(--ink3);text-align:left;
-  box-shadow:inset 0 0 0 .5px var(--line);background:var(--panel-2);
-}
-.dd-ctx-head:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
-.dd-ctx-head .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dd-msg.context .body{
-  margin-top:5px;box-shadow:inset 0 0 0 .5px var(--line);background:var(--panel-2);
-  font-size:11.5px;color:var(--ink3);max-height:280px;overflow:auto;
-}
-/* Agent 向用户提问。 */
-.dd-question{
-  border-radius:var(--rx-2);padding:10px 12px;display:flex;flex-direction:column;gap:8px;
-  background:color-mix(in srgb,var(--hot) 8%,var(--raised));
-  box-shadow:inset 0 0 0 .5px var(--hot-line);
-}
-.dd-question>*{flex:0 0 auto}
-.dd-question-head{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--hot);font-weight:600}
-.dd-question-text{font-size:12.5px;line-height:1.7;color:var(--ink)}
-.dd-question-item{display:flex;flex-direction:column;gap:6px}
-.dd-question-q{font-size:12.5px;line-height:1.7;color:var(--ink)}
-.dd-question-opts{display:flex;flex-direction:column;gap:5px}
-.dd-question-opt{
-  display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;
-  padding:6px 9px;border-radius:var(--rx-1);
-  box-shadow:inset 0 0 0 .5px var(--line);font-size:12px;color:var(--ink2);
-}
-.dd-question-opt:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
-.dd-question-opt.on{color:var(--ink);box-shadow:inset 0 0 0 1px var(--hot-line);background:color-mix(in srgb,var(--hot) 10%,transparent)}
-.dd-question-opt .nm{font-weight:600}
-.dd-question-opt .dt{font-size:11px;color:var(--ink3)}
-.dd-question-foot{display:flex;gap:7px;align-items:center}
-.dd-question-answer{display:flex;align-items:baseline;gap:6px;min-width:0}
-.dd-question-answer-text{
-  font-size:12px;color:var(--ink);min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
-.dd-question-hint{font-size:10.5px;line-height:1.6}
-
-/* **本轮改动**：agent 改了什么，摆在消息流的最上面。 */
-.dd-changed{
-  display:flex;flex-direction:column;gap:6px;padding:9px 11px;border-radius:var(--rx-2);
-  background:color-mix(in srgb,var(--sig-pass) 7%,var(--raised));
-  box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-pass) 30%,transparent);
-}
-.dd-changed>*{flex:0 0 auto}
-.dd-changed-head{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink2)}
-.dd-changed-head .ct{font-family:var(--f-mono);font-size:10.5px;color:var(--sig-pass)}
-.dd-changed-list{display:flex;flex-direction:column;gap:3px}
-.dd-changed-item{
-  display:block;width:100%;text-align:left;padding:3px 7px;border-radius:var(--rx-1);
-  font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
-.dd-changed-item:hover{color:var(--hot);background:var(--sunken)}
-/* 处理过程里那一行的「改了哪个文件」。 */
-.dd-process-step .dp{
-  font-family:var(--f-mono);font-size:10px;color:var(--sig-pass);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
-}
+/* 空态：还没有会话时的引导。 */
+.dd-chat-empty{margin:auto;text-align:center;color:var(--ink3);font-size:12.5px;line-height:1.85;padding:20px 14px;max-width:300px}
 `)

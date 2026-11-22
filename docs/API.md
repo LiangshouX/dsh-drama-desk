@@ -653,17 +653,24 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
   "data": {
     "sessionId": "b70fd3e4-…",      // 还没有会话时缺省
     "live": true,                   // Host 上有活的 agent 才接得住消息
-    "cwd": "D:/Default/Videos/drama-desk-demo",
-    "workspacePath": "D:/Default/Videos/drama-desk-demo",
-    "seed": "用 `drama-conceive` 技能开始…"   // 开场白，客户端随用户的第一条消息送出
+    "cwd": "D:/Default/Videos/DSH-DRAMA-DESK",
+    "workspacePath": "D:/Default/Videos/DSH-DRAMA-DESK",
+    "dshWorkspace": { "id": "39be1fd2-…", "path": "D:/Default/Videos/DSH-DRAMA-DESK" }
   }
 }
 ```
 
 ### 建：`POST /conceive-session` `{ "workspaceId": "…", "fresh"?: true }`
 
-同上形状，外加 `created: true|false`。**幂等**：已有会话就恢复它（`agents.resume`），
-活的就直接返回。
+同上形状，外加：
+
+| 字段 | 含义 |
+|---|---|
+| `created` | `true` 这一段是刚开的，`false` 是恢复/复用 |
+| `attached` | **会话已挂进工作区的会话账本**（`sessionIds`）。`false` = 分组没成功，但会话照样能聊 |
+| `seeded` | **项目范围已作为 prompt context 交给宿主**（`agent.ctx.systemPrompt`）。`false` = 宿主不支持这条通道，agent 不知道这次只谈哪个项目——界面要如实提示 |
+
+**幂等**：已有会话就恢复它（`agents.resume`），活的就直接返回。
 
 `fresh: true` = 开一段新对话：收掉当前 agent、清掉 `desk_session_id`、重开。
 **旧会话不删**（它还留在 DSH 的会话列表里）。
@@ -681,48 +688,64 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 }
 ```
 
-- 只列 **cwd 落在短剧项目总根之内**的会话（`AGENTS.md` §7 /
-  `docs/dev/dsh-integration.md` D5：一个短剧项目 = 一个 DSH 工作区）。别的项目的会话不混进来。
+- **先按工作区的会话账本取**（`workspace.sessionIds`）——DSH 侧栏就是这么分组
+  「DSH-DRAMA-DESK」这一组的，我们照同一个口径，才不会出现「侧栏里有、选不到」。
+  拿不到账本（旧宿主 / 注册表没起来）才退回 **cwd 前缀匹配**。
 - 客户端**拿不到**完整会话目录（`ctx.sessions` 的客户端门面没有 `list`），
   所以这一条由 Host 半边出：`ctx.get('sessions').list()`。
 - 用途：构思会话窗的「选择对话」——对话固定发生在这个工作区里，
   于是「换一个对话」就是在**这一个工作区**里换。
 - 按 `createdAt` 倒序。宿主没有 `sessions` 服务时返回空数组（不是报错）。
 
-### 开场白（`seed`）的第一行是锚
+### 项目范围：走 prompt context，不塞用户消息
 
 ```
-@workspaces/<work-id>/
+# 这次对话的范围
 
-用 `drama-conceive` 技能继续「…」的构思（目录 `workspaces/<work-id>/`）。
-…
-⚠️ 这个工作区里还有别的短剧项目：只读写 `workspaces/<work-id>/` 下的文件…
+只谈一个短剧项目：`workspaces/<work-id>/`（作品名「…」）。
+
+用 `drama-conceive` 技能继续「…」的构思。
+先问我三到五个真正影响故事的问题；聊清楚之后把创意写进 `workspaces/<work-id>/creative/brief.md`，再告诉我你写了什么。
+
+⚠️ 这个工作区里还有别的短剧项目：只读写 `workspaces/<work-id>/` 下的文件，不要碰别的目录……
 ```
 
-一个总根 = 一个 DSH 工作区，所有项目共用它，所以每段对话都要先用 `@路径`
-把「这次只谈哪个项目」钉死——否则会串台。
+一个总根 = 一个 DSH 工作区，所有项目共用它，所以每段对话都得先钉死「这次只谈哪个项目」
+——否则会串台。
 
-### 开场白什么时候到
+**这段文字是给模型的，不是给导演的**，所以它走宿主的 prompt registry：
 
-开场白的内容由 Host 单点生成（`src/host/conceive.js` 的 `seedMessage()`），
-客户端**不自造第二份**。它是**上下文**、不是发言：
+| 顺序 | 通道 | 表现 |
+|---|---|---|
+| ① | `agent.ctx.systemPrompt.context({ name:'drama-desk/project', order:40, text, required:true })` | 进模型历史：宿主把**本次所有** context 合成一条 user-role 消息（`<system-reminder>` 开头），对话流里**不显示正文** |
+| ② | `agent.ctx.systemPrompt.section({ … })` | 进 system prompt：看不见，但模型一定读得到 |
 
-- 客户端进入阶段**不发送**任何东西——侧栏常驻，会话由用户点「开始对话」发起；
-- 用户主动发出的**第一条**消息会带上这段开场白：用 `<system-reminder>` 框住，
-  一起送出。模型读得到，界面上不显示（客户端在渲染前抹掉这个框）；
-- 已经说过话的会话不再重复带（避免每条消息都拖一段前缀）。
+注册在**这个 agent 自己的作用域**上，所以只有这一段会话带着它；作用域一收，
+上下文跟着走（disposer 交给 `ctx.effect`）。
+
+> **实测（2026-11-22，DSH 重启后）**：新建会话回报 `seeded:true`；问它
+> 「这次对话只谈哪个项目的目录」，它答 `workspaces/demo-epic/` —— 说明上下文真的
+> 到了模型。会话日志里它在 `seq 12` 的 `user/message` 中，和宿主的
+> `reme-memory` / `runtime-context` **合并在同一条**里。
+>
+> 对话流里**看不到正文**（宿主只给自家 producer 列名——`上下文注入 reme-memory`、
+> `上下文注入 runtime-context`，我们这条不列名）。**这正是想要的效果**：
+> 模型读得到，导演看不见。
+>
+> 早期版本把它用 `<system-reminder>` 包着搭在用户第一条消息上、再由客户端抹掉，
+> 结果是对话流里露出一整坨 instruction——那条路径**已废弃**（`seed` 字段也随之下线）。
 
 ### 硬规则
 
-1. **会话必须挂在 DSH 工作区下。** 只给 `meta.cwd` 而工作区不存在时，
-   这段对话在侧栏里找不到、在工作区的会话列表里也没有——
-   用户只能从工作台的小窗看它。所以开会话之前先
-   `workspaceRegistry.resolveByPath(projectRoot)`，没有就 `create()`。
-2. **cwd = 短剧项目根**（不是作品目录），会话的 path 参数因此写成
-   `workspaces/<work-id>/creative/brief.md`。一个短剧项目 = 一个 DSH 工作区。
+1. **会话必须挂进工作区的会话账本。** 工作区有两个面：`path`（cwd 落在其下）与
+   `sessionIds`（账本）。只做前者，会话会掉进侧栏的**「未分组」**——这正是用户报过的
+   那个问题。所以 `resolveByPath()` 拿到 Workspace 实体后，**新开与恢复都要
+   `workspace.attachSession(sessionId)`**；失败不许影响「这段会话能聊」。
+2. **cwd = 短剧项目总根**（不是作品目录），会话的 path 参数因此写成
+   `workspaces/<work-id>/creative/brief.md`。一个工作台 = 一个 DSH 工作区。
 3. **模型必须显式带上**：`agents.create()` 不接受「没有模型」，会直接拒
    `AgentOptions.provider and AgentOptions.model or record a model selection`。
-   取 `agentDefaultModel.currentSelection()`。
+   取 `agentDefaultModel.currentSelection()`。开起来之后换模型 / 强度交给宿主的 composer。
 4. **会话 id 记在作品的 `state.json`** 的 `desk_session_id` 上——关掉 DSH、
    换天回来还是同一段对话。
 5. **技能由插件自己提供**：`ctx.skills.registerProvider()` 把
@@ -731,6 +754,8 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
    注册落在全局层，但 provider 用 `options.cwd` 过闸门：
    **只有 cwd 落在短剧项目总根之内的会话**能看到这些技能，
    其他工作区返回空目录。
+6. **聊天界面用宿主的**：`renderFactorySlot('conversation.content', { variant:'embedded' })`。
+   细节见 `docs/dev/dsh-integration.md` D1。
 
 ---
 

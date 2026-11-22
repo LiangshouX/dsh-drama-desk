@@ -1078,40 +1078,9 @@ select.dd-input{
 }
 .dd-work-card.new:hover{color:var(--hot);box-shadow:inset 0 0 0 1px var(--hot-line)}
 
-/* ── conceive chat ───────────────────────────────────────────────────── */
-.dd-chat{
-  width:clamp(340px,32%,460px);flex:0 0 auto;box-shadow:-1px 0 0 var(--line);
-  background:linear-gradient(180deg,var(--panel),var(--bg));
-  display:flex;flex-direction:column;min-height:0;
-}
-.dd-chat-head{display:flex;align-items:center;gap:9px;padding:11px 14px;box-shadow:0 1px 0 var(--line);flex:none}
-.dd-chat-head .ch-t{font-size:12.5px;font-weight:600}
-.dd-chat-head .ch-sub{font-size:10.5px;color:var(--ink3);font-family:var(--f-mono)}
-.dd-chat-flow{flex:1 1 auto;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;min-height:0}
-.dd-chat-flow>*{flex:0 0 auto}
-.dd-msg{display:flex;flex-direction:column;gap:5px;max-width:100%}
-.dd-msg .who{font-family:var(--f-gauge);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3)}
-.dd-msg .body{
-  font-size:13px;line-height:1.78;white-space:pre-wrap;word-break:break-word;
-  padding:10px 13px;border-radius:var(--rx-3);background:var(--raised);box-shadow:var(--e-2);color:var(--ink);
-}
-.dd-msg.user{align-items:flex-end}
-.dd-msg.user .body{background:linear-gradient(180deg,color-mix(in srgb,var(--hot) 16%,var(--raised)),var(--raised));box-shadow:var(--e-2),inset 0 0 0 1px var(--hot-line)}
-.dd-msg.tool .body{
-  font-family:var(--f-mono);font-size:11px;color:var(--ink3);background:transparent;
-  box-shadow:inset 0 0 0 .5px var(--line-2);padding:6px 10px;
-}
-.dd-msg.err .body{box-shadow:var(--e-2),inset 0 0 0 1px color-mix(in srgb,var(--sig-fail) 55%,transparent);color:var(--sig-fail)}
-.dd-chat-empty{margin:auto;text-align:center;color:var(--ink3);font-size:12.5px;line-height:1.85;padding:20px 14px;max-width:300px}
-.dd-chat-composer{flex:none;box-shadow:0 -1px 0 var(--line);padding:11px 12px 12px;display:flex;flex-direction:column;gap:8px}
-.dd-chat-composer textarea{
-  width:100%;min-height:64px;max-height:170px;resize:vertical;padding:10px 12px;
-  border-radius:var(--rx-3);background:var(--sunken);border:none;box-shadow:var(--e-well);color:var(--ink);
-  font-size:13px;line-height:1.7;outline:none;
-}
-.dd-chat-composer textarea:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
-.dd-chat-composer .row{display:flex;gap:7px;align-items:center}
-.dd-chat-composer .hint{font-size:10.5px;color:var(--ink3);line-height:1.5}
+/* ── conceive chat ───────────────────────────────────────────────────────
+   会话窗里的**内容**全是宿主自己渲染的（消息、工具卡、提问卡、composer），
+   所以这里不再有一行气泡样式。盒子本身的样式在 70-chat.js 里跟着组件走。 */
 
 /* ── responsive ──────────────────────────────────────────────────────── */
 @container dd-root (max-width: 1240px){
@@ -1119,7 +1088,6 @@ select.dd-input{
   .dd-home-hero{padding:18px 20px;gap:16px}
   .dd-home-hero .h1{font-size:22px}
   .dd-works{grid-template-columns:repeat(auto-fill,minmax(214px,1fr))}
-  .dd-chat{width:clamp(320px,38%,420px)}
   /* 窄台面时台头折成两行：上是「这是什么阶段」，下边是「此刻能做什么」。 */
   .dd-deck{flex-direction:column;align-items:stretch;gap:11px}
   .dd-deck-tools{justify-content:flex-start}

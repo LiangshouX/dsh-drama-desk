@@ -1,25 +1,27 @@
 /**
  * 「构思会话」——把第一阶段的 Skill 交给一个**真实 DSH 会话**。
  *
- * 设计选择（重要）
- * ----------------
- * DSH 的规范里写得很清楚：插件不许把宿主的 Client 包当模块加载，也不许自己
- * 折叠会话事件去画一个仿聊天界面（见 dsh-doc 的 `practices.md`）。所以这里
- * **不自己仿造聊天**，而是开一个真的 agent 会话：
+ * 会话是真 agent：真模型、真工具、真技能（`drama-conceive` 由 `skills.js` 提供），
+ * 界面是**宿主自己的对话装配**（见 `src/client/70-chat.js` 顶部的说明）——
+ * 插件既不仿造聊天，也不再自己算「处理过程」。
  *
- *   · 真模型、真工具、真技能（`drama-conceive` 由 `skills.js` 提供）
- *   · **会话挂在 DSH 的工作区下**（见下），不是只有一个 cwd 的孤儿会话
- *   · 会话 id 记在 `state.json` 的 `desk_session_id` 上，所以关掉 DSH、
- *     换一台机器、隔天回来，还是同一段构思对话
- *
- * 工作区纪律（2026-11-16 修）
+ * 工作区纪律（2026-11-22 修）
  * --------------------------
- * 一开始只给了 `meta.cwd`，会话就成了一段**没有工作区**的对话：
- * 侧栏里找不到它，工作区的会话列表里也没有它，用户只能从工作台的小窗看。
- * 现在的规则是：**任何一次开会话之前，先确保「短剧项目根」是一个 DSH 工作区**，
- * 会话的 cwd 就等于工作区路径。这样它和用户在侧栏里自己开的会话没有区别。
+ * 只把 `meta.cwd` 设成工作区路径是**不够**的。DSH 的工作区有两个面：
  *
- * 客户端只负责「显示状态 + 发一条消息」，聊天界面复用宿主自己的。
+ *   · `path` —— 会话的 cwd 落在它下面（以前只做了这一半）
+ *   · `sessionIds` —— 工作区**自己的会话账本**
+ *
+ * 漏了账本的表现正是用户报的那样：会话能在工作台小窗里聊，但侧栏
+ * 「DSH-DRAMA-DESK」下面**没有它**，它掉进「未分组」。所以现在**新开与恢复
+ * 之后都要 `attachSession()`**（见 `attachDeskSession`）。
+ *
+ * 上下文纪律（2026-11-22 修）
+ * --------------------------
+ * 「这次只谈 `workspaces/<id>/`」这段话以前是**塞进用户的第一条消息**里
+ * （`<system-reminder>` 包着），靠客户端把它抹掉才不显得像人说的话。
+ * 现在交给宿主的 **prompt context**：它作为 user-role 上下文进模型历史，
+ * 宿主的对话面板会把它折成一行「上下文」——**不占用户的话**（见 `installSeed`）。
  */
 import { randomUUID } from 'node:crypto'
 import { join, relative } from 'node:path'
@@ -28,35 +30,133 @@ import { readJsonIfExists, writeJsonAtomic } from './fsx.js'
 /** `state.json` 里记住构思会话 id 的字段。 */
 export const SESSION_FIELD = 'desk_session_id'
 
+/** 这段会话的上下文在宿主 prompt registry 里的名字（重复注册会抛，重装即去重）。 */
+export const SEED_CONTEXT = 'drama-desk/project'
+
 /**
- * 一条新会话的开场白。
+ * 上下文在 prompt 里的顺序。
  *
- * 开头那行 `@workspaces/<id>/` 是**锚**，不是装饰：
+ * sections 按 order 升序拼接；contexts 同理。这个值只需要落在
+ * 「身份/规则」之后、「运行时上下文」之前——它是一段任务级的说明。
+ */
+const SEED_ORDER = 40
+
+/**
+ * 这段构思会话要带给模型的**上下文**。
  *
  *   一个工作台只有一个总根（`「视频」/DSH-DRAMA-DESK`），所有短剧项目都是它下面的
  *   子目录，共用同一个 DSH 工作区。共用一个工作区意味着 agent 能看见**别人的**
- *   项目——所以每一段构思对话开头都先把「这次只谈哪个项目」钉死，并明说
+ *   项目——所以每一段构思对话都先把「这次只谈哪个项目」钉死，并明说
  *   不要动别的目录。这就是「防止串台」。
  *
- * 短也刻意：这段话会出现在小窗的对话流里，导演看的是 AI 的回答。
+ * 注意这里**不写 `@路径`**：那是用户消息里的文件引用语法，在 prompt context 里
+ * 没有意义（也没有引用块可解析），写成普通路径更诚实。
  */
-export function seedMessage(workspace, projectRoot, options = {}) {
+export function seedPrompt(workspace, projectRoot, options = {}) {
   const name = workspace.title !== undefined && workspace.title !== '' ? workspace.title : workspace.id
   const workPath = typeof projectRoot === 'string' && projectRoot !== ''
     ? relative(projectRoot, workspace.dir).split('\\').join('/')
     : workspace.dir
   const fresh = options.isNew === true
   return [
-    `@${workPath}/`,
+    `# 这次对话的范围`,
+    '',
+    `只谈一个短剧项目：\`${workPath}/\`（作品名「${name}」）。`,
     '',
     fresh
-      ? `这是一个**刚建的新项目**，目录 \`${workPath}/\` 还是空的。用 \`drama-conceive\` 技能跟我一起把它的创意想出来。`
-      : `用 \`drama-conceive\` 技能继续「${name}」的构思（目录 \`${workPath}/\`）。`,
-    '',
-    `先问我三到五个真正影响故事的问题，聊清楚之后写进 \`${workPath}/creative/brief.md\`，再告诉我你写了什么。`,
+      ? `这是一个**刚建的新项目**，目录还是空的。用 \`drama-conceive\` 技能跟我一起把它的创意想出来。`
+      : `用 \`drama-conceive\` 技能继续「${name}」的构思。`,
+    `先问我三到五个真正影响故事的问题；聊清楚之后把创意写进 \`${workPath}/creative/brief.md\`，再告诉我你写了什么。`,
     '',
     `⚠️ 这个工作区里还有别的短剧项目：**只读写 \`${workPath}/\` 下的文件**，不要碰别的目录，也不要混用别的项目的角色与数据。`,
   ].join('\n')
+}
+
+/**
+ * 把这段会话的上下文交给宿主的 **prompt registry**。
+ *
+ * 为什么不用「注入一条用户消息」：那会让导演看到满屏给模型看的说明
+ * （宿主的折叠规则也不归我们管）。prompt 这边有两条正规通道，按优先级试：
+ *
+ *   ① `context()` —— **动态模型上下文**，落成一条 user-role 快照。
+ *      宿主自己的对话面板会把它折成一行「上下文」，不占用户的话。
+ *   ② `section()` —— 退一步进 system prompt：看不见但模型一定读得到。
+ *
+ * 注册在**这个 agent 自己的作用域**上（`agent.ctx`），所以只有这一段会话带着它；
+ * 作用域一收，上下文跟着走（注册返回的 disposer 交给 `ctx.effect`）。
+ *
+ * @returns {boolean} 装上了没有（宿主版本不支持时如实返回 false）
+ */
+export function installSeed(service, sessionId, text) {
+  if (service.deskSeeds === undefined) service.deskSeeds = new Set()
+  if (service.deskSeeds.has(sessionId)) return true
+
+  const agents = service.ctx?.get?.('agents')
+  const agent = agents !== undefined && typeof agents.get === 'function' ? agents.get(sessionId) : undefined
+  const scoped = agent !== undefined && agent !== null ? agent.ctx : undefined
+  const prompt = scoped !== undefined && scoped !== null ? scoped.systemPrompt : undefined
+  if (prompt === undefined || prompt === null) return false
+
+  const install = () => {
+    try {
+      if (typeof prompt.context === 'function') {
+        const off = prompt.context({
+          name: SEED_CONTEXT,
+          order: SEED_ORDER,
+          text,
+          // 关掉「可选运行时上下文」时也别把它丢掉：没有它 agent 会串台。
+          required: true,
+        })
+        if (typeof off === 'function') return off
+      }
+    } catch {
+      // 这个名字已经注册过，或作用域已销毁：往下试 section。
+    }
+    try {
+      if (typeof prompt.section === 'function') {
+        const off = prompt.section({ name: SEED_CONTEXT, order: SEED_ORDER, text })
+        if (typeof off === 'function') return off
+      }
+    } catch {
+      // 两条通道都不行：如实回报。
+    }
+    return undefined
+  }
+
+  let done = false
+  try {
+    if (typeof scoped.effect === 'function') {
+      scoped.effect(() => {
+        const off = install()
+        done = off !== undefined
+        return off
+      }, 'drama-desk: 构思会话的上下文')
+    } else {
+      done = install() !== undefined
+    }
+  } catch {
+    done = false
+  }
+  if (done) service.deskSeeds.add(sessionId)
+  return done
+}
+
+/**
+ * 把会话挂进工作区的**会话账本**（`sessionIds`）。
+ *
+ * 分组是第二位的：挂了失败也不许影响「这段会话能聊」。
+ *
+ * @returns {Promise<boolean>} 挂上了没有
+ */
+export async function attachDeskSession(dshWorkspace, sessionId) {
+  if (dshWorkspace === undefined || dshWorkspace === null) return false
+  if (typeof dshWorkspace.attachSession !== 'function') return false
+  try {
+    await dshWorkspace.attachSession(sessionId)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -94,21 +194,13 @@ function modelFor(service) {
   return { sessionId, live, cwd: workspace.dir }}
 
 /**
- * 拿到（或开设）这个作品的构思会话，并保证它是**活的**——
- * 只有活着的 agent 才能接消息。
- *
- * @param {object} service
- * @param {{id: string, dir: string, title?: string}} workspace
- * @returns {Promise<{sessionId: string, live: boolean, created: boolean, cwd: string}>}
- */
-/**
  * 保证「短剧项目根」在宿主的**工作区注册表**里。
  *
  * 会话必须有归处：只给 `meta.cwd` 而工作区不存在时，这段对话在侧栏里
  * 找不到、在所属工作区的会话列表里也没有——用户只能从工作台的小窗看它。
  * 所以每次开会话之前先走这一步，**新开与恢复都走同一条路**。
  *
- * @returns {Promise<{id?: string, path: string, title?: string}|undefined>}
+ * @returns {Promise<import('./conceive.js') extends never ? never : any>} Workspace（带 attachSession）
  */
 async function ensureDshWorkspace(service, projectRoot, title) {
   const registry = service.ctx?.get?.('workspaceRegistry')
@@ -136,9 +228,12 @@ async function ensureDshWorkspace(service, projectRoot, title) {
  * 拿到（或开设）这个作品的构思会话，并保证它是**活的**——
  * 只有活着的 agent 才能接消息。
  *
+ * 三条路（已活 / 恢复 / 新开）**都要 `attachSession()`**：漏了这一步，
+ * 会话就会掉进 DSH 侧栏的「未分组」。
+ *
  * @param {object} service
  * @param {{id: string, dir: string, title?: string}} workspace
- * @returns {Promise<{sessionId: string, live: boolean, created: boolean, cwd: string, workspacePath: string}>}
+ * @returns {Promise<{sessionId: string, live: boolean, created: boolean, cwd: string, workspacePath: string, attached: boolean}>}
  */
 export async function ensureDeskSession(service, workspace, options = {}) {
   const agents = service.ctx?.get?.('agents')
@@ -184,7 +279,9 @@ export async function ensureDeskSession(service, workspace, options = {}) {
   if (remembered !== undefined) {
     const live = agents.get(remembered)
     if (live !== undefined) {
-      return { sessionId: remembered, live: true, created: false, cwd, workspacePath: projectRoot }
+      // 账本可能缺（旧版本开的会话）：补一次，幂等。
+      const attached = await attachDeskSession(dshWorkspace, remembered)
+      return { sessionId: remembered, live: true, created: false, cwd, workspacePath: projectRoot, attached }
     }
     // ② 磁盘上有这段会话 → 恢复它（换机器/重启后仍然是同一段对话）
     if (typeof agents.resume === 'function') {
@@ -194,7 +291,8 @@ export async function ensureDeskSession(service, workspace, options = {}) {
         if (rememberedModel !== undefined) resumeOptions.agentOptions = rememberedModel
         const handle = await agents.resume(resumeOptions)
         service.deskAgents.set(remembered, handle)
-        return { sessionId: remembered, live: true, created: false, cwd, workspacePath: projectRoot }
+        const attached = await attachDeskSession(dshWorkspace, remembered)
+        return { sessionId: remembered, live: true, created: false, cwd, workspacePath: projectRoot, attached }
       } catch {
         // 会话可能被删了或被归档了：往下走，开一段新的。
       }
@@ -217,17 +315,21 @@ export async function ensureDeskSession(service, workspace, options = {}) {
     agentOptions,
   })
   service.deskAgents.set(sessionId, handle)
+  // **挂账本**：cwd 对了只说明它在工作目录下；在 `sessionIds` 里才说明
+  // 它属于这个工作区——DSH 侧栏就是按账本分组的。
+  const attached = await attachDeskSession(dshWorkspace, sessionId)
   await writeJsonAtomic(join(workspace.dir, 'state.json'), {
     ...state,
     [SESSION_FIELD]: sessionId,
     updated_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
   })
   service.invalidateWork(workspace.dir)
-  return { sessionId, live: true, created: true, cwd, workspacePath: projectRoot }
+  return { sessionId, live: true, created: true, cwd, workspacePath: projectRoot, attached }
 }
 
 /** 插件卸载时把这次会话的 agent 收掉（会话本身留在磁盘上）。 */
 export async function disposeDeskAgents(service) {
+  service.deskSeeds = undefined
   const map = service.deskAgents
   if (map === undefined) return
   service.deskAgents = new Map()

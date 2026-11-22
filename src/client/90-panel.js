@@ -1,6 +1,6 @@
     // ── root ───────────────────────────────────────────────────────────────
 
-    function DramaDesk() {
+    function DramaDesk(props) {
       const [overview, setOverview] = useState(null)
       const [pipeline, setPipeline] = useState(null)
       const [stages, setStages] = useState(null)
@@ -836,16 +836,21 @@
             },
               h(ConceiveChat, {
                 sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
-                seed: conceive && conceive.seed ? conceive.seed : undefined,
                 busy,
-                settings,
                 canStart: workspaceId !== '',
                 onStart: () => openConceive(false),
                 onClose: () => setChatCollapsed(true),
                 onFresh: () => openConceive(true),
                 panelControls: chatControls,
-                onGoto: gotoStage,
                 dshWorkspaceId: conceive && conceive.dshWorkspace ? conceive.dshWorkspace.id : undefined,
+                // Host 回报「项目范围有没有作为 prompt context 交给宿主」。
+                // false = 宿主版本不支持那条通道，agent 不知道这次只谈哪个项目 → 界面要如实说。
+                seeded: conceive && conceive.created === true ? conceive.seeded !== false : undefined,
+                // 这两样是**宿主发给槽占位者**的标准道具（见 apply 里 main 的
+                // `children` 声明）：只有声明了 session 作用域的子槽，宿主才会把
+                // `SessionProvider` 与 `renderSlot` 交过来——原生对话就靠它嵌进来。
+                SessionProvider: props === undefined ? undefined : props.SessionProvider,
+                renderSlot: props === undefined ? undefined : props.renderSlot,
               }),
               chatPanel.full ? null : h('div', {
                 className: 'dd-side-resize',
@@ -959,7 +964,7 @@
     }
 
     return {
-      inject: ['slots', 'locale', 'remote', 'remote.userQuestions', 'uiConversation'],
+      inject: ['slots', 'locale', 'sessions', 'remote', 'remote.userQuestions', 'uiConversation'],
       apply(ctx) {
         CTX = ctx
         try {
@@ -979,10 +984,21 @@
 
         // The panel itself: a root-scoped keyed slot. Clicking the sidebar
         // entry selects this panel.
+        //
+        // **`children` 里那条 session 作用域的子槽是功能性的，不是装饰**：
+        // 只有声明了非 root 作用域的子槽，宿主的渲染器才会把 `SessionProvider`
+        // 与 `renderSlot` 交给这个占位者（见 ui-renderer 的 `standardKit`）。
+        // 没有它们就绑不住「这一段会话」，宿主的原生对话也就嵌不进来。
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
+          children: { 'drama-desk.conversation': { kind: 'single', scope: 'session' } },
         }, DramaDesk))
+
+        // 那一格子槽里放什么：宿主 `conversation.content` 工厂的 embedded 形态。
+        ctx.slots.inject('drama-desk.conversation', () => ctx.slots.register({
+          name: 'drama-desk.conversation',
+        }, DeskConversationBody))
 
         // The sidebar entry, level with the other plugin entries.
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({

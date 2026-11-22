@@ -270,18 +270,30 @@ node scripts/render-probe.mjs --base http://127.0.0.1:<宿主端口> # 渲染开
 
 ---
 
-## 14. 构思会话 = 真会话
+## 14. 构思会话 = 真会话，界面用宿主自己的
 
-- **不许自己画聊天**：不折叠宿主会话事件仿造聊天、不用 iframe。用 `sessions.retain()`
-  拿宿主已经折叠好的 `eventSource`，输入框接 `session.prompt()`。
-- **开会话之前先 `workspaceRegistry.resolveByPath()`，没有就 `create()`**；新开与恢复
-  走同一条路（`ensureDshWorkspace()`）。
+- **聊天界面一行都不许自己画。** 用 `renderFactorySlot('conversation.content',
+  { variant:'embedded' })` 把宿主自己的对话装配嵌进侧栏；绑会话靠
+  `SessionProvider` + `sessions.retain()`。
+  **不许**再用 `eventSource` 手工折叠出「消息 / 处理过程」——工具卡、提问卡、
+  上下文折叠、composer 的模型与强度选择全在宿主那边，自己画只会更差。
+  做法与三个必要条件见 [`docs/dev/dsh-integration.md`](docs/dev/dsh-integration.md) D1。
+- **两个前置条件必须同时满足**才能嵌进来：① 槽注册里声明一个 **session 作用域的
+  子槽**（宿主才发 `SessionProvider` / `renderSlot`）；② 用 `SessionProvider` 把
+  `retain()` 的引用绑住。少一条，嵌进来的是空态。
+- **工作区有两面，都要做对**：`workspaceRegistry.resolveByPath()` 拿到实体、
+  cwd = 短剧总根、**并且 `workspace.attachSession(sessionId)` 把会话挂进账本**。
+  只做前两条 = 会话掉进侧栏的「未分组」（D2）。
 - **`agents.create()` 不接受「没有模型」**，显式带 `agentDefaultModel.currentSelection()`。
+- **项目范围走 prompt context，不塞用户消息**：`agent.ctx.systemPrompt.context(...)`，
+  注册在**这个 agent 的作用域**上（D5）。
 - **随包技能必须注册**（`ctx.skills.registerProvider()`），且**按 cwd 过闸门**：
   只有落在短剧总根之内的会话才看得到这些 Skill；别处的候选目录返回**空目录**
   （`complete: true`，不是「发现失败」）。
 - **带点的服务路径必须显式 inject**（`ctx.get('remote.userQuestions')` 不 inject 会抛）。
-  宿主没有公开的「渲染这个槽」API，所以嵌入形态是**驱动**宿主渲染，不是搬运渲染器。
+- **`retain` 失败要自愈一次**：插件重装 / DSH 重启后会话可能不在宿主的活目录里
+  （`sessions.retain: unknown session`）→ 请 Host 走一次 `ensureDeskSession()`（= resume）
+  → 再 retain。只试一次，别循环打接口（D7）。
 
 会话、工作区、技能的完整规矩见 `docs/dev/dsh-integration.md`。
 

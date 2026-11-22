@@ -85,7 +85,11 @@
     // ── 侧栏的样式 ────────────────────────────────────────────────────────
     CSS_PARTS.push(`
 /* ── 可调宽度的侧栏 ───────────────────────────────────────────────────── */
-.dd-side{position:relative;flex:0 0 auto;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.dd-side{position:relative;flex:0 0 auto;display:flex;flex-direction:column;min-height:0;overflow:hidden;
+  /* 宽度由 usePanelWidth 写成行内值；给个兜底下限，
+     免得某次渲染丢了行内宽度就把侧栏压扁（320 = PANEL_MIN）。 */
+  min-width:320px;
+}
 .dd-side>.dd-inspector,.dd-side>.dd-chat{
   width:100%;max-width:none;min-width:0;
   /* **这里必须把 flex 改回 1 1 auto。**

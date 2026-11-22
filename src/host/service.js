@@ -22,7 +22,9 @@ import { judgeRule } from './applicability.js'
 import { resolveConfig, SPEC_DIR } from './paths.js'
 import { resolveOutputRoot, resolveProjectRoot } from './locations.js'
 import { describeStages, decideMove, stageOrder } from './stages.js'
-import { deskSessionState, ensureDeskSession, seedMessage } from './conceive.js'
+import {
+  attachDeskSession, deskSessionState, ensureDeskSession, installSeed, seedPrompt,
+} from './conceive.js'
 import { buildStageView, readStagePrompt, shotSummary, STAGE_VIEWS } from './stageviews.js'
 import { resolvePoster, resolvePosterSource } from './posters.js'
 import {
@@ -1270,21 +1272,34 @@ export class DramaDeskService {
     const root = locations.project.path
     const fold = value => (process.platform === 'win32' ? value.toLowerCase() : value)
     const rootFolded = fold(root)
+    // **先按工作区的账本**：DSH 侧栏就是把「DSH-DRAMA-DESK」这一组按 `sessionIds`
+    // 分出来的，我们照同一个口径取，才是「对话都在这个固定工作区里」。
+    // 账本拿不到时退回 cwd 前缀匹配（旧宿主 / 注册表没起来）。
+    const workspace = await this.resolveDshWorkspace()
+    const account = workspace !== undefined && Array.isArray(workspace.sessionIds)
+      ? new Set(workspace.sessionIds.map(id => String(id)))
+      : undefined
     const out = []
     for (const session of store.list()) {
       const header = session && session.header ? session.header : undefined
+      const id = String(session?.id ?? header?.id ?? '')
+      if (id === '') continue
       const cwd = header && typeof header.cwd === 'string' ? header.cwd : ''
-      if (cwd === '') continue
-      // 只收**总根之内**的会话（含总根本身）。
-      const cwdFolded = fold(cwd)
-      if (cwdFolded !== rootFolded && !cwdFolded.startsWith(rootFolded + '/') && !cwdFolded.startsWith(rootFolded + '\\')) {
-        continue
+      if (account !== undefined) {
+        if (!account.has(id)) continue
+      } else {
+        if (cwd === '') continue
+        // 只收**总根之内**的会话（含总根本身）。
+        const cwdFolded = fold(cwd)
+        if (cwdFolded !== rootFolded && !cwdFolded.startsWith(rootFolded + '/') && !cwdFolded.startsWith(rootFolded + '\\')) {
+          continue
+        }
       }
       out.push({
-        id: String(session.id ?? header.id ?? ''),
-        title: typeof header.title === 'string' ? header.title : '',
+        id,
+        title: typeof header?.title === 'string' ? header.title : '',
         cwd,
-        createdAt: typeof header.createdAt === 'number' ? header.createdAt : 0,
+        createdAt: typeof header?.createdAt === 'number' ? header.createdAt : 0,
       })
     }
     out.sort((a, b) => b.createdAt - a.createdAt)
@@ -1618,34 +1633,61 @@ export class DramaDeskService {
     // 客户端要跳到宿主的完整对话面板时，光给 sessionId 不够——宿主得先
     // **选中工作区**，否则对话面板停在「选择一个工作区开始」的空态。
     const dshWorkspace = await this.dshWorkspace()
+    const isNew = await this.isFreshWork(workspace)
     if (options.create !== true) {
       const state = await deskSessionState(this, workspace)
-      return { ...state, workspacePath: projectRoot, dshWorkspace, seed: seedMessage(workspace, projectRoot, { isNew: await this.isFreshWork(workspace) }) }
+      // 旧版本开的会话没进工作区账本（用户报的「未分组」）：
+      // 这里补一次，幂等，**只在确实缺的时候写**。
+      if (state.sessionId !== undefined) {
+        const raw = await this.resolveDshWorkspace()
+        const accounted = raw !== undefined && Array.isArray(raw.sessionIds)
+          ? raw.sessionIds.map(id => String(id)).includes(state.sessionId)
+          : true
+        if (!accounted) await attachDeskSession(raw, state.sessionId)
+      }
+      return { ...state, workspacePath: projectRoot, dshWorkspace }
     }
     const result = await ensureDeskSession(this, workspace, { fresh: options.fresh === true })
-    const isNew = await this.isFreshWork(workspace)
-    return { ...result, workspacePath: projectRoot, dshWorkspace, seed: seedMessage(workspace, projectRoot, { isNew }) }
+    // **上下文交给宿主的 prompt context**，不再塞进用户的第一条消息。
+    // 装不上也不影响这段会话能聊（客户端有它在 /api 状态里如实回报）。
+    const seeded = installSeed(this, result.sessionId, seedPrompt(workspace, projectRoot, { isNew }))
+    return { ...result, workspacePath: projectRoot, dshWorkspace, seeded }
   }
 
   /**
-   * 这个短剧项目挂在哪个 **DSH 工作区**下面。
+   * 作品根对应的 **Workspace 实体**（不是包装过的 `{id, path}`）。
    *
-   * 一个短剧项目 = 一个 DSH 工作区（`AGENTS.md` §7）。会话挂在这个工作区里，
-   * 所以客户端跳宿主对话面板时需要它的 id —— 否则宿主不知道该选哪个工作区。
+   * 只有拿到实体才有 `sessionIds`（会话账本）与 `attachSession()`——
+   * 本文件里凡是「把会话挂进工作区」或「按工作区分组」都得走它。
    *
-   * @returns {Promise<{id: string, path: string}|undefined>}
+   * @returns {Promise<object|undefined>}
    */
-  async dshWorkspace() {
+  async resolveDshWorkspace() {
     const locations = await this.locations()
     const registry = this.ctx?.get?.('workspaceRegistry')
     if (registry === undefined || registry === null || typeof registry.resolveByPath !== 'function') return undefined
     try {
       const found = await registry.resolveByPath(locations.project.path)
-      if (found === null || found === undefined) return undefined
-      return { id: String(found.id ?? ''), path: String(found.path ?? locations.project.path) }
+      return found === null ? undefined : found
     } catch {
       return undefined
     }
+  }
+
+  /**
+   * 这个工作台挂在哪个 **DSH 工作区**下面（客户端跳宿主对话面板时要它的 id）。
+   *
+   * **一个工作台 = 一个 DSH 工作区**（总根 `「视频」/DSH-DRAMA-DESK`），
+   * 所有短剧项目都是它下面的子目录（`AGENTS.md` §7）——不要给每个项目开一个。
+   * 因此每一段构思会话的 cwd 都是这个总根，并且都要 `attachSession()` 进账本。
+   *
+   * @returns {Promise<{id: string, path: string}|undefined>}
+   */
+  async dshWorkspace() {
+    const locations = await this.locations()
+    const found = await this.resolveDshWorkspace()
+    if (found === undefined || found === null) return undefined
+    return { id: String(found.id ?? ''), path: String(found.path ?? locations.project.path) }
   }
 
   /** 这个作品是不是「刚建、还没开始设计」。开场白要据此说不同的话。 */
