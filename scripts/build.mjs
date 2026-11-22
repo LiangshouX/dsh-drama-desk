@@ -26,6 +26,7 @@ import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { writeClient, clientOutOfDate } from './build-client.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = join(ROOT, 'src')
@@ -306,6 +307,30 @@ console.log('runtime smoke ok')
   }
 }
 
+/**
+ * 客户端冒烟测试：**真的把 client.js 跑起来渲染一次**。
+ *
+ * `node --check` 只查语法。变量名写错、hook 用错、JSX 结构写错——
+ * 这些在插件里表现为「界面读不到数据」，用户看到的是空白而不是报错。
+ * 所以这里用真的 React + SSR 渲染跑一遍。
+ *
+ * 没装 react / react-dom 时它自己跳过（不是假装通过）。
+ */
+async function checkClient() {
+  const script = join(ROOT, 'scripts', 'client-smoke.mjs')
+  if (!existsSync(script)) {
+    note('scripts/client-smoke.mjs 不存在：客户端冒烟测试无法运行')
+    return
+  }
+  const result = spawnSync(process.execPath, [script], { cwd: ROOT, encoding: 'utf8', timeout: 120000 })
+  if (result.status !== 0) {
+    const detail = String(result.stderr ?? '').split('\n').filter(line => line.trim() !== '').slice(0, 8).join('\n')
+    note(`客户端冒烟测试失败：\n${detail}`)
+    return
+  }
+  process.stdout.write(String(result.stdout ?? ''))
+}
+
 /** Convert a path into a file URL usable in an ESM import specifier. */
 function pathToFileUrl(path) {
   return new URL(`file:///${path.replace(/\\/g, '/').replace(/^\/+/, '')}`).href
@@ -379,6 +404,19 @@ async function checkEquivalence() {
   }
 }
 
+// ── 客户端 bundle 是**生成物**：先拼出来，再校验它 ──────────────────────
+//
+// 顺序很重要：**先拼装、再校验**。反过来（先校验旧的 client.js）的话，
+// 上一轮留下的坏产物会让这一轮的构建报一个与本次改动无关的错。
+if (!onlyCheck) {
+  await writeClient()
+  console.log('✓ 已拼装 client.js（src/client/*）')
+} else if (await clientOutOfDate()) {
+  problems.push('client.js 与 src/client/ 不同步：先跑 node scripts/build-client.mjs')
+} else {
+  console.log('✓ client.js 与 src/client/ 同步')
+}
+
 await checkPluginHalf()
 await checkSyntax()
 await checkPerformance(process.argv.slice(2))
@@ -396,6 +434,7 @@ if (!onlyCheck) {
   }
   console.log(`✓ 已构建：build/skills（${skillDirs.length} 个）+ build/spec + build/tools`)
   await checkRuntime()
+  await checkClient()
   await checkEquivalence()
 } else {
   // 校验 build/ 与 src/ 是否同步

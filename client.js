@@ -1,5 +1,9 @@
 /*!
- * dsh-drama-desk — client half (browser bundle).
+ * dsh-drama-desk — client half (browser bundle) 的**源码**。
+ *
+ * 这个文件本身不参与运行：它只说明「客户端半边是什么」，真正的代码按功能
+ * 分在同目录的各个文件里，由 scripts/build-client.mjs 拼成 client.js。
+ * 拼装顺序见 manifest.json。
  *
  * 导演工作台 —— AI 短剧生产流水线的工作台。
  *
@@ -22,15 +26,29 @@
  * from the browser module table at runtime; everything else is inlined, so the
  * plugin carries no build step and no runtime dependency.
  */
+/*!
+ * dsh-drama-desk — client half (browser bundle).
+ *
+ * ⚠ 这个文件是**生成物**：源码在 src/client/，由 scripts/build-client.mjs 拼装。
+ *   要改界面请改 src/client/*.js，改这里会在下一次构建时被覆盖。
+ *
+ * 设计语言与 bundle 格式的完整说明在 src/client/00-header.js。
+ */
 window.__ModuleLoader__.load({
   id: 'dsh-drama-desk',
   factory: (require) => {
     const React = require('react')
+
     const h = React.createElement
+
     const { useState, useEffect, useCallback, useMemo, useRef } = React
 
+    let CTX = null
+
     // ── locale ────────────────────────────────────────────────────────────
+
     const LOCALE_NS = 'dsh-drama-desk'
+
     /** The panel id: the sidebar entry's id and the `main` slot's key. */
     const PANEL_ID = 'drama-desk'
 
@@ -143,6 +161,7 @@ window.__ModuleLoader__.load({
     let t = (key, fallback) => fallback
 
     // ── API layer ──────────────────────────────────────────────────────────
+
     const API_BASE = '/drama-desk/api'
 
     async function apiGet(resource, params) {
@@ -217,7 +236,9 @@ window.__ModuleLoader__.load({
     }, {})
 
     const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:2', '2.39:1', '21:9', '5:4']
+
     const RESOLUTIONS = ['768P', '1080P', '2K', '4K']
+
     const CAMERAS = [
       'Static Shot', 'Push In', 'Pull Out', 'Zoom In', 'Zoom Out',
       'Pan Left', 'Pan Right', 'Truck Left', 'Truck Right',
@@ -225,6 +246,7 @@ window.__ModuleLoader__.load({
       'Arc Shot', 'Tracking Shot', 'Shake Slightly', 'POV',
       'Roll Clockwise', 'Roll Counterclockwise',
     ]
+
     const DURATIONS = [4, 5, 6, 7, 8, 10, 12, 15]
 
     // ── design tokens ──────────────────────────────────────────────────────
@@ -251,6 +273,7 @@ window.__ModuleLoader__.load({
     //
     //  ④ **能用形与位说清的，不写小字说明。**
     //
+
     const CSS = `
 .dd{
   /* ══ signal palette（导播台自有信号灯）══════════════════════════════ */
@@ -1011,58 +1034,9 @@ select.dd-input{
 .dd-field .preset button:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
 .dd-field .preset button.on{background:var(--hot);box-shadow:none;color:#fff}
 
-/* ── inline editing（读态是内容，不是表单）──────────────────────────────── */
-/* 读态：**没有** sunken 盒子、**没有**描边、**没有**「保存 / 撤销」按钮行。
-   只有悬停时浮现的一条虚线——那是「这里可以改」的暗示。
-   编辑态把同一块地方换成输入框（位置不变、行高不变），**失焦即存**：
-   Enter 提交（多行是 Ctrl+Enter），Esc 撤销。
-   右上角那两枚小图标只是保险——点了也能存 / 能撤，但不必点。 */
-.dd-ed{display:flex;flex-direction:column;gap:2px;min-width:0;position:relative}
-.dd-ed.row{display:grid;grid-template-columns:var(--ed-lab,116px) minmax(0,1fr);gap:14px;align-items:baseline}
-.dd-ed-lab{
-  font-family:var(--f-gauge);font-size:10px;color:var(--ink3);
-  letter-spacing:.1em;text-transform:uppercase;line-height:1.5;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.dd-ed-val{
-  font-size:12.5px;line-height:1.65;color:var(--ink);
-  padding:2px 6px 3px;margin-left:-6px;
-  min-height:21px;border-radius:var(--rx-1);
-  border-bottom:.5px dashed transparent;cursor:text;
-  white-space:pre-wrap;word-break:break-word;
-  transition:border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease),background var(--t-fast) var(--ease);
-}
-/* 悬停时**看得见**「这里可以改」：一条暖色的虚线 + 一点点底色。
-   以前只有 0.5px 的灰虚线，缩到 1200 宽就彻底看不见了——
-   于是用户只能挨个点过去试。 */
-.dd-ed-val:hover{border-bottom-color:var(--hot-line);background:color-mix(in srgb,var(--hot) 7%,transparent)}
-.dd-ed-val.empty{color:var(--ink4)}
-.dd-ed.readonly .dd-ed-val{cursor:default}
-.dd-ed.readonly .dd-ed-val:hover{border-bottom-color:transparent;background:transparent}
-.dd-ed.serif .dd-ed-val{font-family:var(--serif);font-size:15px;line-height:1.5}
-.dd-ed.mono .dd-ed-val{font-family:var(--f-mono);font-size:11.5px}
-.dd-ed-edit{position:relative;display:block}
-.dd-ed-edit input,.dd-ed-edit textarea{
-  display:block;width:100%;background:var(--sunken);border:none;
-  box-shadow:var(--e-well);border-radius:var(--rx-2);color:var(--ink);
-  font-family:inherit;font-size:12.5px;line-height:1.65;padding:6px 10px;outline:none;
-  transition:box-shadow var(--t-fast) var(--ease);
-}
-.dd-ed-edit input{height:30px;padding-top:0;padding-bottom:0}
-.dd-ed-edit textarea{min-height:66px;resize:vertical}
-.dd-ed-edit.serif input,.dd-ed-edit.serif textarea{font-family:var(--serif);font-size:15px;line-height:1.5}
-.dd-ed-edit.mono input,.dd-ed-edit.mono textarea{font-family:var(--f-mono);font-size:11.5px}
-.dd-ed-edit input:focus,.dd-ed-edit textarea:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
-.dd-ed-edit.acting input,.dd-ed-edit.acting textarea{padding-right:48px}
-.dd-ed-acts{position:absolute;top:4px;right:5px;display:flex;gap:3px}
-.dd-ed-act{
-  width:20px;height:20px;border-radius:var(--rx-1);display:grid;place-items:center;
-  color:var(--ink4);box-shadow:inset 0 0 0 .5px var(--line);
-  transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);
-}
-.dd-ed-act:hover{color:var(--ink);background:var(--panel-2)}
-.dd-ed-act.ok:hover{color:var(--sig-pass);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-pass) 45%,transparent)}
-.dd-ed-act.no:hover{color:var(--sig-fail);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-fail) 45%,transparent)}
+/* ── inline editing ───────────────────────────────────────────────────── */
+/* 文本编辑组件的样式**住在组件旁边**（41-editing.js），不在这儿。
+   理由：改一个组件时，样式与实现应该在同一个文件里被一起读到。 */
 
 .dd-beats{display:flex;flex-direction:column;gap:8px}
 .dd-beats>*{flex:0 0 auto}
@@ -1429,7 +1403,143 @@ select.dd-input{
 }
 `
 
+    /**
+     * 样式的装配口。
+     *
+     * 基础样式是上面那一大段；**每个功能模块把自己的样式 push 进来**，
+     * 于是「样式跟着组件走」：改一个组件时，实现与样式在同一个文件里。
+     *
+     * 顺序即优先级：模块在 manifest 里的位置决定它的样式排在后面还是前面。
+     */
+    const CSS_PARTS = [CSS]
+
+    // ── 侧栏：宽度可调 ────────────────────────────────────────────────────
+    //
+    // 右侧栏（镜详情 / 构思会话）以前是**固定宽度**的（`clamp()`），
+    // 局促的时候看不全，又没法调。
+    //
+    // 现在：拖左边缘改宽度，有**最小宽度**与**最大宽度**；拖到最大还不够看时，
+    // 可以**全屏**——不是占满浏览器，而是占满**导演工作台**这一块。
+    //
+    // 性能：拖动时**直写 DOM 的 width**，React 状态每帧至多提交一次。
+    // 否则每挪一像素都要重渲染整棵面板树（72 个镜头卡片销毁重建）——
+    // 插件是嵌在别人的主应用里的，这种开销用户会直接归咎于 DSH。
+
+    /** 侧栏宽度的最小/最大值。 */
+    const PANEL_MIN = 320
+    const PANEL_MAX = 1200
+
+    /**
+     * 一块可调宽度的侧栏。
+     *
+     * @param {{storageKey?: string, initial?: number, min?: number, max?: number}} options
+     * @returns {{width: number, full: boolean, panelRef: object, style: object, startResize: Function, toggleFull: Function, onCloseFull: Function}}
+     */
+    function usePanelWidth(options = {}) {
+      const { storageKey, initial = 420, min = PANEL_MIN, max = PANEL_MAX } = options
+      const [width, setWidth] = useState(() => {
+        if (typeof storageKey === 'string') {
+          try {
+            const stored = Number(window.localStorage.getItem(storageKey))
+            if (Number.isFinite(stored) && stored >= min && stored <= max) return stored
+          } catch { /* localStorage 不可用就用默认值 */ }
+        }
+        return initial
+      })
+      const [full, setFull] = useState(false)
+      const panelRef = useRef(null)
+      const dragRef = useRef(null)
+
+      const clamp = useCallback(value => Math.min(max, Math.max(min, value)), [max, min])
+
+      const startResize = useCallback(event => {
+        event.preventDefault()
+        const box = panelRef.current
+        if (box === null) return
+        const start = { x: event.clientX, width: box.getBoundingClientRect().width }
+        dragRef.current = start
+
+        const onMove = move => {
+          const from = dragRef.current
+          if (from === null) return
+          // 右侧栏的把手在**左**边：往左拖 = 变宽。
+          const next = clamp(from.width - (move.clientX - from.x))
+          // 直写 DOM：这一帧就动，不等 React。
+          box.style.width = next + 'px'
+          box.style.maxWidth = next + 'px'
+        }
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          window.removeEventListener('pointercancel', onUp)
+          const from = dragRef.current
+          dragRef.current = null
+          if (from === null) return
+          const final = clamp(Number.parseFloat(box.style.width) || from.width)
+          box.style.width = ''
+          box.style.maxWidth = ''
+          setWidth(final)
+          if (typeof storageKey === 'string') {
+            try { window.localStorage.setItem(storageKey, String(final)) } catch { /* 存不下就算了 */ }
+          }
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        window.addEventListener('pointercancel', onUp)
+      }, [clamp, storageKey])
+
+      const toggleFull = useCallback(() => setFull(value => !value), [])
+
+      const style = full
+        ? undefined
+        : { width: width + 'px', maxWidth: width + 'px' }
+
+      return { width, full, panelRef, style, startResize, toggleFull }
+    }
+
+    // ── 侧栏的样式 ────────────────────────────────────────────────────────
+    CSS_PARTS.push(`
+/* ── 可调宽度的侧栏 ───────────────────────────────────────────────────── */
+.dd-side{position:relative;flex:0 0 auto;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.dd-side>.dd-inspector,.dd-side>.dd-chat{
+  width:100%;max-width:none;min-width:0;
+  /* **这里必须把 flex 改回 1 1 auto。**
+     基类的 .dd-chat / .dd-inspector 带着 flex:0 0 auto —— 那是给
+     **行**向 flex 用的（管的是宽度）。侧栏现在是**列**向 flex 的子项，
+     同一个声明落到**高度**上，于是它**不许收缩**：消息流被撑到内容高度、
+     自己的 overflow:auto 永远用不上，输入框被顶到视口外面去。
+     （这是本轮把侧栏包进 .dd-side 时踩的坑，实机才看得出来。）
+  */
+  flex:1 1 auto;min-height:0;overflow:hidden;
+}
+.dd-side.full{
+  position:absolute;inset:0;width:auto;max-width:none;z-index:6;
+  box-shadow:0 0 0 1px var(--line),var(--e-4);
+}
+/* 把手：左边缘一条 7px 的热区，视觉上是一条发丝线。 */
+.dd-side-resize{
+  position:absolute;left:-3px;top:0;bottom:0;width:7px;z-index:21;cursor:col-resize;
+  display:flex;align-items:center;justify-content:center;
+}
+.dd-side-resize::after{
+  content:'';width:2px;height:26px;border-radius:2px;background:var(--line-2);
+  transition:background var(--t-fast) var(--ease),height var(--t-fast) var(--ease);
+}
+.dd-side-resize:hover::after{background:var(--hot-line);height:44px}
+.dd-side-resize:focus-visible::after{background:var(--hot);height:44px}
+/* 全屏时没有把手——它已经占满整块工作台了。 */
+.dd-side.full .dd-side-resize{display:none}
+/* 宽度读数：拖动时挂在把手上。 */
+.dd-side-size{
+  position:absolute;left:6px;top:8px;z-index:22;pointer-events:none;
+  font-family:var(--f-mono);font-size:10px;color:var(--ink3);
+  padding:2px 6px;border-radius:var(--rx-1);background:var(--sunken);
+  box-shadow:inset 0 0 0 .5px var(--line);white-space:nowrap;
+}
+`)
+
     // ── helpers ────────────────────────────────────────────────────────────
+
     const STATUS_TEXT = {
       none: '未生成',
       generated: '未体检',
@@ -1510,6 +1620,10 @@ select.dd-input{
         copy: 'M8 8h11v12H8zM5 16V4h11',
         star: 'M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.9l6-.8z',
         back: 'M20 12H4M10 6l-6 6 6 6',
+        // 「放大编辑」：四角张开的取景框——比「放大镜」更直白地说是放大。
+        expand: 'M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5',
+        // 铅笔：编辑入口。它比「修改」两个字更安静，也比「点我」更明确。
+        edit: 'M4 20l1-4.5L15.5 5 19 8.5 8.5 12 4 4zM13.5 7l3.5 3.5',
       }
       const d = paths[props.name] ?? paths.grid
       const filled = props.name === 'play' || props.name === 'star'
@@ -1537,6 +1651,7 @@ select.dd-input{
     //
     // 镂空（片孔、两头的画格）用 **evenodd 子路径**一次画完：
     // 插件管理器把 icon.svg 当 <img> 渲染，那条路上 mask 不保险。
+
     const FILM_STRIP = 'M11.00 10.00H53.00A8 8 0 0 1 61.00 18.00V46.00A8 8 0 0 1 53.00 54.00H11.00A8 8 0 0 1 3.00 46.00V18.00A8 8 0 0 1 11.00 10.00Z'
       + ' M10.00 15.00H15.00A2 2 0 0 1 17.00 17.00V21.00A2 2 0 0 1 15.00 23.00H10.00A2 2 0 0 1 8.00 21.00V17.00A2 2 0 0 1 10.00 15.00Z'
       + ' M23.00 15.00H28.00A2 2 0 0 1 30.00 17.00V21.00A2 2 0 0 1 28.00 23.00H23.00A2 2 0 0 1 21.00 21.00V17.00A2 2 0 0 1 23.00 15.00Z'
@@ -1544,13 +1659,17 @@ select.dd-input{
       + ' M49.00 15.00H54.00A2 2 0 0 1 56.00 17.00V21.00A2 2 0 0 1 54.00 23.00H49.00A2 2 0 0 1 47.00 21.00V17.00A2 2 0 0 1 49.00 15.00Z'
       + ' M10.00 28.00H18.00A3 3 0 0 1 21.00 31.00V43.00A3 3 0 0 1 18.00 46.00H10.00A3 3 0 0 1 7.00 43.00V31.00A3 3 0 0 1 10.00 28.00Z'
       + ' M46.00 28.00H54.00A3 3 0 0 1 57.00 31.00V43.00A3 3 0 0 1 54.00 46.00H46.00A3 3 0 0 1 43.00 43.00V31.00A3 3 0 0 1 46.00 28.00Z'
+
     const FILM_FRAME = 'M28.00 28.00H36.00A3 3 0 0 1 39.00 31.00V43.00A3 3 0 0 1 36.00 46.00H28.00A3 3 0 0 1 25.00 43.00V31.00A3 3 0 0 1 28.00 28.00Z'
 
     /* 侧栏的小尺寸减法：同一条片上的**那三格**——两头空心，中间实心。
        16px 下胶片的片孔会糊掉，所以减法砍到「三格 + 哪一格在产」，
        重量也和邻居（1.6 线描）对得上。 */
+
     const FILM_GRID_L = 'M8.00 22.00H16.00A4 4 0 0 1 20.00 26.00V36.00A4 4 0 0 1 16.00 40.00H8.00A4 4 0 0 1 4.00 36.00V26.00A4 4 0 0 1 8.00 22.00Z'
+
     const FILM_GRID_M = 'M28.00 22.00H36.00A4 4 0 0 1 40.00 26.00V36.00A4 4 0 0 1 36.00 40.00H28.00A4 4 0 0 1 24.00 36.00V26.00A4 4 0 0 1 28.00 22.00Z'
+
     const FILM_GRID_R = 'M48.00 22.00H56.00A4 4 0 0 1 60.00 26.00V36.00A4 4 0 0 1 56.00 40.00H48.00A4 4 0 0 1 44.00 36.00V26.00A4 4 0 0 1 48.00 22.00Z'
 
     /** 品牌标记（64 网格）——顶栏的「导演工作台」标识：整条胶片。 */
@@ -1591,33 +1710,71 @@ select.dd-input{
       )
     }
 
+    // ══ 文本编辑组件（统一）═══════════════════════════════════════════════
+    //
+    // 这一块是**整个工作台唯一的改法**（AGENTS.md §16⑦）。规则来自长期记忆里的
+    // 《文本编辑组件最佳实践》，逐条落在这里：
+    //
+    //   · **读态是内容**，不是表单控件：多行文本按 **markdown** 渲染，读起来是
+    //     给人看的（这一条是本轮整改的主诉）。
+    //   · **编辑态原地接管**同一块地方：两态尺寸恒定 ⇒ 页面不跳。
+    //     「不跳」靠三件事：① 读态与编辑态的字号/行高/内边距**完全一致**；
+    //     ② 进入编辑时**量一下读态有多高**，编辑框就用这个高度；
+    //     ③ 聚焦用 `preventScroll`，不让浏览器把页面顶下去。
+    //   · **真改了才有保存**：失焦即存；只敲空格又删回去不算改动。
+    //   · **字数算草稿**，编辑时实时变。
+    //   · **未保存关不掉，但一定给出路**（放大窗口里）。
+    //   · **字少的地方可以放大**：长文本在放大窗口里改，舒服。
+
     /**
-     * An inline editable value — 整个工作台改东西只有这一种手势。
+     * 放大窗口的宿主。
      *
-     * **读态是内容，不是表单控件。** 没有 sunken 盒子、没有描边、
-     * 没有「保存 / 撤销」按钮行——那三样曾经把一屏大纲吃掉一半。
-     * 读态只有一条悬停才浮现的虚线，意思是「这里可以改」。
+     * 字段们只管喊一声「我要开一个放大窗口」，由**根组件**统一渲染——
+     * 这样浮层永远在根上，不会被中间容器的 `overflow` 裁掉，
+     * 也不会被别的东西盖住。
+     */
+    let TEXT_DIALOG_HOST = null
+
+    /** 请根组件开一个放大编辑窗口。 */
+    function openTextDialog(spec) {
+      if (TEXT_DIALOG_HOST === null) return
+      TEXT_DIALOG_HOST(spec)
+    }
+
+    /** 读态的内容：markdown 或纯文本。 */
+    function EditableRead(props) {
+      const { text, markdown, placeholder, emptyHint } = props
+      if (text === '') {
+        // 空值：占位文案，或者调用方给的一段说明（比「（空）」有用得多）。
+        if (emptyHint !== undefined && emptyHint !== null) return emptyHint
+        return h('span', { className: 'dd-tf-empty' }, placeholder ?? '（空）')
+      }
+      if (markdown) return h('div', { className: 'dd-md' }, h(MarkdownLite, { text }))
+      return h('span', { className: 'dd-tf-text' }, text)
+    }
+
+    /**
+     * 一个可编辑的文本字段。
      *
-     * **编辑态是同一块地方。** 输入框原地接管（位置不变、行高不变），
-     * 所以从读到写没有跳动。
-     *
-     * **失焦即存。** Enter 提交（多行是 Ctrl+Enter），Esc 撤销。
-     * 右上角那两枚小图标只是保险：点了也能存 / 能撤，但不必点。
-     *
-     * 只读字段（`readOnly`）不假装可编辑：没有虚线、没有手型光标。
+     * 读态 → 点它 → 编辑态**原地接管**。两态之间不换位置、不换尺寸。
+     * 多行的文本还会多一枚「放大」按钮：在放大窗口里改长文，比在两厘米高
+     * 的小框里改舒服得多。
      */
     function Editable(props) {
       const {
-        label, value, multiline, disabled, onSave, placeholder, type,
-        layout, serif, mono, className, style, title, labelTitle, readOnly,
+        label, labelTitle, value, onSave, multiline, disabled, readOnly,
+        placeholder, type, layout, serif, mono, className, style, title,
+        markdown, expandable, editSignal, emptyHint,
       } = props
       const canEdit = !readOnly && !disabled && typeof onSave === 'function'
       const [editing, setEditing] = useState(false)
       const [draft, setDraft] = useState(value ?? '')
+      const [editHeight, setEditHeight] = useState(undefined)
       const nodeRef = useRef(null)
+      const boxRef = useRef(null)
       const editingRef = useRef(false)
       // 服务端最后一次给的值：用来判断「服务器真的变了」，
-      // 而不是「我这边重新渲染了」。
+      // 而不是「我这边重新渲染了」。**外部刷新不许冲掉正在改的草稿。**
       const serverRef = useRef(value ?? '')
 
       useEffect(() => {
@@ -1628,6 +1785,7 @@ select.dd-input{
         }
       }, [value])
 
+      // 聚焦：把光标放到末尾，但**不要**让浏览器把页面滚过去。
       useEffect(() => {
         if (!editing || !nodeRef.current) return
         const node = nodeRef.current
@@ -1635,27 +1793,57 @@ select.dd-input{
           const end = node.value.length
           node.setSelectionRange(end, end)
         } catch { /* 某些 input 类型不支持选区，忽略 */ }
+        try {
+          node.focus({ preventScroll: true })
+        } catch {
+          node.focus()
+        }
       }, [editing])
 
       const current = value === undefined || value === null ? '' : String(value)
       const empty = current === ''
+      const dirty = draft !== current
+      // 读态默认按 markdown 渲染（多行才渲染：单行没有 markdown 可言）。
+      const useMarkdown = markdown === undefined ? multiline === true : markdown === true
+      // 放大按钮：多行默认给，单行可以显式要。
+      const canExpand = expandable === undefined ? multiline === true : expandable === true
+
       const begin = () => {
         if (!canEdit || editingRef.current) return
         editingRef.current = true
+        // **量一下读态有多高**：编辑框就用这个高度接管 ⇒ 页面不跳。
+        const box = boxRef.current
+        const measured = box === null ? 0 : Math.round(box.getBoundingClientRect().height)
+        setEditHeight(measured > 0 ? measured : undefined)
         setEditing(true)
       }
+
+      // **从外部进入编辑态**：空态的「写第一版」按钮靠它。
+      //
+      // 信号值一变就进编辑态；相同���号重复触发不会重置正在写的草稿。
+      const signalRef = useRef(editSignal)
+      useEffect(() => {
+        if (editSignal === undefined || editSignal === signalRef.current) return
+        signalRef.current = editSignal
+        if (!editingRef.current) begin()
+        // begin 只依赖 canEdit；这里刻意不把它列进依赖——信号变化才是触发点。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [editSignal])
+
       const commit = () => {
         if (!editingRef.current) return
         editingRef.current = false
         setEditing(false)
         if (draft !== current) onSave(draft)
       }
+
       const cancel = () => {
         if (!editingRef.current) return
         editingRef.current = false
         setDraft(current)
         setEditing(false)
       }
+
       const onKeyDown = event => {
         if (event.key === 'Escape') {
           event.preventDefault()
@@ -1667,10 +1855,23 @@ select.dd-input{
         }
       }
 
+      /** 打开放大窗口：把当前值带过去，在那里改。 */
+      const enlarge = () => {
+        openTextDialog({
+          title: typeof label === 'string' && label !== '' ? label : (labelTitle ?? '编辑'),
+          value: current,
+          placeholder,
+          serif,
+          mono,
+          onSave: next => { onSave(next) },
+        })
+      }
+
       const cls = 'dd-ed'
         + (layout === 'row' ? ' row' : '')
         + (serif ? ' serif' : '')
         + (mono ? ' mono' : '')
+        + (multiline ? ' multi' : '')
         + (canEdit ? '' : ' readonly')
         + (className ? ' ' + className : '')
       const head = label
@@ -1678,56 +1879,214 @@ select.dd-input{
         : null
 
       if (!editing) {
+        // **读态就是读态。**
+        //
+        // 点内容**不**跳进编辑态——这是本轮整改的第一条：
+        // 「预览的时候长一个样，点击直接就进入了编辑模式，页面还一直跳」。
+        // 误触一次就进编辑、页面又跳一下，是最让人烦躁的那种体验。
+        //
+        // 所以编辑**必须手动触发**：右上角那枚 ✎ 按钮（就地改）
+        // 或 ⤢ 按钮（放大窗口里改）。按钮常驻、只是安静（低透明度），
+        // 悬停才亮——它不能藏到「只有鼠标刚好扫过去」才出现。
         return h('div', { className: cls, style },
           head,
           h('div', {
-            className: 'dd-ed-val' + (empty ? ' empty' : ''),
-            role: canEdit ? 'button' : undefined,
-            tabIndex: canEdit ? 0 : undefined,
-            title: canEdit ? '点击编辑 · 失焦即存' : (title || undefined),
-            onClick: canEdit ? begin : undefined,
-            onKeyDown: canEdit
-              ? event => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  begin()
-                }
-              }
-              : undefined,
-          }, empty ? (placeholder ?? '（空）') : current),
+            className: 'dd-ed-box',
+            ref: boxRef,
+          },
+            h('div', {
+              className: 'dd-ed-val' + (empty ? ' empty' : '') + (useMarkdown ? ' md' : ''),
+              title: title || (canEdit ? '这里可以编辑 · 用右上角的 ✎ 或 ⤢ 手动触发' : undefined),
+            }, h(EditableRead, { text: current, markdown: useMarkdown, placeholder, emptyHint })),
+            canEdit
+              ? h('div', { className: 'dd-tf-tools' },
+                h('button', {
+                  className: 'dd-tf-edit',
+                  type: 'button',
+                  title: '编辑这一项（点内容不会进编辑）',
+                  'aria-label': '编辑' + (typeof label === 'string' && label !== '' ? '：' + label : ''),
+                  onMouseDown: event => event.preventDefault(),
+                  onClick: event => { event.stopPropagation(); begin() },
+                }, h(Icon, { name: 'edit', size: 12 })),
+                canExpand
+                  ? h('button', {
+                    className: 'dd-tf-expand',
+                    type: 'button',
+                    title: '放大编辑（长文本在这里改更舒服）',
+                    'aria-label': '放大编辑',
+                    onMouseDown: event => event.preventDefault(),
+                    onClick: event => { event.stopPropagation(); enlarge() },
+                  }, h(Icon, { name: 'expand', size: 12 }))
+                  : null,
+              )
+              : null,
+          ),
         )
       }
 
       return h('div', { className: cls, style },
         head,
         h('div', {
-          className: 'dd-ed-edit acting'
-            + (serif ? ' serif' : '')
-            + (mono ? ' mono' : ''),
+          className: 'dd-ed-box editing',
+          ref: boxRef,
         },
-          multiline
-            ? h('textarea', {
-              ref: nodeRef, value: draft, placeholder, autoFocus: true,
-              onChange: event => setDraft(event.target.value),
-              onKeyDown, onBlur: commit,
-            })
-            : h('input', {
-              ref: nodeRef, type: type ?? 'text', value: draft, placeholder, autoFocus: true,
-              onChange: event => setDraft(event.target.value),
-              onKeyDown, onBlur: commit,
-            }),
-          h('span', { className: 'dd-ed-acts' },
-            h('button', {
-              className: 'dd-ed-act ok', type: 'button', title: '保存（失焦或 Enter）',
-              onMouseDown: event => event.preventDefault(),
-              onClick: commit,
-            }, h(Icon, { name: 'check', size: 11 })),
-            h('button', {
-              className: 'dd-ed-act no', type: 'button', title: '撤销（Esc）',
-              onMouseDown: event => event.preventDefault(),
-              onClick: cancel,
-            }, h(Icon, { name: 'close', size: 11 })),
+          h('div', {
+            className: 'dd-ed-edit acting'
+              + (serif ? ' serif' : '')
+              + (mono ? ' mono' : ''),
+            style: editHeight === undefined ? undefined : { height: editHeight + 'px' },
+          },
+            multiline
+              ? h('textarea', {
+                ref: nodeRef, value: draft, placeholder, spellCheck: false,
+                style: editHeight === undefined ? undefined : { height: editHeight + 'px' },
+                onChange: event => setDraft(event.target.value),
+                onKeyDown, onBlur: commit,
+              })
+              : h('input', {
+                ref: nodeRef, type: type ?? 'text', value: draft, placeholder,
+                onChange: event => setDraft(event.target.value),
+                onKeyDown, onBlur: commit,
+              }),
+            h('span', { className: 'dd-ed-acts' },
+              h('button', {
+                className: 'dd-ed-act ok', type: 'button', title: '保存（失焦或 Enter）',
+                onMouseDown: event => event.preventDefault(),
+                onClick: commit,
+              }, h(Icon, { name: 'check', size: 11 })),
+              h('button', {
+                className: 'dd-ed-act no', type: 'button', title: '撤销（Esc）',
+                onMouseDown: event => event.preventDefault(),
+                onClick: cancel,
+              }, h(Icon, { name: 'close', size: 11 })),
+            ),
           ),
+          // 字数：算**草稿**，编辑时实时变；只在这里出现。
+          h('span', { className: 'dd-tf-count' }, draft.length + ' 字'),
+        ),
+      )
+    }
+
+    /**
+     * 放大编辑窗口。
+     *
+     * 一块占满可用高度的纸：上面是头部（标题 / 字数 / 未保存 / 预览·编辑 / 保存），
+     * 下面是正文。**两态共用同一个盒子**（`flex:1 1 auto` + `minHeight:0`），
+     * 所以从预览切到编辑，窗口不会「呼吸」。
+     *
+     * 关闭守卫：Esc / 点遮罩 / 【关闭】走**同一条判定**——有未保存改动就关不掉，
+     * 但一定给出路（琥珀警告条 + 「放弃修改」）。
+     */
+    function TextDialog(props) {
+      const { title, value, onSave, onClose, placeholder, serif, mono } = props
+      const [mode, setMode] = useState('preview')
+      const [draft, setDraft] = useState(value ?? '')
+      const [busy, setBusy] = useState(false)
+      const [warned, setWarned] = useState(false)
+      const warnTimer = useRef(undefined)
+      const text = value ?? ''
+      const dirty = draft !== text
+
+      const warnUnsaved = () => {
+        setWarned(true)
+        if (warnTimer.current !== undefined) clearTimeout(warnTimer.current)
+        warnTimer.current = setTimeout(() => setWarned(false), 2600)
+      }
+
+      // Esc 只挂一次，用 ref 读最新状态（每次输入都重挂是常见的陈旧闭包坑）。
+      const latest = useRef({ dirty, mode })
+      latest.current = { dirty, mode }
+      const requestClose = useCallback(() => {
+        if (latest.current.dirty) { warnUnsaved(); return }
+        onClose()
+      }, [onClose])
+      const requestCloseRef = useRef(requestClose)
+      requestCloseRef.current = requestClose
+      useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+        const handler = event => {
+          if (event.key === 'Escape') { event.stopPropagation(); requestCloseRef.current() }
+        }
+        window.addEventListener('keydown', handler, true)
+        return () => window.removeEventListener('keydown', handler, true)
+      }, [])
+
+      const commit = async () => {
+        if (!dirty || busy) return
+        setBusy(true)
+        try {
+          const ok = await onSave(draft)
+          if (ok === false) return
+          setMode('preview')
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const chip = (key, label) => h('button', {
+        key,
+        type: 'button',
+        'aria-pressed': mode === key,
+        className: 'dd-tf-chip' + (mode === key ? ' on' : ''),
+        onClick: () => setMode(key),
+      }, label)
+
+      const body = mode === 'edit'
+        ? h('textarea', {
+          className: 'dd-tf-area' + (serif ? ' serif' : '') + (mono ? ' mono' : ''),
+          value: draft, placeholder, spellCheck: false,
+          onChange: event => setDraft(event.target.value),
+          onKeyDown: event => {
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void commit() }
+          },
+        })
+        : h('div', { className: 'dd-tf-paper' },
+          draft.trim() === ''
+            ? h('span', { className: 'dd-tf-empty' }, '（空）')
+            : h('div', { className: 'dd-md' }, h(MarkdownLite, { text: draft })))
+
+      const warnStrip = warned
+        ? h('div', { className: 'dd-tf-warn' },
+          h('span', null, '请先保存，或放弃这次修改。'),
+          h('button', {
+            type: 'button', className: 'dd-btn sm',
+            title: '丢掉这次修改，关闭窗口',
+            onClick: onClose,
+          }, '放弃修改'))
+        : null
+
+      const head = h('div', { className: 'dd-tf-head' },
+        h('span', { className: 'dd-tf-title' }, title || '编辑'),
+        h('span', { className: 'dd-tf-meta num' }, draft.length + ' 字'),
+        dirty ? h('span', { className: 'dd-tf-dirty' }, '未保存') : null,
+        h('span', { className: 'dd-spacer' }),
+        h('div', { className: 'dd-tf-seg' }, chip('preview', '预览'), chip('edit', '编辑')),
+        // **只有真改了才有【保存】**：没改就不该有一个按钮等着被误点。
+        mode === 'edit' && dirty
+          ? h('button', {
+            type: 'button', className: 'dd-btn sm primary', disabled: busy,
+            onClick: () => { void commit() },
+          }, busy ? '保存中…' : '保存')
+          : null,
+        h('button', {
+          type: 'button', className: 'dd-icon-btn', title: '关闭',
+          onClick: requestClose,
+        }, h(Icon, { name: 'close', size: 13 })),
+      )
+
+      return h('div', {
+        className: 'dd-tf-overlay',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': title || '编辑',
+        onMouseDown: event => { if (event.target === event.currentTarget) requestClose() },
+      },
+        h('div', {
+          className: 'dd-tf-card' + (warned ? ' warned' : ''),
+        },
+          head,
+          warnStrip,
+          h('div', { className: 'dd-tf-body' }, body),
         ),
       )
     }
@@ -1783,6 +2142,154 @@ select.dd-input{
       )
     }
 
+    // ── 文本编辑组件的样式 ────────────────────────────────────────────────
+    // 放在组件旁边，而不是散在 30-theme.js 里——样式跟着组件走，改一处就够。
+    CSS_PARTS.push(`
+/* ── 文本编辑组件 ─────────────────────────────────────────────────────── */
+.dd-ed{display:flex;flex-direction:column;gap:2px;min-width:0;position:relative}
+.dd-ed.row{display:grid;grid-template-columns:var(--ed-lab,116px) minmax(0,1fr);gap:14px;align-items:baseline}
+.dd-ed-lab{
+  font-family:var(--f-gauge);font-size:10px;color:var(--ink3);
+  letter-spacing:.1em;text-transform:uppercase;line-height:1.5;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+/* 读态与编辑态的**排版度量必须完全一致**（字号/行高/内边距），
+   否则切换时盒子会变高变低——这就是「页面一直跳」的根源。 */
+.dd-ed-box{position:relative;min-width:0}
+.dd-ed-val{
+  font-size:12.5px;line-height:1.65;color:var(--ink);
+  padding:3px 7px;margin-left:-7px;
+  min-height:28px;border-radius:var(--rx-1);
+  border-bottom:.5px dashed transparent;cursor:text;
+  white-space:pre-wrap;word-break:break-word;
+  transition:border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease),background var(--t-fast) var(--ease);
+}
+/* 多行字段：读态与编辑态的**最小高度相同** ⇒ 切换时高度不变。
+   （以前读态 21px、编辑态 66px —— 那个 45px 的差就是「页面一直跳」的来源。） */
+.dd-ed.multi .dd-ed-val{min-height:44px}
+.dd-ed-val:hover{border-bottom-color:var(--hot-line);background:color-mix(in srgb,var(--hot) 7%,transparent)}
+.dd-ed-val.empty{color:var(--ink4)}
+.dd-ed.readonly .dd-ed-val{cursor:default}
+.dd-ed.readonly .dd-ed-val:hover{border-bottom-color:transparent;background:transparent}
+.dd-ed.serif .dd-ed-val{font-family:var(--serif);font-size:15px;line-height:1.5}
+.dd-ed.mono .dd-ed-val{font-family:var(--f-mono);font-size:11.5px}
+.dd-ed.multi.serif .dd-ed-val{min-height:78px}
+.dd-ed.multi.mono .dd-ed-val{min-height:56px}
+
+/* 读态里的 markdown：给人看的排版，不是源码。
+   元素级的排版住在 82-docs.js（跟着渲染器走），这里只管外壳。 */
+.dd-ed-val.md{white-space:normal}
+.dd-md{font-size:12.5px;line-height:1.7;color:var(--ink);min-width:0}
+.dd-ed.serif .dd-md{font-family:var(--serif);font-size:14.5px;line-height:1.65}
+.dd-tf-empty{color:var(--ink4)}
+.dd-tf-text{white-space:pre-wrap}
+
+/* 编辑入口：**常驻、安静**。
+   它不能只在悬停时才出现——那等于把「怎么改」藏起来；
+   但它也不该抢戏：默认低透明度，悬停/聚焦才亮。
+   点内容**不会**进编辑态（见 41-editing.js 的注释）。 */
+.dd-tf-tools{
+  position:absolute;top:1px;right:1px;z-index:2;
+  display:flex;align-items:center;gap:2px;
+  opacity:.34;transition:opacity var(--t-fast) var(--ease);
+}
+.dd-ed-box:hover .dd-tf-tools,.dd-tf-tools:focus-within{opacity:1}
+.dd-tf-edit,.dd-tf-expand{
+  width:20px;height:20px;border-radius:var(--rx-1);
+  display:grid;place-items:center;color:var(--ink3);
+  background:color-mix(in srgb,var(--raised) 88%,transparent);
+  box-shadow:inset 0 0 0 .5px var(--line);
+  transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);
+}
+.dd-tf-edit:hover{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-tf-expand:hover{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+/* 读态的值域不再假装可点：光标是选字，不是「点这里改」。 */
+.dd-ed-val{cursor:text}
+.dd-ed.readonly .dd-ed-val{cursor:default}
+/* 给右上角那两枚按钮**留位**：否则它们会压在正文上。
+   留位是**常驻**的（不是悬停才留），所以读态与编辑态的宽度一致 ⇒ 不跳。 */
+.dd-ed:not(.readonly) .dd-ed-val{padding-right:48px}
+.dd-ed:not(.readonly) .dd-ed-edit input,
+.dd-ed:not(.readonly) .dd-ed-edit textarea{padding-right:48px}
+
+/* 编辑态：与读态同一套度量，只是多了个内阴影。 */
+.dd-ed-edit{position:relative;display:block}
+.dd-ed-edit input,.dd-ed-edit textarea{
+  display:block;width:100%;background:var(--sunken);border:none;
+  box-shadow:var(--e-well);border-radius:var(--rx-1);color:var(--ink);
+  font-family:inherit;font-size:12.5px;line-height:1.65;padding:3px 7px;outline:none;
+  overflow:auto;resize:none;white-space:pre-wrap;
+  transition:box-shadow var(--t-fast) var(--ease);
+}
+.dd-ed-edit input{height:28px}
+.dd-ed.multi .dd-ed-edit textarea{min-height:44px}
+.dd-ed-edit.serif input,.dd-ed-edit.serif textarea{font-family:var(--serif);font-size:15px;line-height:1.5}
+.dd-ed-edit.mono input,.dd-ed-edit.mono textarea{font-family:var(--f-mono);font-size:11.5px}
+.dd-ed-edit.serif textarea{min-height:52px}
+.dd-ed-edit.mono textarea{min-height:38px}
+.dd-ed-edit input:focus,.dd-ed-edit textarea:focus{box-shadow:var(--e-well),0 0 0 1.5px var(--hot)}
+.dd-ed-acts{position:absolute;top:3px;right:5px;display:flex;gap:3px}
+.dd-ed-act{
+  width:20px;height:20px;border-radius:var(--rx-1);display:grid;place-items:center;
+  color:var(--ink4);box-shadow:inset 0 0 0 .5px var(--line);
+  transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);
+}
+.dd-ed-act:hover{color:var(--ink);background:var(--panel-2)}
+.dd-ed-act.ok:hover{color:var(--sig-pass);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-pass) 45%,transparent)}
+.dd-ed-act.no:hover{color:var(--sig-fail);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-fail) 45%,transparent)}
+/* 字数：算草稿，只在编辑时出现。 */
+.dd-tf-count{
+  position:absolute;left:6px;bottom:-15px;font-family:var(--f-mono);font-size:10px;
+  color:var(--ink4);pointer-events:none;
+}
+.dd-ed-box.editing{margin-bottom:15px}
+
+/* ── 放大编辑窗口 ─────────────────────────────────────────────────────── */
+.dd-tf-overlay{
+  position:fixed;inset:0;z-index:120;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--bg) 40%,rgba(0,0,0,.72));
+}
+.dd-tf-card{
+  width:min(1080px,100%);height:min(88vh,940px);max-height:calc(100vh - 40px);
+  display:flex;flex-direction:column;gap:12px;padding:18px 20px 20px;
+  border-radius:var(--rx-3);background:var(--raised);box-shadow:var(--e-4);
+  transition:box-shadow 200ms var(--ease);
+}
+.dd-tf-card.warned{box-shadow:var(--e-4),0 0 0 3px color-mix(in srgb,var(--warn) 26%,transparent)}
+.dd-tf-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.dd-tf-title{font-size:14px;font-weight:600;color:var(--ink)}
+.dd-tf-meta{font-size:11px;color:var(--ink3)}
+.dd-tf-dirty{
+  font-size:10.5px;color:var(--warn);padding:2px 7px;border-radius:999px;
+  box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--warn) 40%,transparent);
+}
+.dd-tf-seg{display:flex;gap:2px;padding:2px;background:var(--sunken);border-radius:var(--rx-1);box-shadow:var(--e-well)}
+.dd-tf-chip{
+  padding:3px 10px;border-radius:var(--rx-1);font-size:11.5px;color:var(--ink3);
+  transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease);
+}
+.dd-tf-chip.on{color:var(--ink);background:var(--raised);box-shadow:var(--e-1)}
+.dd-tf-body{flex:1 1 auto;min-height:0;display:flex;overflow:hidden}
+.dd-tf-paper{
+  flex:1 1 auto;min-height:0;overflow:auto;padding:22px 26px;
+  background:var(--panel);border-radius:var(--rx-2);box-shadow:inset 0 0 0 .5px var(--line);
+}
+.dd-tf-area{
+  flex:1 1 auto;min-height:0;width:100%;resize:none;overflow:auto;
+  background:var(--panel);color:var(--ink);border:none;outline:none;
+  box-shadow:inset 0 0 0 .5px var(--line);border-radius:var(--rx-2);
+  font-family:var(--f-mono);font-size:12.5px;line-height:1.8;padding:18px 20px;white-space:pre-wrap;
+}
+.dd-tf-area.serif{font-family:var(--serif);font-size:14.5px}
+.dd-tf-area.mono{font-family:var(--f-mono);font-size:12px}
+.dd-tf-warn{
+  display:flex;align-items:center;gap:10px;padding:7px 11px;border-radius:var(--rx-1);
+  font-size:12px;color:var(--warn);
+  background:color-mix(in srgb,var(--warn) 10%,transparent);
+  box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--warn) 35%,transparent);
+}
+`)
+
     // ── stage rail (console track) ────────────────────────────────────────
     //
     // 点节点 = 切视图。不发请求，不弹确认。
@@ -1791,6 +2298,7 @@ select.dd-input{
     // 形态上它是一条**轨道**：九个节点串在一条线上，线被点亮的段落就是进度。
     // 进度是**看得见的一段光**，不是几个颜色不同的小圆点。
     // 左边那格读数告诉你「现在在哪一段」，右边那格告诉你「你只是来看看」。
+
     function StageRail(props) {
       const { stages, committed, viewing, onPick, busy } = props
       if (!stages || stages.length === 0) return null
@@ -1853,6 +2361,7 @@ select.dd-input{
     }
 
     // ── workspace menu (top bar) ───────────────────────────────────────────
+
     function WorkspaceMenu(props) {
       const { works, current, onPick, onCreate, onClose } = props
       const ref = useRef(null)
@@ -1917,37 +2426,22 @@ select.dd-input{
     }
 
     /**
-     * The creative brief: a document, and the one thing you can rewrite here.
+     * 创意简报：一份**文档**，也是这一阶段唯一能改的东西。
      *
-     * 简报也是**可就地编辑的文本**：点那段字，textarea 原地接管，
-     * 失焦即存。以前是「编辑简报」按钮 + 整页变 textarea + 「保存简报」按钮。
+     * 简报用**统一的文本编辑组件**（`Editable`）：读态是 markdown 排版的正文，
+     * 点那段字就地编辑（失焦即存），长文在**放大窗口**里改。
+     *
+     * 以前这里自己手写了一套编辑器（读态/编辑态两套 DOM + 两套状态），
+     * 结果就是「每处各写一套」——跳、抖、和别处不一致。
      */
     function ConceiveView(props) {
       const { data, busy, actions } = props
       const brief = data.brief || {}
       const work = data.work || {}
-      const [editing, setEditing] = useState(false)
-      const [draft, setDraft] = useState(brief.text || '')
-      const editingRef = useRef(false)
-      useEffect(() => { if (!editingRef.current) setDraft(brief.text || '') }, [brief.text])
-      const begin = () => {
-        if (busy || editingRef.current) return
-        editingRef.current = true
-        setDraft(brief.text || '')
-        setEditing(true)
-      }
-      const commit = () => {
-        if (!editingRef.current) return
-        editingRef.current = false
-        setEditing(false)
-        if (draft !== (brief.text || '')) actions.editBrief(draft)
-      }
-      const cancel = () => {
-        if (!editingRef.current) return
-        editingRef.current = false
-        setDraft(brief.text || '')
-        setEditing(false)
-      }
+      const text = brief.text || ''
+      /** 空态那枚「写第一版简报」按钮靠它把字段推进编辑态（**手动触发**）。 */
+      const [signal, setSignal] = useState(0)
+
       const meta = [
         h('span', { className: 'dd-chip' }, '作品 ', h('b', null, work.title || '—')),
         h('span', { className: 'dd-chip' }, 'id ', h('b', { className: 'num' }, work.id || '—')),
@@ -1963,46 +2457,29 @@ select.dd-input{
         }),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
-            brief.exists || editing
-              ? h('div', { className: 'dd-doc' },
-                editing
-                  ? h('div', { className: 'dd-prompt-edit-wrap' },
-                    h('textarea', {
-                      className: 'dd-prompt-edit', value: draft, autoFocus: true,
-                      placeholder: '# 简报\n\n一句话故事…',
-                      onChange: event => setDraft(event.target.value),
-                      onBlur: commit,
-                      onKeyDown: event => {
-                        if (event.key === 'Escape') { event.preventDefault(); cancel() }
-                        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit() }
-                      },
-                    }),
-                    h('span', { className: 'dd-prompt-acts' },
-                      h('button', {
-                        className: 'dd-ed-act ok', type: 'button', title: '保存（失焦或 Ctrl+Enter）',
-                        onMouseDown: event => event.preventDefault(),
-                        onClick: commit,
-                      }, h(Icon, { name: 'check', size: 11 })),
-                      h('button', {
-                        className: 'dd-ed-act no', type: 'button', title: '撤销（Esc）',
-                        onMouseDown: event => event.preventDefault(),
-                        onClick: cancel,
-                      }, h(Icon, { name: 'close', size: 11 })),
-                    ),
-                  )
-                  : h('div', {
-                    className: 'dd-doc editable', role: 'button', tabIndex: 0,
-                    title: '点击就地编辑 · 失焦即存',
-                    onClick: begin,
-                    onKeyDown: event => { if (event.key === 'Enter') { event.preventDefault(); begin() } },
-                  }, h(MarkdownLite, { text: brief.text || '' })),
-              )
-              : h('div', { className: 'dd-empty' },
+            brief.exists
+              ? null
+              : h('div', { className: 'dd-empty', style: { padding: '38px 20px' } },
                 h('div', { className: 'dd-empty-title' }, '还没有简报'),
                 h('div', null, 'conceive 的出口是 creative/brief.md。写下来，它就存在了。'),
                 h('div', { style: { marginTop: '14px' } },
-                  h('button', { className: 'dd-btn primary', disabled: busy, onClick: begin }, '写第一版简报')),
-              ),
+                  h('button', {
+                    className: 'dd-btn primary', disabled: busy,
+                    onClick: () => setSignal(signal + 1),
+                  }, '写第一版简报'))),
+            h(Editable, {
+              label: '简报',
+              labelTitle: 'creative/brief.md（markdown）',
+              value: text,
+              multiline: true,
+              serif: true,
+              markdown: true,
+              disabled: busy,
+              placeholder: '# 简报\n\n一句话故事…',
+              editSignal: signal,
+              emptyHint: h('span', { className: 'dd-tf-empty' }, '（空）'),
+              onSave: value => actions.editBrief(value),
+            }),
           ),
         ),
       )
@@ -2177,7 +2654,9 @@ select.dd-input{
                     h('div', { className: 'rbody' },
                       h('div', null, asset.width ? asset.width + '×' + asset.height + ' · ' : '', asset.source || '—'),
                       asset.hasPrompt
-                        ? h('div', { className: 'rp', style: { marginTop: '5px' } }, asset.prompt)
+                        // 参考图的生图提示词是**只读展示**（不是这一阶段能改的字段），
+                        // 但排版要与别处的 markdown 读态一致——否则同一段字两种长相。
+                        ? h('div', { className: 'rp dd-md', style: { marginTop: '5px' } }, h(MarkdownLite, { text: asset.prompt }))
                         : h('div', { className: 'rp', style: { marginTop: '5px', color: 'var(--ink4)' } }, '（没有登记生图提示词）'),
                     ),
                   )),
@@ -2930,6 +3409,8 @@ select.dd-input{
           wantsDialogue
             ? h(Editable, {
               label: '台词', value: beat.text || '', multiline: true, disabled,
+              // 台词是**作品内容**：用文学字族（AGENTS.md §16①）。
+              serif: true,
               placeholder: '这一拍说出口的话',
               onSave: value => commit({ text: value }),
             })
@@ -2952,38 +3433,17 @@ select.dd-input{
     /**
      * 提示词是**产物**，但它也是**可改的文本**。
      *
-     * 以前是「编辑」按钮 → 整块变textarea → 「保存提示词」按钮。
-     * 现在是：点那些字，就地编辑，失焦即存。
      * 「重新编译 / 校验过期 / 丢弃手工改写」是**动作**，留在工具条上；
-     * 「编辑」不是动作，是**另一种看法**，所以它不该占一个按钮位。
+     * 「编辑」不是动作，是**另一种看法**——所以它用统一的文本编辑组件
+     * （`Editable`）：点那些字就地编辑，失焦即存，长文在放大窗口里改。
+     *
+     * 提示词**不开 markdown**：它是给模型看的源码，要原样读出来；
+     * 按 markdown 渲染会把它的换行结构吃掉。
      */
     function PromptEditor(props) {
       const { shot, prompt, busy, actions } = props
-      const [editing, setEditing] = useState(false)
-      const [draft, setDraft] = useState('')
-      const editingRef = useRef(false)
-      useEffect(() => {
-        if (!editingRef.current) setDraft(prompt ? prompt.text || '' : '')
-      }, [prompt ? prompt.text : ''])
-      const words = prompt && prompt.text ? prompt.text.trim().split(/\s+/).length : 0
-      const begin = () => {
-        if (busy || editingRef.current) return
-        editingRef.current = true
-        setDraft(prompt ? prompt.text || '' : '')
-        setEditing(true)
-      }
-      const commit = () => {
-        if (!editingRef.current) return
-        editingRef.current = false
-        setEditing(false)
-        actions.savePrompt(shot.id, draft)
-      }
-      const cancel = () => {
-        if (!editingRef.current) return
-        editingRef.current = false
-        setDraft(prompt ? prompt.text || '' : '')
-        setEditing(false)
-      }
+      const text = prompt && prompt.text ? prompt.text : ''
+      const words = text.trim() === '' ? 0 : text.trim().split(/\s+/).length
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '9px' } },
         h('div', { style: { display: 'flex', gap: '7px', flexWrap: 'wrap', alignItems: 'center' } },
           h('button', { className: 'dd-btn sm', disabled: busy, onClick: () => actions.compileShot(shot.id, true) }, '校验过期'),
@@ -3003,40 +3463,18 @@ select.dd-input{
         prompt && prompt.overridden
           ? h('div', { className: 'dd-okbox' }, '这一镜的提示词有人工改写。重新编译会保留你的版本；要回到自动生成，点「丢弃手工改写」。')
           : null,
-        editing
-          ? h('div', { className: 'dd-prompt-edit-wrap' },
-            h('textarea', {
-              className: 'dd-prompt-edit', value: draft, autoFocus: true,
-              onChange: event => setDraft(event.target.value),
-              onBlur: commit,
-              onKeyDown: event => {
-                if (event.key === 'Escape') { event.preventDefault(); cancel() }
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit() }
-              },
-            }),
-            h('span', { className: 'dd-prompt-acts' },
-              h('button', {
-                className: 'dd-ed-act ok', type: 'button', title: '保存（失焦或 Ctrl+Enter）',
-                onMouseDown: event => event.preventDefault(),
-                onClick: commit,
-              }, h(Icon, { name: 'check', size: 11 })),
-              h('button', {
-                className: 'dd-ed-act no', type: 'button', title: '撤销（Esc）',
-                onMouseDown: event => event.preventDefault(),
-                onClick: cancel,
-              }, h(Icon, { name: 'close', size: 11 })),
-            ),
-          )
-          : prompt && prompt.text
-            ? h('div', {
-              className: 'dd-prompt editable', role: 'button', tabIndex: 0,
-              title: '点击就地编辑 · 失焦即存',
-              onClick: begin,
-              onKeyDown: event => {
-                if (event.key === 'Enter') { event.preventDefault(); begin() }
-              },
-            }, prompt.text)
-            : h('div', { className: 'dd-note' }, '还没有提示词产物。点「重新编译」按真源生成。'),
+        text !== ''
+          ? h(Editable, {
+            label: '提示词',
+            labelTitle: '这一镜的提示词产物（可改；重新编译会保留你的版本）',
+            value: text,
+            multiline: true,
+            mono: true,
+            markdown: false,
+            disabled: busy,
+            onSave: value => actions.savePrompt(shot.id, value),
+          })
+          : h('div', { className: 'dd-note' }, '还没有提示词产物。点「重新编译」按真源生成。'),
       )
     }
 
@@ -3087,7 +3525,7 @@ select.dd-input{
 
     /** The shot detail column: 真源、产物、判定、依据，同屏。 */
     function ShotDetail(props) {
-      const { detail, loading, onClose, busy, actions, workspaceId, onOpenImage, sheet, onSelectShot } = props
+      const { detail, loading, onClose, busy, actions, workspaceId, onOpenImage, sheet, onSelectShot, panelControls } = props
       if (loading) return h('div', { className: 'dd-inspector' }, h('div', { className: 'dd-empty' }, '正在读取镜头…'))
       if (!detail) {
         // 没有选中镜头时，右栏**不写说明书**——它给这一场的概览：
@@ -3101,6 +3539,8 @@ select.dd-input{
           h('div', { className: 'dd-inspector-head' },
             h('span', { className: 'id' }, sheet.id || 'SCENE'),
             h('span', { className: 'ttl' }, sheet.title || '概览'),
+            h('span', { className: 'dd-spacer' }),
+            panelControls,
           ),
           h('div', { className: 'dd-inspector-body' },
             h('div', { className: 'dd-sheet' },
@@ -3150,6 +3590,7 @@ select.dd-input{
           h('span', { className: 'id' }, shot.id),
           h('span', { className: 'ttl' }, shot.title || ''),
           h('span', { className: 'dd-spacer' }),
+          panelControls,
           h('button', { className: 'dd-icon-btn', onClick: onClose, title: t('action.close', '关闭') }, h(Icon, { name: 'close', size: 13 })),
         ),
         h('div', { className: 'dd-inspector-body' },
@@ -3255,7 +3696,6 @@ select.dd-input{
     //
     // Client 半边拿不到 `ctx`，只有 `apply(ctx)` 拿得到。把 ctx 记在这里，
     // 组件才用得上 `sessions` / `uiWorkspace` / `layout` 这些宿主服务。
-    let CTX = null
 
     /** 订阅一个 ObservableSnapshot（宿主自己的增量机制），返回它当前的值。 */
     function useStore(source) {
@@ -3309,6 +3749,19 @@ select.dd-input{
       return names
     }
 
+    /** 一条消息里的推理文本（宿主的「轨迹」视图里叫 reasoning）。 */
+    function reasoningOf(message) {
+      const content = message === undefined || message === null ? undefined : message.content
+      if (!Array.isArray(content)) return ''
+      const parts = []
+      for (const block of content) {
+        if (block !== null && typeof block === 'object' && block.type === 'reasoning' && typeof block.text === 'string') {
+          parts.push(block.text)
+        }
+      }
+      return parts.join('\n')
+    }
+
     /**
      * 抹掉宿主注入的上下文块。
      *
@@ -3347,16 +3800,231 @@ select.dd-input{
     }
 
     /**
+     * 「处理过程」：一组工具调用 / 推理，**默认折叠**。
+     *
+     * 这是宿主对话面板里「轨迹」视图的轻量版。折叠起来是因为导演要的是
+     * 「它说了什么」，不是「它调了七次工具」；但那七次工具调用**必须能看见**
+     * ——「AI 一句话没说就停了」是最让人困惑的现象。
+     */
+    function ChatProcess(props) {
+      const { steps } = props
+      const [open, setOpen] = useState(false)
+      if (!Array.isArray(steps) || steps.length === 0) return null
+      const running = steps.some(step => step.status === 'run')
+      const failed = steps.some(step => step.status === 'fail')
+      return h('div', { className: 'dd-process' + (open ? ' open' : '') },
+        h('button', {
+          className: 'dd-process-head',
+          type: 'button',
+          onClick: () => setOpen(!open),
+          title: open ? '收起处理过程' : '展开处理过程',
+        },
+          h(Icon, { name: 'chevron', size: 12 }),
+          h('span', null, running ? '正在处理…' : '处理过程'),
+          h('span', { className: 'dd-process-count num' }, steps.length + ' 步'),
+          failed ? h('span', { className: 'dd-badge fail' }, '有失败') : null,
+        ),
+        open
+          ? h('div', { className: 'dd-process-body' },
+            steps.map(step => h('div', { key: step.key, className: 'dd-process-step ' + step.status },
+              h('span', { className: 'dot ' + step.status }),
+              h('span', { className: 'nm' }, step.name),
+              step.detail ? h('span', { className: 'dt' }, step.detail) : null,
+              // 这一步改的文件：**看得见**，不用去目录里翻 mtime。
+              step.path ? h('span', { className: 'dp' }, '改 ' + step.path) : null,
+            )))
+          : null,
+      )
+    }
+
+    /**
+     * 模型 / 推理强度。
+     *
+     * 复用宿主的**同一个真源**（`agentDefaultModel`）——不是插件自己存一份。
+     * 改的是**宿主的默认选择**，所以对**新开的会话**生效；当前这段会话
+     * 用的是它自己开起来时的模型（界面里写清楚了，不含糊）。
+     */
+    function ChatModelMenu(props) {
+      const { hostModel, providers, onChange, onClose } = props
+      const [open, setOpen] = useState(false)
+      const [effort, setEffort] = useState(hostModel && hostModel.reasoningEffort ? hostModel.reasoningEffort : '')
+      useEffect(() => {
+        setEffort(hostModel && hostModel.reasoningEffort ? hostModel.reasoningEffort : '')
+      }, [hostModel && hostModel.reasoningEffort])
+      const model = hostModel && hostModel.model ? hostModel.model : '—'
+      const level = hostModel && hostModel.reasoningEffort ? hostModel.reasoningEffort : '默认'
+      const list = Array.isArray(providers) ? providers : []
+
+      const panel = open
+        ? h('div', { className: 'dd-pop' },
+          h('div', { className: 'dd-pop-title' }, '模型（宿主的默认选择）'),
+          list.length === 0
+            ? h('div', { className: 'dd-note' }, '这个宿主没有公布模型目录。')
+            : list.map(provider => h('div', { key: provider.id, className: 'dd-pop-group' },
+              h('div', { className: 'dd-pop-lab' }, provider.name || provider.id),
+              (provider.models || []).map(entry => h('button', {
+                key: entry.id,
+                className: 'dd-pop-item' + (hostModel && hostModel.model === entry.id ? ' on' : ''),
+                onClick: () => { onChange(provider.id, entry.id, effort); setOpen(false) },
+              }, entry.name || entry.id)),
+            )),
+          h('div', { className: 'dd-pop-title' }, '推理强度'),
+          h('div', { className: 'dd-pop-row' },
+            h('input', {
+              className: 'num', value: effort, placeholder: '留空 = 模型默认',
+              onChange: event => setEffort(event.target.value),
+              onKeyDown: event => {
+                if (event.key === 'Enter') { event.preventDefault(); onChange(hostModel ? hostModel.provider : '', hostModel ? hostModel.model : '', effort); setOpen(false) }
+                if (event.key === 'Escape') { event.preventDefault(); setOpen(false) }
+              },
+            }),
+            h('button', {
+              className: 'dd-btn sm primary',
+              onClick: () => { onChange(hostModel ? hostModel.provider : '', hostModel ? hostModel.model : '', effort); setOpen(false) },
+            }, '应用'),
+          ),
+          h('div', { className: 'dd-note' }, '改的是**宿主的默认选择**：新开的会话会用它。当前这段会话仍用开起来时的模型。'),
+        )
+        : null
+
+      return h('div', { className: 'dd-pop-wrap' },
+        h('button', {
+          className: 'dd-chip click dd-chat-model',
+          type: 'button',
+          title: '模型与推理强度',
+          onClick: () => setOpen(value => !value),
+        }, h(Icon, { name: 'settings', size: 12 }), h('span', null, model), h('span', { className: 'lv' }, '· ' + level)),
+        panel,
+      )
+    }
+
+    /**
+     * 会话选择：同一�� DSH 工作区里的会话。
+     *
+     * 对话是**固定在一个工作区**里发生的（一个短剧项目 = 一个 DSH 工作区），
+     * 所以这里列的就是那个工作区里的会话——不是全局的会话列表。
+     */
+    function ChatSessionMenu(props) {
+      const { sessions, current, onPick, onClose } = props
+      const [open, setOpen] = useState(false)
+      const list = Array.isArray(sessions) ? sessions : []
+      const panel = open
+        ? h('div', { className: 'dd-pop' },
+          h('div', { className: 'dd-pop-title' }, '这个作品里的对话'),
+          list.length === 0
+            ? h('div', { className: 'dd-note' }, '这个工作区里还没有别的会话。')
+            : list.map(entry => h('button', {
+              key: entry.id,
+              className: 'dd-pop-item' + (entry.id === current ? ' on' : ''),
+              onClick: () => { onPick(entry.id); setOpen(false) },
+            },
+              h('span', { className: 'nm' }, entry.title || '（未命名会话）'),
+              h('span', { className: 'dt num' }, entry.id.slice(0, 8)),
+            )),
+        )
+        : null
+      return h('div', { className: 'dd-pop-wrap' },
+        h('button', {
+          className: 'dd-btn sm',
+          type: 'button',
+          title: '切换对话（同一个短剧工作区里的会话）',
+          onClick: () => setOpen(value => !value),
+        }, '对话'),
+        panel,
+      )
+    }
+
+    /**
+     * Agent 向用户提问。
+     *
+     * 宿主有一套成熟的提问交互（`ask_user_question` 工具 + 它的卡片）。
+     * 插件这扇小窗**不重复造**那套轮子：它把问题**显示出来**，并把回答
+     * 交给真正能生效的通道——宿主对话面板里的那张原生卡片。
+     *
+     * 找不到可用通道时，按钮是**明确指向宿主**的，不是点了没反应。
+     */
+    function ChatQuestion(props) {
+      const { question, options, onOpenHost } = props
+      const [picked, setPicked] = useState([])
+      const [copied, setCopied] = useState(false)
+      const toggle = label => {
+        setPicked(current => current.includes(label)
+          ? current.filter(item => item !== label)
+          : current.concat(label))
+        setCopied(false)
+      }
+      const answerText = picked.join('；')
+      const copy = () => {
+        if (answerText === '') return
+        try {
+          if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
+            void navigator.clipboard.writeText(answerText)
+          }
+        } catch {
+          // 剪贴板不可用就算了：下面那行字还能手动选中复制。
+        }
+        setCopied(true)
+      }
+      return h('div', { className: 'dd-question' },
+        h('div', { className: 'dd-question-head' },
+          h(Icon, { name: 'note', size: 13 }),
+          h('span', null, 'AI 需要你回答'),
+        ),
+        h('div', { className: 'dd-question-text' }, question),
+        options.length > 0
+          ? h('div', { className: 'dd-question-opts' },
+            options.map(option => h('button', {
+              key: option.label || option,
+              className: 'dd-question-opt' + (picked.includes(option.label || option) ? ' on' : ''),
+              type: 'button',
+              onClick: () => toggle(option.label || option),
+            },
+              h('span', { className: 'nm' }, option.label || option),
+              option.description ? h('span', { className: 'dt' }, option.description) : null,
+            )))
+          : null,
+        picked.length > 0
+          ? h('div', { className: 'dd-question-answer' },
+            h('span', { className: 'dd-note' }, '你的选择：'),
+            h('span', { className: 'dd-question-answer-text' }, answerText))
+          : null,
+        h('div', { className: 'dd-question-foot' },
+          h('button', {
+            className: 'dd-btn sm',
+            type: 'button',
+            disabled: picked.length === 0,
+            onClick: copy,
+          }, copied ? '已复制' : '复制答案'),
+          h('button', {
+            className: 'dd-btn sm primary',
+            type: 'button',
+            title: '在宿主自己的对话面板里回答（那里有原生的提问卡片，答案才能真正回传）',
+            onClick: onOpenHost,
+          }, '在完整对话里回答'),
+        ),
+        h('div', { className: 'dd-note dd-question-hint' },
+          '答案要由宿主的提问卡片回传（它才接得上 agent 的等待）；这扇窗负责让你看见问题、选好答案。'),
+      )
+    }
+
+    /**
      * 构思会话面板。
      *
      * **它不画一个仿造的聊天界面。** 会话是真的（真模型、真工具、
-     * `drama-conceive` 技能、工作目录就是这个作品目录），这里只把
+     * `drama-conceive` 技能、工作目录就是这个作品目录），这里把
      * 宿主已经折叠好的会话窗口按「谁说的」摊开，并把输入框接到
      * `session.prompt()` 上。要看完整对话（工具卡片、推理、审批），
      * 一个按钮跳回宿主自己的对话面板。
+     *
+     * 复用宿主能力的三处：**模型与推理强度**（同一个 `agentDefaultModel` 真源）、
+     * **会话目录**（Host 半边按工作区过滤过的清单）、
+     * **处理过程与提问**（宿主事件流里的工具调用与提问，按可折叠 / 可回答呈现）。
      */
     function ConceiveChat(props) {
-      const { sessionId, seed, onClose, onFresh, onStart, canStart, busy } = props
+      const {
+        sessionId, seed, onClose, onFresh, onStart, canStart, busy,
+        settings, panelControls, onSwitchSession, onGoto,
+      } = props
       const [reference, setReference] = useState(null)
       const [error, setError] = useState(null)
       const [draft, setDraft] = useState('')
@@ -3364,9 +4032,26 @@ select.dd-input{
       /** 这段会话的「开场白」送出去了没有（送过就不再重复）。 */
       const seeded = useRef(false)
       const flowRef = useRef(null)
+      /** 面板当前在看哪一段会话（默认是这个作品的构思会话）。 */
+      const [viewSession, setViewSession] = useState(sessionId)
+      /** 这个短剧工作区里的会话清单。 */
+      const [sessionList, setSessionList] = useState([])
 
+      useEffect(() => { setViewSession(sessionId) }, [sessionId])
+
+      // 会话清单：只在窗口打开时拉一次（它是**清单**，不是某一镜的判定）。
       useEffect(() => {
-        if (!sessionId) return undefined
+        let cancelled = false
+        apiGet('sessions').then(value => {
+          if (cancelled) return
+          setSessionList(value && Array.isArray(value.sessions) ? value.sessions : [])
+        }).catch(() => { if (!cancelled) setSessionList([]) })
+        return () => { cancelled = true }
+      }, [])
+
+      const activeId = viewSession
+      useEffect(() => {
+        if (!activeId) return undefined
         const sessions = CTX ? CTX.get('sessions') : undefined
         if (sessions === undefined || sessions === null || typeof sessions.retain !== 'function') {
           setError('这个宿主没有 sessions 服务：构思会话需要 DSH 桌面版或 dsh web。')
@@ -3374,7 +4059,7 @@ select.dd-input{
         }
         let current
         try {
-          current = sessions.retain(sessionId, { source: 'controllerOperation' })
+          current = sessions.retain(activeId, { source: 'controllerOperation' })
         } catch (problem) {
           setError(problem instanceof Error ? problem.message : String(problem))
           return undefined
@@ -3390,16 +4075,61 @@ select.dd-input{
           }
           setReference(null)
         }
-      }, [sessionId])
+      }, [activeId])
 
       const binding = reference === null ? undefined : reference.binding
       const snapshot = useStore(binding === undefined ? undefined : binding.session)
       const window_ = useStore(binding === undefined ? undefined : binding.eventSource)
 
+      /**
+       * 抹掉**我们自己的开场白**。
+       *
+       * 开场白是**上下文**，不是用户说的话。宿主可能把它拆成独立的一条用户
+       * 消息（那样 `<system-reminder>` 的标签就跟着不见了，`stripInjected` 抓不到）。
+       * 所以这里按**原文精确剔除**——只剔除我们自己塞进去的那一段。
+       *
+       * @param {string} text
+       * @returns {string}
+       */
+      const stripSeed = useCallback(text => {
+        let out = String(text ?? '')
+        if (typeof seed === 'string' && seed !== '') {
+          out = out.split(seed).join('')
+        }
+        return out.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+      }, [seed])
+
+      /**
+       * 事件流 → 界面上的行。
+       *
+       * 三种行：**消息**（我说的话 / 它说的话）、**处理过程**（一组工具调用与推理，
+       * 默认折叠）、**提问**（Agent 要人回答）。
+       */
       const rows = useMemo(() => {
         const entries = window_ !== undefined && Array.isArray(window_.entries) ? window_.entries : []
         const out = []
         let streaming = ''
+        let process = null
+        const flush = () => {
+          if (process !== null) { out.push(process); process = null }
+        }
+        const pushStep = step => {
+          if (process === null) {
+            process = { kind: 'process', key: 'p' + step.key, steps: [step] }
+            return
+          }
+          process.steps.push(step)
+        }
+        const findStep = callId => {
+          const pools = [process]
+          for (const row of out) if (row.kind === 'process') pools.push(row)
+          for (const pool of pools) {
+            if (pool === null || pool === undefined) continue
+            for (const step of pool.steps) if (step.callId === callId) return step
+          }
+          return undefined
+        }
+
         for (const entry of entries) {
           if (entry === null || typeof entry !== 'object') continue
           if (entry.type === 'transient') {
@@ -3411,33 +4141,107 @@ select.dd-input{
           }
           const event = entry.event
           if (event === undefined || event === null) continue
+
           if (event.type === 'user/message') {
-            const text = stripInjected(textOf(event.data))
+            flush()
+            const text = stripSeed(stripInjected(textOf(event.data)))
             if (text !== '') out.push({ kind: 'user', text, key: 'u' + event.seq })
-          } else if (event.type === 'assistant/message') {
+            continue
+          }
+
+          if (event.type === 'assistant/message') {
             const message = event.data ? event.data.message : undefined
             const text = textOf(message)
-            const calls = toolsOf(message)
-            // 只带工具调用的步骤也要露一行：否则导演看到的是「AI 一句话没说就停了」。
-            if (text !== '') out.push({ kind: 'assistant', text, key: 'a' + event.seq })
-            else if (calls.length > 0) out.push({ kind: 'tool', text: '调用 ' + calls.join(' · '), key: 'a' + event.seq })
-          } else if (event.type === 'tool/call') {
-            const name = event.data ? event.data.name : undefined
-            if (typeof name === 'string' && name !== '') out.push({ kind: 'tool', text: name, key: 't' + event.seq })
-          } else if (event.type === 'turn/end') {
+            const thinking = reasoningOf(message)
+            if (thinking !== '') {
+              pushStep({ key: 'r' + event.seq, name: '思考', detail: thinking.slice(0, 120), status: 'done' })
+            }
+            if (text !== '') {
+              flush()
+              out.push({ kind: 'assistant', text, key: 'a' + event.seq })
+            }
+            continue
+          }
+
+          if (event.type === 'tool/call') {
+            const data = event.data || {}
+            const name = typeof data.name === 'string' ? data.name : 'tool'
+            const args = typeof data.arguments === 'string' ? data.arguments : ''
+            // **Agent 向用户提问**：单独成一张卡，不混进「处理过程」。
+            if (name === 'ask_user_question') {
+              flush()
+              const parsed = parseQuestion(args)
+              out.push({
+                kind: 'question',
+                key: 'q' + event.seq,
+                callId: data.callId,
+                question: parsed.question,
+                options: parsed.options,
+              })
+              continue
+            }
+            pushStep({
+              key: 't' + event.seq,
+              callId: data.callId,
+              name,
+              detail: args.slice(0, 90),
+              status: 'run',
+              // **这一步改了哪个文件。**
+              //
+              // 「看不到产出的资产改动」是用户点名的一条痛点：agent 改完了东西，
+              // 侧栏里**一个字都没留下**——你只能去作品目录里翻 mtime。
+              // 工具调用的参数里就有路径，直接读出来。
+              path: writtenPathOf(name, args),
+            })
+            continue
+          }
+
+          if (event.type === 'tool/result') {
+            const data = event.data || {}
+            const callId = data.message && typeof data.message.toolCallId === 'string' ? data.message.toolCallId : undefined
+            const step = findStep(callId)
+            if (step !== undefined) step.status = data.error ? 'fail' : 'done'
+            continue
+          }
+
+          if (event.type === 'turn/end') {
+            flush()
             const reason = event.data ? event.data.reason : undefined
             if (reason !== undefined && reason !== null && reason.kind === 'error') {
               const why = reason.error && typeof reason.error.message === 'string' ? reason.error.message : '这一轮失败了'
               out.push({ kind: 'err', text: why, key: 'e' + event.seq })
             }
+            continue
           }
         }
         if (streaming !== '') out.push({ kind: 'assistant', text: streaming, key: 'live' })
+        flush()
         return out
-      }, [window_])
+      }, [window_, stripSeed])
 
       const running = snapshot !== undefined && snapshot.running === true
       const openState = snapshot === undefined ? undefined : snapshot.openState
+
+      /**
+       * **这一轮对话改掉了哪些文件。**
+       *
+       * 「看不到产出的资产改动」是用户点名的一条痛点：agent 改完了东西，
+       * 侧栏里一个字都没留下。工具调用里有路径，这里把它们收成一张清单，
+       * 摆在消息流的最上面——**改了什么，一眼就看到**。
+       */
+      const changedPaths = useMemo(() => {
+        const seen = new Set()
+        const out = []
+        for (const row of rows) {
+          if (row.kind !== 'process') continue
+          for (const step of row.steps) {
+            if (step.path === undefined || seen.has(step.path)) continue
+            seen.add(step.path)
+            out.push(step.path)
+          }
+        }
+        return out
+      }, [rows])
 
       // 新消息进来 → 滚到底。不这么做的话，AI 说完话你还停在几句之前。
       useEffect(() => {
@@ -3456,6 +4260,7 @@ select.dd-input{
        */
       const seedPending = seeded.current === false
         && typeof seed === 'string' && seed !== ''
+        && activeId === sessionId
         && !rows.some(row => row.kind === 'user')
 
       const send = useCallback(async () => {
@@ -3500,18 +4305,53 @@ select.dd-input{
         const helper = CTX ? CTX.get('uiWorkspace') : undefined
         const layout = CTX ? CTX.get('layout') : undefined
         try {
-          if (helper !== undefined && helper !== null && typeof helper.openSession === 'function') helper.openSession(sessionId)
+          if (helper !== undefined && helper !== null && typeof helper.openSession === 'function') helper.openSession(activeId)
           if (layout !== undefined && layout !== null && typeof layout.selectPanel === 'function') layout.selectPanel('conversation')
         } catch {
           // 打不开就算了：面板里这段对话照常能聊。
         }
-      }, [sessionId])
+      }, [activeId])
 
-      const hasSession = sessionId !== undefined
+      /** 改宿主默认模型（模型 + 推理强度）。 */
+      const changeModel = useCallback(async (provider, model, effort) => {
+        try {
+          await apiPost('update-settings', {
+            hostProvider: provider,
+            hostModel: model,
+            hostReasoningEffort: effort,
+          })
+          say('已改宿主默认模型：新开的会话会用它', 'ok')
+        } catch (problem) {
+          say(problem instanceof Error ? problem.message : String(problem), 'err')
+        }
+      }, [])
+
+      const hasSession = activeId !== undefined
+      const hostModel = settings ? settings.hostModel : undefined
+      const providers = settings ? settings.providers : undefined
+
+      /**
+       * 打开一个被改过的文件 → 落到它**能被看见**的那个阶段。
+       *
+       * 这就是「页面联动」在聊天窗里的样子：agent 改完 `creative/brief.md`，
+       * 你在消息流里点一下「改 creative/brief.md」，**直接落到创意阶段的简报**——
+       * 而不是自己再去找一遍那个文件在哪个视图里。
+       */
+      const onOpenPath = useCallback(path => {
+        if (typeof onGoto !== 'function') return
+        const p = String(path ?? '').replace(/\\/g, '/')
+        const stage = p.includes('creative/') || p.includes('brief.md') ? 'conceive'
+          : p.includes('characters') ? 'characters'
+            : p.includes('scenes') ? 'script'
+              : p.includes('shots') ? 'storyboard'
+                : p.includes('refs/') ? 'characters'
+                  : 'generate'
+        onGoto(stage)
+      }, [onGoto])
 
       const head = h('div', { className: 'dd-chat-head' },
         h(Icon, { name: 'note', size: 14 }),
-        h('div', { style: { minWidth: '0' } },
+        h('div', { className: 'dd-chat-title' },
           h('div', { className: 'ch-t' }, '构思会话'),
           h('div', { className: 'ch-sub' },
             !hasSession ? '还没开始——点下面「开始对话」'
@@ -3521,6 +4361,18 @@ select.dd-input{
                     : '准备中…'),
         ),
         h('span', { className: 'dd-spacer' }),
+        hostModel
+          ? h(ChatModelMenu, {
+            hostModel,
+            providers,
+            onChange: changeModel,
+          })
+          : null,
+        h(ChatSessionMenu, {
+          sessions: sessionList,
+          current: activeId,
+          onPick: id => setViewSession(id),
+        }),
         h('button', {
           className: 'dd-btn sm', onClick: onFresh, disabled: !hasSession || busy,
           title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）',
@@ -3529,10 +4381,30 @@ select.dd-input{
           className: 'dd-btn sm', onClick: openInPanel, disabled: !hasSession,
           title: '在宿主的对话面板里打开完整聊天',
         }, '完整对话'),
+        panelControls,
         h('button', { className: 'dd-icon-btn', onClick: onClose, title: '收起这扇窗（顶栏的图标能再展开）' }, h(Icon, { name: 'close', size: 13 })),
       )
 
       const flow = h('div', { className: 'dd-chat-flow', ref: flowRef },
+        // 本轮改动：摆在最上面，**改了什么一眼就看到**。
+        changedPaths.length > 0
+          ? h('div', { className: 'dd-changed' },
+            h('div', { className: 'dd-changed-head' },
+              h(Icon, { name: 'edit', size: 12 }),
+              h('span', null, '这一轮改掉了'),
+              h('span', { className: 'ct num' }, String(changedPaths.length)),
+              h('span', { className: 'dd-spacer' }),
+              h('span', { className: 'dd-note' }, '点一下去看')),
+            h('div', { className: 'dd-changed-list' },
+              changedPaths.map(path => h('button', {
+                key: path,
+                className: 'dd-changed-item',
+                type: 'button',
+                title: path,
+                onClick: () => onOpenPath(path),
+              }, path))),
+          )
+          : null,
         rows.length === 0
           ? h('div', { className: 'dd-chat-empty' },
             h('div', null, '这里接的是真的 DSH 会话：'),
@@ -3549,7 +4421,18 @@ select.dd-input{
                   canStart
                     ? '会话由你发起：开好之后你说的话，它会写进 creative/brief.md。'
                     : '先选一个作品（或新建一个），构思会话是挂在作品上的。')))
-          : rows.map(row => h(MsgRow, { key: row.key, kind: row.kind, text: row.text })),
+          : rows.map(row => {
+            if (row.kind === 'process') return h(ChatProcess, { key: row.key, steps: row.steps })
+            if (row.kind === 'question') {
+              return h(ChatQuestion, {
+                key: row.key,
+                question: row.question,
+                options: row.options,
+                onOpenHost: openInPanel,
+              })
+            }
+            return h(MsgRow, { key: row.key, kind: row.kind, text: row.text })
+          }),
         error !== null
           ? h('div', { className: 'dd-msg err' }, h('div', { className: 'body' }, error))
           : null,
@@ -3575,12 +4458,192 @@ select.dd-input{
             ? h('button', { className: 'dd-btn sm danger', onClick: stop }, '停止')
             : h('button', { className: 'dd-btn sm primary', onClick: send, disabled: draft.trim() === '' || binding === undefined }, '发送'),
           h('span', { className: 'dd-spacer' }),
-          h('span', { className: 'hint' }, sessionId === undefined ? '' : sessionId.slice(0, 8)),
+          h('span', { className: 'hint' }, activeId === undefined ? '' : activeId.slice(0, 8)),
         ),
       )
 
       return h('div', { className: 'dd-chat' }, head, flow, composer)
     }
+
+    /**
+     * 这个工具调用**写了哪个文件**。
+     *
+     * 宿主那几个写文件的工具（`write` / `edit` / `multi_edit` / `create_directory`…）
+     * 都把路径放在参数里，键名不统一（`path` / `file_path` / `path`…），
+     * 所以这里**认工具 + 扫参数**两条路都走。
+     *
+     * 认不出来就返回 `undefined`——**不猜**：编一个路径出来比没有更糟。
+     *
+     * @param {string} name 工具名
+     * @param {string} args 参数（JSON 字符串）
+     * @returns {string|undefined}
+     */
+    function writtenPathOf(name, args) {
+      const writers = ['write', 'edit', 'multi_edit', 'create_directory', 'apply_patch', 'write_file']
+      if (!writers.includes(name)) return undefined
+      let parsed
+      try {
+        parsed = JSON.parse(String(args ?? ''))
+      } catch {
+        return undefined
+      }
+      if (parsed === null || typeof parsed !== 'object') return undefined
+      for (const key of ['path', 'file_path', 'filePath', 'target', 'absolute_path']) {
+        const value = parsed[key]
+        if (typeof value === 'string' && value !== '') return value
+      }
+      return undefined
+    }
+
+    /**
+     * 解析 `ask_user_question` 的参数。
+     *
+     * 参数是**工具自己约定的形状**，所以这里**容错**：认不出来就给一句原文，
+     * 绝不假装解析成功。
+     *
+     * @param {string} args
+     * @returns {{question: string, options: Array<{label: string, description?: string}>}}
+     */
+    function parseQuestion(args) {
+      const fallback = { question: String(args ?? '').slice(0, 400), options: [] }
+      let parsed
+      try {
+        parsed = JSON.parse(String(args ?? ''))
+      } catch {
+        return fallback
+      }
+      if (parsed === null || typeof parsed !== 'object') return fallback
+      const questions = Array.isArray(parsed.questions) ? parsed.questions : []
+      if (questions.length === 0) return fallback
+      const first = questions[0]
+      if (first === null || typeof first !== 'object') return fallback
+      const options = Array.isArray(first.options)
+        ? first.options
+          .filter(option => option !== null && typeof option === 'object' && typeof option.label === 'string')
+          .map(option => ({ label: option.label, description: typeof option.description === 'string' ? option.description : undefined }))
+        : []
+      const text = typeof first.question === 'string' ? first.question : ''
+      const header = typeof first.header === 'string' ? first.header : ''
+      const detail = typeof first.detail === 'string' ? first.detail : ''
+      const question = [header, text, detail].filter(part => part !== '').join(' · ')
+      return { question: question === '' ? fallback.question : question, options }
+    }
+
+    // ── 构思会话窗的样式 ──────────────────────────────────────────────────
+    CSS_PARTS.push(`
+/* ── 构思会话窗 ───────────────────────────────────────────────────────── */
+/* 头部挤不下时**换行**，绝不把中文标题压成一列（AGENTS.md §10⑤）。 */
+.dd-chat-head{display:flex;align-items:center;gap:9px;padding:11px 14px;box-shadow:0 1px 0 var(--line);flex:none;flex-wrap:wrap}
+.dd-chat-title{flex:1 1 132px;min-width:132px}
+.dd-chat-title .ch-t{font-size:12.5px;font-weight:600}
+.dd-chat-title .ch-sub{font-size:10.5px;color:var(--ink3);font-family:var(--f-mono)}
+/* 处理过程：默认折叠，但**必须看得见**（「AI 一句话没说就停了」最让人困惑）。 */
+.dd-process{
+  border-radius:var(--rx-2);background:var(--panel-2);overflow:hidden;
+  box-shadow:inset 0 0 0 .5px var(--line);
+}
+.dd-process-head{
+  display:flex;align-items:center;gap:7px;width:100%;padding:6px 10px;
+  font-size:11.5px;color:var(--ink3);text-align:left;
+}
+.dd-process-head:hover{color:var(--ink)}
+.dd-process-head .dd-icon-btn,.dd-process-head svg{transition:transform var(--t-fast) var(--ease)}
+.dd-process.open .dd-process-head>svg:first-child{transform:rotate(90deg)}
+.dd-process-count{margin-left:auto;font-size:10px;color:var(--ink4)}
+.dd-process-body{display:flex;flex-direction:column;gap:3px;padding:2px 10px 8px}
+.dd-process-body>*{flex:0 0 auto}
+.dd-process-step{display:flex;align-items:baseline;gap:7px;font-size:11px;color:var(--ink3)}
+.dd-process-step .dot{width:5px;height:5px;border-radius:50%;flex:none;background:var(--ink4)}
+.dd-process-step .dot.done{background:var(--sig-pass)}
+.dd-process-step .dot.run{background:var(--hot)}
+.dd-process-step .dot.fail{background:var(--sig-fail)}
+.dd-process-step .nm{font-family:var(--f-mono);font-size:10.5px;color:var(--ink2)}
+.dd-process-step .dt{
+  font-family:var(--f-mono);font-size:10px;color:var(--ink4);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+
+/* 弹出层（模型 / 会话）：贴在触发器下面。 */
+.dd-pop-wrap{position:relative;flex:none}
+.dd-pop{
+  position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:min(300px,78vw);
+  display:flex;flex-direction:column;gap:4px;padding:9px 10px;
+  border-radius:var(--rx-2);background:var(--raised);box-shadow:var(--e-4);
+  max-height:min(420px,60vh);overflow:auto;
+}
+.dd-pop>*{flex:0 0 auto}
+.dd-pop-title{
+  font-family:var(--f-gauge);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink3);padding:4px 2px 1px;
+}
+.dd-pop-lab{font-size:11px;color:var(--ink3);padding:3px 2px}
+.dd-pop-item{
+  display:flex;align-items:baseline;gap:8px;width:100%;padding:5px 8px;border-radius:var(--rx-1);
+  font-size:12px;color:var(--ink2);text-align:left;
+}
+.dd-pop-item:hover{background:var(--sunken);color:var(--ink)}
+.dd-pop-item.on{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-pop-item .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-pop-item .dt{font-family:var(--f-mono);font-size:10px;color:var(--ink4);flex:none}
+.dd-pop-row{display:flex;gap:6px;align-items:center}
+.dd-pop-row input{
+  flex:1 1 auto;min-width:0;height:26px;padding:0 9px;border-radius:var(--rx-1);
+  background:var(--sunken);box-shadow:var(--e-well);border:none;outline:none;
+  font-family:var(--f-mono);font-size:11.5px;color:var(--ink);
+}
+.dd-chat-model{gap:6px;max-width:150px;min-width:0}
+.dd-chat-model>span:not(.lv){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-chat-model .lv{font-family:var(--f-mono);font-size:10px;color:var(--ink4);flex:none}
+
+/* Agent 向用户提问。 */
+.dd-question{
+  border-radius:var(--rx-2);padding:10px 12px;display:flex;flex-direction:column;gap:8px;
+  background:color-mix(in srgb,var(--hot) 8%,var(--raised));
+  box-shadow:inset 0 0 0 .5px var(--hot-line);
+}
+.dd-question>*{flex:0 0 auto}
+.dd-question-head{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--hot);font-weight:600}
+.dd-question-text{font-size:12.5px;line-height:1.7;color:var(--ink)}
+.dd-question-opts{display:flex;flex-direction:column;gap:5px}
+.dd-question-opt{
+  display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;
+  padding:6px 9px;border-radius:var(--rx-1);
+  box-shadow:inset 0 0 0 .5px var(--line);font-size:12px;color:var(--ink2);
+}
+.dd-question-opt:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-question-opt.on{color:var(--ink);box-shadow:inset 0 0 0 1px var(--hot-line);background:color-mix(in srgb,var(--hot) 10%,transparent)}
+.dd-question-opt .nm{font-weight:600}
+.dd-question-opt .dt{font-size:11px;color:var(--ink3)}
+.dd-question-foot{display:flex;gap:7px;align-items:center}
+.dd-question-answer{display:flex;align-items:baseline;gap:6px;min-width:0}
+.dd-question-answer-text{
+  font-size:12px;color:var(--ink);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dd-question-hint{font-size:10.5px;line-height:1.6}
+
+/* **本轮改动**：agent 改了什么，摆在消息流的最上面。 */
+.dd-changed{
+  display:flex;flex-direction:column;gap:6px;padding:9px 11px;border-radius:var(--rx-2);
+  background:color-mix(in srgb,var(--sig-pass) 7%,var(--raised));
+  box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--sig-pass) 30%,transparent);
+}
+.dd-changed>*{flex:0 0 auto}
+.dd-changed-head{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink2)}
+.dd-changed-head .ct{font-family:var(--f-mono);font-size:10.5px;color:var(--sig-pass)}
+.dd-changed-list{display:flex;flex-direction:column;gap:3px}
+.dd-changed-item{
+  display:block;width:100%;text-align:left;padding:3px 7px;border-radius:var(--rx-1);
+  font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dd-changed-item:hover{color:var(--hot);background:var(--sunken)}
+/* 处理过程里那一行的「改了哪个文件」。 */
+.dd-process-step .dp{
+  font-family:var(--f-mono);font-size:10px;color:var(--sig-pass);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+`)
 
     // ── 首页 ───────────────────────────────────────────────────────────────
 
@@ -3636,8 +4699,9 @@ select.dd-input{
     }
 
     // ── spec view ──────────────────────────────────────────────────────────
+
     function SpecView(props) {
-      const { spec, tab, onTab, stage, onStage } = props
+      const { spec, tab, onTab, stage, onStage, onGoto } = props
       const [openRule, setOpenRule] = useState(null)
       if (!spec) return h('div', { className: 'dd-empty' }, '正在读取规范…')
       if (!spec.available) {
@@ -3658,9 +4722,20 @@ select.dd-input{
           ),
           h('span', { className: 'dd-spacer' }),
           tab === 'rules'
-            ? h('select', { className: 'dd-input', value: stage, onChange: event => onStage(event.target.value) },
-              h('option', { value: '' }, '全部阶段'),
-              STAGES.map(entry => h('option', { value: entry.id, key: entry.id }, entry.en)))
+            ? h('div', { style: { display: 'flex', alignItems: 'center', gap: '7px' } },
+              h('select', { className: 'dd-input', value: stage, onChange: event => onStage(event.target.value) },
+                h('option', { value: '' }, '全部阶段'),
+                STAGES.map(entry => h('option', { value: entry.id, key: entry.id }, entry.en))),
+              // 规范与阶段之间也该连着：看完一条铁律，直接去它管的那个阶段。
+              stage !== '' && typeof onGoto === 'function'
+                ? h('button', {
+                  className: 'dd-btn sm',
+                  type: 'button',
+                  title: '去「' + (STAGE_LABEL[stage] || stage) + '」阶段',
+                  onClick: () => onGoto(stage),
+                }, '去这个阶段')
+                : null,
+            )
             : null,
         ),
         h('div', { className: 'dd-scroll' },
@@ -3707,118 +4782,473 @@ select.dd-input{
       )
     }
 
-    /** A deliberately small markdown renderer: paragraphs, bullets, tables, code. */
+    /**
+     * 行内标记：`code` / **粗体** / *斜体*。
+     *
+     * 返回的是**元素数组**（不是字符串），所以 React 能正确地渲染它。
+     *
+     * @param {string} text 一行纯文本
+     * @returns {Array<string|object>}
+     */
+    function mdInline(text) {
+      const source = String(text ?? '')
+      const pieces = []
+      const pattern = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g
+      let last = 0
+      let key = 0
+      let match
+      while ((match = pattern.exec(source)) !== null) {
+        if (match.index > last) pieces.push(source.slice(last, match.index))
+        const token = match[0]
+        if (token.startsWith('`')) {
+          pieces.push(h('code', { key: 'i' + (key++), className: 'md-code' }, token.slice(1, -1)))
+        } else if (token.startsWith('**') || token.startsWith('__')) {
+          pieces.push(h('strong', { key: 'i' + (key++), className: 'md-strong' }, token.slice(2, -2)))
+        } else {
+          pieces.push(h('em', { key: 'i' + (key++), className: 'md-em' }, token.slice(1, -1)))
+        }
+        last = match.index + token.length
+      }
+      if (last < source.length) pieces.push(source.slice(last))
+      return pieces
+    }
+
+    /**
+     * 一个 markdown 渲染器：小，但**够读**。
+     *
+     * 够读的意思是：标题、段落、列表（含**折行续接**）、有序列表、引用、
+     * 表格、代码块、分隔线，以及行内的 `code` / **粗体** / *斜体*。
+     *
+     * 「列表项折行」这一条是照着《文本编辑组件最佳实践》来的：说明类文本里
+     * 一条 bullet 经常被手工折成两行（第二行缩进两个空格）。不接上的话，
+     * 它会被渲染成一段独立的段落——读起来像「这条 bullet 后面跟了一句无关的话」。
+     *
+     * @param {{text?: string}} props
+     */
     function MarkdownLite(props) {
-      const lines = String(props.text || '').split(/\r?\n/)
+      const lines = String(props.text ?? '').split(/\r?\n/)
       const blocks = []
       let i = 0
+      /** 上一块是不是列表——用来接住被折行的续行。 */
+      let listOpen = false
+
       while (i < lines.length) {
         const line = lines[i]
+
+        // 空行
+        if (line.trim() === '') { listOpen = false; i++; continue }
+
+        // 代码块
+        if (/^\s*```/.test(line)) {
+          listOpen = false
+          const code = []
+          i++
+          while (i < lines.length && !/^\s*```/.test(lines[i])) { code.push(lines[i]); i++ }
+          i++
+          blocks.push(h('pre', { key: 'c' + blocks.length, className: 'md-pre' }, code.join('\n')))
+          continue
+        }
+
+        // 表格
         if (/^\s*\|/.test(line)) {
+          listOpen = false
           const rows = []
           while (i < lines.length && /^\s*\|/.test(lines[i])) {
             rows.push(lines[i].trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim()))
             i++
           }
-          const head = rows.find(row => !row.every(cell => /^:?-{2,}:?$/.test(cell)))
-          const body = rows.filter(row => row !== head && !row.every(cell => /^:?-{2,}:?$/.test(cell)))
-          if (head) {
-            blocks.push(h('table', { className: 'dd-table', key: 't' + blocks.length, style: { margin: '8px 0' } },
-              h('thead', null, h('tr', null, head.map((cell, index) => h('th', { key: index }, cell)))),
-              h('tbody', null, body.map((row, index) => h('tr', { key: index }, row.map((cell, cellIndex) => h('td', { key: cellIndex }, cell))))),
+          const isDivider = row => row.every(cell => /^:?-{2,}:?$/.test(cell))
+          const head = rows.find(row => !isDivider(row))
+          const body = rows.filter(row => row !== head && !isDivider(row))
+          if (head !== undefined) {
+            blocks.push(h('table', { className: 'dd-table md-table', key: 't' + blocks.length },
+              h('thead', null, h('tr', null, head.map((cell, index) => h('th', { key: index }, mdInline(cell))))),
+              h('tbody', null, body.map((row, index) => h('tr', { key: index },
+                row.map((cell, cellIndex) => h('td', { key: cellIndex }, mdInline(cell)))))),
             ))
           }
           continue
         }
-        if (/^\s*[-*]\s+/.test(line)) {
-          const items = []
-          while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-            items.push(lines[i].replace(/^\s*[-*]\s+/, ''))
+
+        // 分隔线
+        if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+          listOpen = false
+          blocks.push(h('hr', { key: 'hr' + blocks.length }))
+          i++
+          continue
+        }
+
+        // 标题
+        const heading = /^\s*(#{1,4})\s+(.*)$/.exec(line)
+        if (heading !== null) {
+          listOpen = false
+          const level = heading[1].length
+          blocks.push(h(level <= 2 ? 'h4' : 'h5', { key: 'hd' + blocks.length, className: 'md-h' }, mdInline(heading[2])))
+          i++
+          continue
+        }
+
+        // 引用
+        if (/^\s*>\s?/.test(line)) {
+          listOpen = false
+          const quoted = []
+          while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+            quoted.push(lines[i].replace(/^\s*>\s?/, ''))
             i++
           }
-          blocks.push(h('ul', { key: 'u' + blocks.length }, items.map((item, index) => h('li', { key: index }, item))))
+          blocks.push(h('blockquote', { key: 'q' + blocks.length, className: 'md-quote' },
+            h('p', null, mdInline(quoted.join(' ')))))
           continue
         }
-        if (/^\s*#{1,4}\s+/.test(line)) {
-          const level = /^\s*(#{1,4})\s+/.exec(line)[1].length
-          blocks.push(h(level === 1 ? 'h4' : 'h5', { key: 'hd' + blocks.length }, line.replace(/^\s*#{1,4}\s+/, '')))
-          i++
+
+        // 列表（无序 / 有序）
+        const bullet = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line)
+        if (bullet !== null) {
+          const ordered = /\d/.test(bullet[2])
+          const items = []
+          while (i < lines.length) {
+            const entry = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i])
+            if (entry === null) break
+            items.push(entry[3])
+            i++
+            // **折行续接**：缩进两格以上的行是上一条的续行。
+            while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) {
+              items[items.length - 1] += ' ' + lines[i].trim()
+              i++
+            }
+          }
+          blocks.push(h(ordered ? 'ol' : 'ul', { key: 'l' + blocks.length, className: 'md-list' },
+            items.map((item, index) => h('li', { key: index }, mdInline(item)))))
+          listOpen = true
           continue
         }
-        if (/^\s*```/.test(line)) {
-          const code = []
-          i++
-          while (i < lines.length && !/^\s*```/.test(lines[i])) { code.push(lines[i]); i++ }
-          i++
-          blocks.push(h('pre', {
-            key: 'c' + blocks.length,
-            style: {
-              fontFamily: 'var(--latin-serif)', fontSize: '11px', background: 'var(--card)',
-              padding: '9px 11px', borderRadius: '9px', overflow: 'auto', border: '.5px solid var(--line)',
-            },
-          }, code.join('\n')))
-          continue
-        }
-        if (line.trim() === '') { i++; continue }
+
+        // 段落：连续的普通行合成一段。
         const paragraph = []
-        while (i < lines.length && lines[i].trim() !== '' && !/^\s*(\||[-*]\s|```|#{1,4}\s)/.test(lines[i])) {
-          paragraph.push(lines[i])
+        while (i < lines.length
+          && lines[i].trim() !== ''
+          && !/^\s*(\||[-*+]\s|\d+[.)]\s|```|#{1,4}\s|>\s?)/.test(lines[i])) {
+          paragraph.push(lines[i].trim())
           i++
         }
-        blocks.push(h('p', { key: 'p' + blocks.length, style: { margin: '5px 0' } }, paragraph.join(' ')))
+        listOpen = false
+        if (paragraph.length === 0) { i++; continue }
+        blocks.push(h('p', { key: 'p' + blocks.length, className: 'md-p' }, mdInline(paragraph.join(' '))))
       }
-      return h('div', null, blocks)
+      void listOpen
+      return h('div', { className: 'md-root' }, blocks)
     }
 
+    // ── markdown 的排版 ──────────────────────────────────────────────────
+    // 样式跟着渲染器走：读态预览、规范视图、放大窗口共用同一套排版。
+    CSS_PARTS.push(`
+.md-root{min-width:0}
+.md-root>*:first-child{margin-top:0}
+.md-root>*:last-child{margin-bottom:0}
+.md-p{margin:.4em 0;font-size:12.5px;line-height:1.75;color:var(--ink2)}
+.md-h{font-size:13.5px;font-weight:600;margin:.75em 0 .3em;color:var(--ink);line-height:1.4}
+.md-root h5.md-h{font-size:12.5px}
+.md-list{margin:.4em 0;padding-left:1.45em}
+.md-list li{margin:.18em 0;font-size:12.5px;line-height:1.75;color:var(--ink2)}
+.md-quote{
+  border-left:2px solid var(--hot);margin:.55em 0;padding:.1em 0 .1em .75em;color:var(--ink2);
+}
+.md-quote p{margin:0;font-size:12.5px;line-height:1.75}
+.md-pre{
+  font-family:var(--f-mono);font-size:11px;line-height:1.6;background:var(--sunken);
+  padding:9px 11px;border-radius:var(--rx-1);overflow:auto;margin:.55em 0;
+  box-shadow:inset 0 0 0 .5px var(--line);white-space:pre;
+}
+.md-table{margin:.55em 0;font-size:11.5px}
+.md-code{font-family:var(--f-mono);font-size:.92em;background:var(--sunken);padding:.1em .35em;border-radius:4px}
+.md-strong{color:var(--ink);font-weight:600}
+.md-em{color:var(--ink3)}
+.md-root hr{border:0;border-top:.5px solid var(--line);margin:.8em 0}
+`)
+
     // ── assets / ledger ────────────────────────────────────────────────────
+    //
+    // 资产管理是工作台的主要职能之一。以前这一页是**一个只读的表格**——
+    // 资产多起来之后（一百多个），没人能从里面看出「这个作品里有什么」。
+    //
+    // 现在有三样东西：
+    //   ① **分类索引**：按类型 / 状态分组，角标上带数量与体积；
+    //   ② **便捷预览**：图片资产直接有缩略图，点开就是大图；
+    //   ③ **分页**：作品再大，DOM 里也只有一页那么多行。
+
+    /** 资产类型的中文名。看不认识的类型就原样显示，不猜。 */
+    const ASSET_TYPE_LABEL = {
+      reference_image: '参考图',
+      keyframe: '关键帧',
+      prompt: '提示词',
+      video: '视频',
+      audio: '音频',
+      report: '报告',
+      doc: '文档',
+    }
+
+    /** 一页多少行。DOM 里只留这么多节点。 */
+    const ASSET_PAGE_SIZE = 50
+    const LEDGER_PAGE_SIZE = 50
+
+    /** 能出缩略图的类型。 */
+    function isImageAsset(asset) {
+      return asset.type === 'reference_image' || asset.type === 'keyframe'
+    }
+
+    /**
+     * 一个「上一页 / 下一页」的分页条。
+     *
+     * @param {{page: number, pages: number, total: number, size: number, onPage: Function}} props
+     */
+    function Pager(props) {
+      const { page, pages, total, size, onPage } = props
+      if (total === 0) return null
+      const from = page * size + 1
+      const to = Math.min(total, (page + 1) * size)
+      return h('div', { className: 'dd-pager' },
+        h('span', { className: 'dd-note num' }, from + '–' + to + ' / ' + total + ' 条'),
+        h('span', { className: 'dd-spacer' }),
+        h('button', {
+          className: 'dd-btn sm', disabled: page <= 0, onClick: () => onPage(page - 1),
+        }, '上一页'),
+        h('span', { className: 'dd-note num' }, (page + 1) + ' / ' + pages),
+        h('button', {
+          className: 'dd-btn sm', disabled: page >= pages - 1, onClick: () => onPage(page + 1),
+        }, '下一页'),
+      )
+    }
+
     function AssetsView(props) {
-      const { assets, onOpenImage, workspaceId } = props
+      const { assets, onOpenImage, workspaceId, onGoto } = props
+      const [typeFilter, setTypeFilter] = useState('')
+      const [statusFilter, setStatusFilter] = useState('')
+      const [query, setQuery] = useState('')
+      const [needle, setNeedle] = useState('')
+      const [page, setPage] = useState(0)
+
+      // 搜索**防抖**：每敲一个键都重算整张表是白费力气。
+      useEffect(() => {
+        const timer = setTimeout(() => setNeedle(query.trim().toLowerCase()), 180)
+        return () => clearTimeout(timer)
+      }, [query])
+
+      const rows = assets && Array.isArray(assets.assets) ? assets.assets : []
+
+      /** 分类索引：每类的数量与体积。**一次算完**，不要每次渲染重算。 */
+      const groups = useMemo(() => {
+        const map = new Map()
+        for (const asset of rows) {
+          const key = String(asset.type || 'other')
+          const entry = map.get(key) ?? { type: key, count: 0, bytes: 0 }
+          entry.count += 1
+          entry.bytes += typeof asset.bytes === 'number' ? asset.bytes : 0
+          map.set(key, entry)
+        }
+        const list = [...map.values()]
+        list.sort((a, b) => b.count - a.count)
+        return list
+      }, [rows])
+
+      const statusCounts = useMemo(() => ({
+        deprecated: rows.filter(row => row.status === 'deprecated').length,
+        missing: rows.filter(row => row.missing === true).length,
+      }), [rows])
+
+      /** 过滤后的清单。 */
+      const filtered = useMemo(() => {
+        const out = []
+        for (const asset of rows) {
+          if (typeFilter !== '' && String(asset.type || 'other') !== typeFilter) continue
+          if (statusFilter === 'deprecated' && asset.status !== 'deprecated') continue
+          if (statusFilter === 'missing' && asset.missing !== true) continue
+          if (needle !== '') {
+            const hay = [asset.id, asset.path, asset.notes, asset.role, asset.shotId]
+              .filter(part => typeof part === 'string')
+              .join(' ')
+              .toLowerCase()
+            if (!hay.includes(needle)) continue
+          }
+          out.push(asset)
+        }
+        return out
+      }, [rows, typeFilter, statusFilter, needle])
+
+      const pages = Math.max(1, Math.ceil(filtered.length / ASSET_PAGE_SIZE))
+      const current = Math.min(page, pages - 1)
+      const visible = filtered.slice(current * ASSET_PAGE_SIZE, (current + 1) * ASSET_PAGE_SIZE)
+
+      // 换了筛选条件就回到第一页——否则会停在一个不存在的页码上。
+      useEffect(() => { setPage(0) }, [typeFilter, statusFilter, needle])
+
       if (!assets) return h('div', { className: 'dd-empty' }, '正在读取资产…')
+
+      const totals = assets.totals || {}
+      const typeChip = (key, label, count, bytes) => h('button', {
+        key: key,
+        className: 'dd-facet' + (typeFilter === key ? ' on' : ''),
+        type: 'button',
+        title: key === '' ? '全部类型' : label + ' · ' + count + ' 个 · ' + formatBytes(bytes),
+        onClick: () => setTypeFilter(typeFilter === key && key !== '' ? '' : key),
+      },
+        h('span', { className: 'nm' }, label),
+        h('span', { className: 'ct num' }, String(count)),
+        key !== '' && bytes > 0 ? h('span', { className: 'by num' }, formatBytes(bytes)) : null,
+      )
+
+      const statusChip = (key, label, count) => h('button', {
+        key: key,
+        className: 'dd-facet' + (statusFilter === key ? ' on' : ''),
+        type: 'button',
+        onClick: () => setStatusFilter(statusFilter === key ? '' : key),
+      },
+        h('span', { className: 'nm' }, label),
+        h('span', { className: 'ct num' }, String(count)),
+      )
+
       return h('div', { className: 'dd-main' },
         h('div', { className: 'dd-toolbar' },
-          h('span', { className: 'dd-chip' }, '共 ', h('b', { className: 'num' }, String(assets.totals ? assets.totals.count : 0)), ' 个'),
-          h('span', { className: 'dd-chip' }, '作废 ', h('b', { className: 'num' }, String(assets.totals ? assets.totals.deprecated : 0))),
-          h('span', { className: 'dd-chip' }, '缺失 ', h('b', { className: 'num' }, String(assets.totals ? assets.totals.missing : 0))),
-          h('span', { className: 'dd-chip' }, '占用 ', h('b', { className: 'num' }, formatBytes(assets.totals ? assets.totals.bytes : 0))),
+          h('span', { className: 'dd-chip' }, '共 ', h('b', { className: 'num' }, String(totals.count !== undefined ? totals.count : rows.length)), ' 个'),
+          h('span', { className: 'dd-chip' }, '作废 ', h('b', { className: 'num' }, String(totals.deprecated !== undefined ? totals.deprecated : statusCounts.deprecated))),
+          h('span', { className: 'dd-chip' }, '缺失 ', h('b', { className: 'num' }, String(totals.missing !== undefined ? totals.missing : statusCounts.missing))),
+          h('span', { className: 'dd-chip' }, '占用 ', h('b', { className: 'num' }, formatBytes(totals.bytes !== undefined ? totals.bytes : 0))),
           h('span', { className: 'dd-spacer' }),
-          h('span', { className: 'dd-note' }, '资产只增不删：作废的标 deprecated 并保留路径指向归档'),
+          h('input', {
+            className: 'dd-input dd-asset-search',
+            value: query,
+            placeholder: '按 id / 路径 / 备注找…',
+            onChange: event => setQuery(event.target.value),
+          }),
         ),
-        h('div', { className: 'dd-scroll' },
-          h('table', { className: 'dd-table' },
-            h('thead', null, h('tr', null,
-              h('th', null, '资产'), h('th', null, '类型'), h('th', null, '状态'),
-              h('th', { className: 'n' }, '引用'), h('th', { className: 'n' }, '尺寸'), h('th', { className: 'n' }, '体积'), h('th', null, '路径'),
+        // 分类索引：一行类型，一行状态。
+        h('div', { className: 'dd-facets' },
+          h('div', { className: 'dd-facet-row' },
+            h('span', { className: 'dd-facet-lab' }, '类型'),
+            typeChip('', '全部', rows.length, 0),
+            groups.map(group => typeChip(
+              group.type,
+              ASSET_TYPE_LABEL[group.type] || group.type,
+              group.count,
+              group.bytes,
             )),
-            h('tbody', null, assets.assets.map(asset => h('tr', { key: asset.id },
-              h('td', null, asset.id),
-              h('td', null, asset.type || '—'),
-              h('td', null,
-                h('span', { style: { color: asset.status === 'deprecated' ? 'var(--warn)' : 'var(--ok)' } }, asset.status || 'active'),
-                asset.missing ? h('span', { style: { color: 'var(--danger)', marginLeft: '5px' } }, '缺失') : null,
-              ),
-              h('td', { className: 'n' }, (asset.referencedBy || []).length),
-              h('td', { className: 'n' }, asset.width ? asset.width + '×' + asset.height : '—'),
-              h('td', { className: 'n' }, formatBytes(asset.bytes)),
-              h('td', { className: 'path', title: asset.path },
-                asset.type === 'reference_image' || asset.type === 'keyframe'
-                  ? h('button', {
-                    className: 'dd-btn sm ghost',
-                    onClick: () => onOpenImage(asset),
-                  }, asset.path || '—')
-                  : (asset.path || '—')),
-            ))),
+          ),
+          h('div', { className: 'dd-facet-row' },
+            h('span', { className: 'dd-facet-lab' }, '状态'),
+            statusChip('', '全部', rows.length),
+            statusChip('deprecated', '作废', statusCounts.deprecated),
+            statusChip('missing', '缺失', statusCounts.missing),
           ),
         ),
+        h('div', { className: 'dd-scroll' },
+          visible.length === 0
+            ? h('div', { className: 'dd-empty' }, '这里没有资产。')
+            : h('table', { className: 'dd-table dd-asset-table' },
+              h('thead', null, h('tr', null,
+                h('th', { className: 'th-thumb' }, ''),
+                h('th', null, '资产'), h('th', null, '类型'), h('th', null, '状态'),
+                h('th', { className: 'n' }, '引用'), h('th', { className: 'n' }, '尺寸'), h('th', { className: 'n' }, '体积'), h('th', null, '路径'),
+              )),
+              h('tbody', null, visible.map(asset => h('tr', { key: asset.id },
+                h('td', { className: 'td-thumb' },
+                  isImageAsset(asset) && asset.missing !== true
+                    ? h('button', {
+                      className: 'dd-asset-thumb',
+                      type: 'button',
+                      'aria-label': '打开 ' + asset.id,
+                      title: '打开 ' + asset.id,
+                      onClick: () => onOpenImage(asset),
+                    }, h('img', {
+                      src: assetImageUrl(workspaceId, asset.id),
+                      alt: asset.id,
+                      loading: 'lazy',
+                      onError: event => { event.currentTarget.style.visibility = 'hidden' },
+                    }))
+                    : h('span', { className: 'dd-asset-thumb ph' }, (ASSET_TYPE_LABEL[asset.type] || asset.type || '·').slice(0, 1)),
+                ),
+                h('td', null, asset.id),
+                h('td', null, ASSET_TYPE_LABEL[asset.type] || asset.type || '—'),
+                h('td', null,
+                  h('span', { style: { color: asset.status === 'deprecated' ? 'var(--warn)' : 'var(--ok)' } }, asset.status || 'active'),
+                  asset.missing ? h('span', { style: { color: 'var(--danger)', marginLeft: '5px' } }, '缺失') : null,
+                ),
+                h('td', { className: 'n' },
+                  // 引用它的镜头：**点一下就跳到那一镜**。
+                  // 资产页与生成台之间本来是断的——找到问题资产，却找不到它出现在哪一镜。
+                  (asset.referencedBy || []).length === 0
+                    ? '—'
+                    : h('span', { className: 'dd-refs' },
+                      (asset.referencedBy || []).slice(0, 3).map(shotId => h('button', {
+                        key: shotId,
+                        className: 'dd-ref',
+                        type: 'button',
+                        title: '跳到 ' + shotId,
+                        onClick: () => { if (typeof onGoto === 'function') onGoto('generate', shotId) },
+                      }, shotId)),
+                      (asset.referencedBy || []).length > 3
+                        ? h('span', { className: 'dd-note' }, '+' + ((asset.referencedBy || []).length - 3))
+                        : null,
+                    )),
+                h('td', { className: 'n' }, asset.width ? asset.width + '×' + asset.height : '—'),
+                h('td', { className: 'n' }, formatBytes(asset.bytes)),
+                h('td', { className: 'path', title: asset.path },
+                  asset.type === 'reference_image' || asset.type === 'keyframe'
+                    ? h('button', {
+                      className: 'dd-btn sm ghost',
+                      onClick: () => onOpenImage(asset),
+                    }, asset.path || '—')
+                    : (asset.path || '—')),
+              ))),
+            ),
+        ),
+        h(Pager, {
+          page: current,
+          pages,
+          total: filtered.length,
+          size: ASSET_PAGE_SIZE,
+          onPage: setPage,
+        }),
       )
     }
 
     function LedgerView(props) {
-      const { ledger } = props
+      const { ledger, onGoto } = props
+      const [statusFilter, setStatusFilter] = useState('')
+      const [page, setPage] = useState(0)
+      const totals = ledger && ledger.totals ? ledger.totals : {}
+      const entries = ledger && Array.isArray(ledger.entries) ? ledger.entries : []
+
+      const groups = useMemo(() => {
+        const map = new Map()
+        for (const entry of entries) {
+          const key = String(entry.status || 'unknown')
+          map.set(key, (map.get(key) || 0) + 1)
+        }
+        return [...map.entries()].sort((a, b) => b[1] - a[1])
+      }, [entries])
+
+      const filtered = useMemo(() => {
+        if (statusFilter === '') return entries
+        return entries.filter(entry => String(entry.status || 'unknown') === statusFilter)
+      }, [entries, statusFilter])
+
+      const pages = Math.max(1, Math.ceil(filtered.length / LEDGER_PAGE_SIZE))
+      const current = Math.min(page, pages - 1)
+      const visible = filtered.slice(current * LEDGER_PAGE_SIZE, (current + 1) * LEDGER_PAGE_SIZE)
+      useEffect(() => { setPage(0) }, [statusFilter])
+
+      // **早退必须在所有 hook 之后。**
+      //
+      // 以前这里写着「`if (!ledger) return …`」然后才写 `useMemo`——
+      // 于是第一次渲染（还没数据）hook 少两个，第二次渲染（数据到了）hook 多两个，
+      // React 直接报 #310（渲染的 hook 比上一次多），
+      // **整个面板崩成空白**（AGENTS.md §11⑤ 的那条教训）。
+      //
+      // 现在：hook 全在前，无条件跑；数据没到就早退。
       if (!ledger) return h('div', { className: 'dd-empty' }, '正在读取台账…')
-      const totals = ledger.totals || {}
+
       return h('div', { className: 'dd-main' },
         h('div', { className: 'dd-toolbar' },
-          h('span', { className: 'dd-chip' }, '任务 ', h('b', { className: 'num' }, String(totals.tasks || 0))),
+          h('span', { className: 'dd-chip' }, '任务 ', h('b', { className: 'num' }, String(totals.tasks !== undefined ? totals.tasks : entries.length))),
           h('span', { className: 'dd-chip' }, '花费 ', h('b', { className: 'num' }, '$' + formatNumber(totals.costUsd || 0, 2))),
           ledger.budget
             ? h('span', { className: 'dd-chip' }, '预算 ', h('b', { className: 'num' }, '$' + formatNumber(ledger.budget.limit_usd || 0, 2)),
@@ -3827,159 +5257,573 @@ select.dd-input{
           h('span', { className: 'dd-spacer' }),
           h('span', { className: 'dd-note' }, '幂等三步：台账 → 提交 → 立刻回写'),
         ),
-        h('div', { className: 'dd-scroll' },
-          h('table', { className: 'dd-table' },
-            h('thead', null, h('tr', null,
-              h('th', null, '镜头'), h('th', null, '状态'), h('th', null, '模型'),
-              h('th', { className: 'n' }, '时长'), h('th', { className: 'n' }, '费用'),
-              h('th', null, '提交时间'), h('th', null, 'task_id'),
-            )),
-            h('tbody', null, ledger.entries.map(entry => h('tr', { key: (entry.taskId || '') + (entry.shotId || '') + (entry.submittedAt || '') },
-              h('td', { className: 'n' }, entry.shotId || '—'),
-              h('td', null, h('span', {
-                style: {
-                  color: entry.status === 'succeeded' ? 'var(--ok)'
-                    : entry.status === 'failed' ? 'var(--danger)' : 'var(--warn)',
-                },
-              }, entry.status || '—')),
-              h('td', null, entry.model || '—'),
-              h('td', { className: 'n' }, entry.duration ? entry.duration + 's' : '—'),
-              h('td', { className: 'n' }, typeof entry.costUsd === 'number' ? '$' + entry.costUsd.toFixed(2) : '—'),
-              h('td', { className: 'n' }, formatTime(entry.submittedAt)),
-              h('td', { className: 'n', style: { color: 'var(--ink4)' } }, entry.taskId || '—'),
-            ))),
+        h('div', { className: 'dd-facets' },
+          h('div', { className: 'dd-facet-row' },
+            h('span', { className: 'dd-facet-lab' }, '状态'),
+            h('button', {
+              className: 'dd-facet' + (statusFilter === '' ? ' on' : ''), type: 'button',
+              onClick: () => setStatusFilter(''),
+            }, h('span', { className: 'nm' }, '全部'), h('span', { className: 'ct num' }, String(entries.length))),
+            groups.map(([key, count]) => h('button', {
+              key: key,
+              className: 'dd-facet' + (statusFilter === key ? ' on' : ''), type: 'button',
+              onClick: () => setStatusFilter(statusFilter === key ? '' : key),
+            }, h('span', { className: 'nm' }, key), h('span', { className: 'ct num' }, String(count)))),
           ),
         ),
+        h('div', { className: 'dd-scroll' },
+          visible.length === 0
+            ? h('div', { className: 'dd-empty' }, '台账是空的。')
+            : h('table', { className: 'dd-table' },
+              h('thead', null, h('tr', null,
+                h('th', null, '镜头'), h('th', null, '状态'), h('th', null, '模型'),
+                h('th', { className: 'n' }, '时长'), h('th', { className: 'n' }, '费用'),
+                h('th', null, '提交时间'), h('th', null, 'task_id'),
+              )),
+              h('tbody', null, visible.map(entry => h('tr', { key: (entry.taskId || '') + (entry.shotId || '') + (entry.submittedAt || '') },
+                h('td', { className: 'n' },
+                  // 台账上的镜头**点一下就跳到那一镜**——台账与生成台之间不该是断的。
+                  entry.shotId
+                    ? h('button', {
+                      className: 'dd-ref',
+                      type: 'button',
+                      title: '跳到 ' + entry.shotId,
+                      onClick: () => { if (typeof onGoto === 'function') onGoto('generate', entry.shotId) },
+                    }, entry.shotId)
+                    : '—'),
+                h('td', null, h('span', {
+                  style: {
+                    color: entry.status === 'succeeded' ? 'var(--ok)'
+                      : entry.status === 'failed' ? 'var(--danger)' : 'var(--warn)',
+                  },
+                }, entry.status || '—')),
+                h('td', null, entry.model || '—'),
+                h('td', { className: 'n' }, entry.duration ? entry.duration + 's' : '—'),
+                h('td', { className: 'n' }, typeof entry.costUsd === 'number' ? '$' + entry.costUsd.toFixed(2) : '—'),
+                h('td', { className: 'n' }, formatTime(entry.submittedAt)),
+                h('td', { className: 'n', style: { color: 'var(--ink4)' } }, entry.taskId || '—'),
+              ))),
+            ),
+        ),
+        h(Pager, {
+          page: current,
+          pages,
+          total: filtered.length,
+          size: LEDGER_PAGE_SIZE,
+          onPage: setPage,
+        }),
       )
     }
 
-    // ── image viewer (a real dialog, not a full-screen takeover) ───────────
+    // ── 资产页的样式 ──────────────────────────────────────────────────────
+    CSS_PARTS.push(`
+/* ── 分类索引 ─────────────────────────────────────────────────────────── */
+.dd-facets{display:flex;flex-direction:column;gap:6px;padding:9px 20px 8px;flex:none}
+.dd-facets>*{flex:0 0 auto}
+.dd-facet-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.dd-facet-lab{
+  font-family:var(--f-gauge);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink4);flex:none;width:28px;
+}
+.dd-facet{
+  display:inline-flex;align-items:baseline;gap:6px;padding:3px 9px;border-radius:999px;
+  font-size:11.5px;color:var(--ink3);box-shadow:inset 0 0 0 .5px var(--line);
+  transition:color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease),background var(--t-fast) var(--ease);
+}
+.dd-facet:hover{color:var(--ink);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-facet.on{color:var(--ink);background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--hot-line)}
+.dd-facet .ct{font-family:var(--f-mono);font-size:10.5px;color:var(--ink4)}
+.dd-facet.on .ct{color:var(--hot)}
+.dd-facet .by{font-family:var(--f-mono);font-size:10px;color:var(--ink4)}
+.dd-asset-search{height:26px;width:210px;flex:none}
+.dd-asset-table .th-thumb{width:44px}
+.dd-asset-table .td-thumb{width:44px;padding:3px 6px}
+.dd-asset-thumb{
+  display:block;width:36px;height:36px;border-radius:var(--rx-1);overflow:hidden;
+  background:var(--sunken);box-shadow:inset 0 0 0 .5px var(--line);cursor:pointer;padding:0;
+}
+.dd-asset-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.dd-asset-thumb.ph{
+  display:grid;place-items:center;font-family:var(--f-gauge);font-size:11px;color:var(--ink4);
+  cursor:default;
+}
+/* 分页条。 */
+.dd-pager{
+  display:flex;align-items:center;gap:8px;padding:8px 20px;flex:none;
+  box-shadow:0 -1px 0 var(--line);background:var(--panel);
+}
+.dd-pager>*{flex:0 0 auto}
+/* 跨页引用：镜头号点一下就跳到那一镜。 */
+.dd-refs{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.dd-ref{
+  font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);
+  padding:1px 6px;border-radius:var(--rx-1);box-shadow:inset 0 0 0 .5px var(--line);
+}
+.dd-ref:hover{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+`)
+
+    // ── 图片手势的数学（纯函数 · 零 DOM 依赖）──────────────────────────────
+    //
+    // 「纯函数对了 ≠ 组件对了」。
+    //
+    // 第一版修法把算出的 pan **写回了拖拽起点**，于是又变成累加——
+    // 纯数学模块的用例全绿，实机拖动才暴露（-10/-30/-60/-100 而不是
+    // -10/-20/-30/-40）。所以这套算术**单独成一层**：组件只管测量与事件，
+    // 算术一律问这里。
+    //
+    // 坐标系：**中心相对**。图片永远画在视口正中，pan 是它相对视口中心的
+    // 偏移。于是「图片不离开视野」的钳位是对称的，缩放锚点也好算。
+
+    /** 缩放范围。 */
+    const ZOOM_MIN = 0.1
+    const ZOOM_MAX = 16
+    /** 每档的倍率（**乘性**：1.1ⁿ）。加性步进会让两端手感不一致。 */
+    const ZOOM_STEP = 1.1
+
+    /**
+     * 把缩放钳进范围。
+     *
+     * @param {number} zoom
+     * @returns {number}
+     */
+    function clampZoom(zoom) {
+      if (!Number.isFinite(zoom)) return 1
+      return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
+    }
+
+    /**
+     * 下一档缩放（乘性步进）。
+     *
+     * @param {number} current 当前缩放
+     * @param {number} direction 正数放大、负数缩小
+     * @returns {number}
+     */
+    function nextZoom(current, direction) {
+      const base = clampZoom(current)
+      return clampZoom(direction >= 0 ? base * ZOOM_STEP : base / ZOOM_STEP)
+    }
+
+    /**
+     * 缩放百分比（读数用）。
+     *
+     * @param {number} zoom
+     * @returns {string}
+     */
+    function zoomPercent(zoom) {
+      return Math.round(clampZoom(zoom) * 100) + '%'
+    }
+
+    /**
+     * 给定缩放，图片在视口里能平移多远。
+     *
+     * 钳位用的是**绘制尺寸**（布局框 × zoom），不是布局框——
+     * 放大之后用布局框算，图片能直接拖出屏幕。
+     *
+     * @param {number} zoom
+     * @param {{width: number, height: number}} size 图片的自然尺寸
+     * @param {{width: number, height: number}} viewport 视口尺寸
+     * @returns {{maxX: number, maxY: number}}
+     */
+    function clampFor(zoom, size, viewport) {
+      const scaledWidth = size.width * zoom
+      const scaledHeight = size.height * zoom
+      return {
+        maxX: Math.max(0, (scaledWidth - viewport.width) / 2),
+        maxY: Math.max(0, (scaledHeight - viewport.height) / 2),
+      }
+    }
+
+    /**
+     * 把 pan 钳回「图片永远在视野里」。
+     *
+     * @param {{x: number, y: number}} pan
+     * @param {number} zoom
+     * @param {{width: number, height: number}} size
+     * @param {{width: number, height: number}} viewport
+     * @returns {{x: number, y: number}}
+     */
+    function clampPan(pan, zoom, size, viewport) {
+      const { maxX, maxY } = clampFor(zoom, size, viewport)
+      return {
+        x: Math.min(maxX, Math.max(-maxX, pan.x)),
+        y: Math.min(maxY, Math.max(-maxY, pan.y)),
+      }
+    }
+
+    /**
+     * 以某个点为锚缩放：锚点下的像素保持不动。
+     *
+     * 锚点同步要用**实际**比值 `next / current`——钳位过之后请求值与实际值
+     * 可能不同，用请求值锚点会漂一点。
+     *
+     * @param {number} zoom 当前缩放
+     * @param {{x: number, y: number}} pan 当前位移
+     * @param {{x: number, y: number}} point 锚点（相对视口中心）
+     * @param {number} factor 倍率
+     * @returns {{zoom: number, pan: {x: number, y: number}}}
+     */
+    function zoomAroundPoint(zoom, pan, point, factor) {
+      const current = clampZoom(zoom)
+      const next = clampZoom(current * factor)
+      if (next === current) return { zoom: next, pan }
+      const ratio = next / current
+      return {
+        zoom: next,
+        pan: {
+          x: point.x - (point.x - pan.x) * ratio,
+          y: point.y - (point.y - pan.y) * ratio,
+        },
+      }
+    }
+
+    /**
+     * 拖拽起点。
+     *
+     * 起点是**只读**的：它持有开始拖动那一刻的 pan 与指针位置，
+     * 之后**永不**被本次结果覆盖（覆盖了就变成累加）。
+     *
+     * @param {{x: number, y: number}} pointer 指针位置
+     * @param {{x: number, y: number}} pan 当时的 pan
+     * @returns {{pointer: {x: number, y: number}, pan: {x: number, y: number}}}
+     */
+    function beginDrag(pointer, pan) {
+      return {
+        pointer: { x: pointer.x, y: pointer.y },
+        pan: { x: pan.x, y: pan.y },
+      }
+    }
+
+    /**
+     * 拖拽位移：**绝对式**（起点 + 位移），不是累加。
+     *
+     * 累加会让 pan 平方增长，几步就撞钳位 ⇒「图片直接跳到最左边」。
+     *
+     * @param {{pointer: {x: number, y: number}, pan: {x: number, y: number}}} drag 起点
+     * @param {{x: number, y: number}} pointer 现在的指针位置
+     * @returns {{x: number, y: number}}
+     */
+    function dragPan(drag, pointer) {
+      return {
+        x: drag.pan.x + (pointer.x - drag.pointer.x),
+        y: drag.pan.y + (pointer.y - drag.pointer.y),
+      }
+    }
+
+    /**
+     * 「适应窗口」的缩放比。
+     *
+     * @param {{width: number, height: number}} size 图片自然尺寸
+     * @param {{width: number, height: number}} viewport 视口尺寸
+     * @returns {number}
+     */
+    function fitZoom(size, viewport) {
+      if (size.width <= 0 || size.height <= 0) return 1
+      if (viewport.width <= 0 || viewport.height <= 0) return 1
+      return Math.min(viewport.width / size.width, viewport.height / size.height)
+    }
+
+    // ── image viewer（可缩放 · 可拖动 · 跟手）─────────────────────────────
+    //
+    // 这一层只做三件事：**测量**（图片多大、视口多大）、**事件**（滚轮 / 拖拽）、
+    // **渲染**。算术全在 `84-viewer-zoom.js`（纯函数）。
+    //
+    // 几条不能省的：
+    //  · 尺寸用 `ResizeObserver` 读，**不用 `load` 事件**——缓存命中时 `load`
+    //    不再触发，尺寸停在 0，拖拽范围被钉死。
+    //  · 缩放只改 `transform`，**不改 width/height**（否则与 ResizeObserver
+    //    互相触发）。
+    //  · 必须**拒绝浏览器的原生图片拖拽**（Chromium 会吞掉 move 事件）。
+    //  · 拖动时**直写 DOM 的 transform**，React 状态每帧至多提交一次——
+    //    否则「不跟手」。
+
+    /** 图片预览的样式（跟着组件走）。 */
+    CSS_PARTS.push(`
+.dd-zoom-stage{
+  flex:1 1 auto;min-height:120px;overflow:hidden;position:relative;
+  cursor:grab;touch-action:none;user-select:none;
+  display:flex;align-items:center;justify-content:center;background:var(--sunken);
+}
+.dd-zoom-stage.dragging{cursor:grabbing}
+.dd-zoom-stage img{
+  max-width:100%;max-height:100%;display:block;user-select:none;-webkit-user-drag:none;
+  transform-origin:center center;will-change:transform;
+}
+.dd-zoom-readout{
+  font-family:var(--f-mono);font-size:10.5px;color:var(--ink3);
+  padding:2px 7px;border-radius:var(--rx-1);background:var(--sunken);
+  box-shadow:inset 0 0 0 .5px var(--line);
+}
+.dd-zoom-hint{
+  position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
+  font-size:10.5px;color:var(--ink4);pointer-events:none;white-space:nowrap;
+}
+`)
+
     function ImageViewer(props) {
-      const containerRef = useRef(null)
-      const [scale, setScale] = useState(1)
-      const [offset, setOffset] = useState({ x: 0, y: 0 })
+      const { asset, src, onClose } = props
+      const surfaceRef = useRef(null)
+      const imgRef = useRef(null)
+      const [zoom, setZoom] = useState(1)
+      const [pan, setPan] = useState({ x: 0, y: 0 })
       const [natural, setNatural] = useState({ width: 0, height: 0 })
+      /** 拖拽起点（**只读**：它持有开始那一刻的 pan 与指针）。 */
       const dragRef = useRef(null)
+      /** 最新视图状态的引用：拖拽过程中读它，不等 React 重渲染。 */
+      const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 }, natural: { width: 0, height: 0 } })
+      viewRef.current = { zoom, pan, natural }
+      /** 拖动时直写 DOM 的 transform；这一帧就动。 */
+      const paintRef = useRef(null)
+      const frameRef = useRef(0)
 
+      /** 视口尺寸（surface 的客户区）。 */
+      const viewport = useCallback(() => {
+        const box = surfaceRef.current
+        if (box === null) return { width: 0, height: 0 }
+        return { width: box.clientWidth, height: box.clientHeight }
+      }, [])
+
+      /** 把当前视图写进 DOM（拖动时每帧都调）。 */
+      const paint = useCallback((nextZoom, nextPan) => {
+        const img = imgRef.current
+        if (img === null) return
+        img.style.transform = 'translate(' + nextPan.x + 'px,' + nextPan.y + 'px) scale(' + nextZoom + ')'
+      }, [])
+
+      /**
+       * 拖动时的节流提交：**每帧至多一次** React 状态更新。
+       *
+       * 画面靠直写 DOM 跟手；状态只是给读数与松手后的最终值用的。
+       */
+      const schedule = useCallback((nextZoom, nextPan) => {
+        paint(nextZoom, nextPan)
+        if (frameRef.current !== 0) return
+        const commit = () => {
+          frameRef.current = 0
+          setZoom(nextZoom)
+          setPan(nextPan)
+        }
+        if (typeof requestAnimationFrame === 'function') frameRef.current = requestAnimationFrame(commit)
+        else commit()
+      }, [paint])
+
+      /** 适应窗口。 */
       const applyFit = useCallback(() => {
-        const box = containerRef.current
-        if (!box || natural.width === 0) return
-        const next = Math.min(box.clientWidth / natural.width, box.clientHeight / natural.height)
-        setScale(next)
-        setOffset({ x: (box.clientWidth - natural.width * next) / 2, y: (box.clientHeight - natural.height * next) / 2 })
-      }, [natural])
+        const size = viewRef.current.natural
+        const box = viewport()
+        const next = fitZoom(size, box)
+        const clamped = clampPan({ x: 0, y: 0 }, next, size, box)
+        setZoom(next)
+        setPan(clamped)
+        paint(next, clamped)
+      }, [paint, viewport])
 
-      const onLoad = useCallback(event => {
-        const img = event.currentTarget
-        const size = { width: img.naturalWidth, height: img.naturalHeight }
-        setNatural(size)
-        const box = containerRef.current
-        if (!box) return
-        const next = Math.min(box.clientWidth / size.width, box.clientHeight / size.height)
-        setScale(next)
-        setOffset({ x: (box.clientWidth - size.width * next) / 2, y: (box.clientHeight - size.height * next) / 2 })
-      }, [])
+      /**
+       * 尺寸：`ResizeObserver` 观察**图片自己**。
+       *
+       * 不用 `load` 事件——缓存命中时它不再触发，尺寸会是 0，拖拽恒死。
+       * 观察表面（而不是图片）报的是视口尺寸，不是图片尺寸。
+       */
+      useEffect(() => {
+        const img = imgRef.current
+        if (img === null) return undefined
+        const measure = () => {
+          const width = img.naturalWidth || img.width || 0
+          const height = img.naturalHeight || img.height || 0
+          if (width === 0 || height === 0) return
+          const current = viewRef.current
+          if (current.natural.width === width && current.natural.height === height) return
+          setNatural({ width, height })
+          // 第一次量到尺寸 → 适应窗口。
+          if (current.natural.width === 0) {
+            const box = viewport()
+            const next = fitZoom({ width, height }, box)
+            setZoom(next)
+            setPan({ x: 0, y: 0 })
+          }
+        }
+        measure()
+        if (typeof ResizeObserver === 'undefined') return undefined
+        const observer = new ResizeObserver(measure)
+        observer.observe(img)
+        return () => observer.disconnect()
+      }, [viewport])
 
-      const zoomAt = useCallback((factor, clientX, clientY) => {
-        setScale(previous => {
-          const next = Math.min(6, Math.max(0.05, previous * factor))
-          const box = containerRef.current
-          if (!box || clientX === undefined) return next
-          const rect = box.getBoundingClientRect()
-          const px = clientX - rect.left
-          const py = clientY - rect.top
-          setOffset(current => ({
-            x: px - (px - current.x) * (next / previous),
-            y: py - (py - current.y) * (next / previous),
-          }))
-          return next
+      /** 视口尺寸变了 → 重新钳一次（图片不许跑出视野）。 */
+      useEffect(() => {
+        const box = surfaceRef.current
+        if (box === null || typeof ResizeObserver === 'undefined') return undefined
+        const observer = new ResizeObserver(() => {
+          const current = viewRef.current
+          const clamped = clampPan(current.pan, current.zoom, current.natural, viewport())
+          if (clamped.x !== current.pan.x || clamped.y !== current.pan.y) {
+            setPan(clamped)
+            paint(current.zoom, clamped)
+          }
         })
-      }, [])
+        observer.observe(box)
+        return () => observer.disconnect()
+      }, [paint, viewport])
 
-      const onWheel = useCallback(event => {
-        event.preventDefault()
-        zoomAt(event.deltaY < 0 ? 1.15 : 1 / 1.15, event.clientX, event.clientY)
+      /** 以某个点为锚缩放。 */
+      const zoomAt = useCallback((factor, clientX, clientY) => {
+        const current = viewRef.current
+        const box = surfaceRef.current
+        let point = { x: 0, y: 0 }
+        if (box !== null && clientX !== undefined && clientY !== undefined) {
+          const rect = box.getBoundingClientRect()
+          // 锚点换算到「相对视口中心」——pan 的坐标系是中心相对的。
+          point = {
+            x: clientX - rect.left - rect.width / 2,
+            y: clientY - rect.top - rect.height / 2,
+          }
+        }
+        const next = zoomAroundPoint(current.zoom, current.pan, point, factor)
+        const clamped = clampPan(next.pan, next.zoom, current.natural, viewport())
+        setZoom(next.zoom)
+        setPan(clamped)
+        paint(next.zoom, clamped)
+      }, [paint, viewport])
+
+      /** 滚轮缩放：必须 `passive:false`，否则 `preventDefault` 无效、页面跟着滚。 */
+      useEffect(() => {
+        const box = surfaceRef.current
+        if (box === null) return undefined
+        const onWheel = event => {
+          event.preventDefault()
+          zoomAt(event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, event.clientX, event.clientY)
+        }
+        box.addEventListener('wheel', onWheel, { passive: false })
+        return () => box.removeEventListener('wheel', onWheel)
       }, [zoomAt])
 
-      const onPointerDown = useCallback(event => {
-        if (event.button !== 0) return
-        event.currentTarget.setPointerCapture(event.pointerId)
-        dragRef.current = { x: event.clientX - offset.x, y: event.clientY - offset.y }
-        event.currentTarget.classList.add('drag')
-      }, [offset.x, offset.y])
+      /**
+       * 拖动。
+       *
+       * `pointer` 与 `mouse` **双挂**：某些宿主吞掉其中一套。
+       * 双挂不会出错——pan 是**绝对式**的，同一个物理位移算两次结果一样。
+       *
+       * `move` / `up` 绑在 `window` 上：指针移出图片就会丢事件源，拖拽半途断掉。
+       */
+      useEffect(() => {
+        const box = surfaceRef.current
+        if (box === null) return undefined
 
-      const onPointerMove = useCallback(event => {
-        const drag = dragRef.current
-        if (!drag) return
-        setOffset({ x: event.clientX - drag.x, y: event.clientY - drag.y })
-      }, [])
-
-      const endDrag = useCallback(event => {
-        dragRef.current = null
-        if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId)
+        const onDown = event => {
+          if (event.button !== 0) return
+          const current = viewRef.current
+          dragRef.current = beginDrag({ x: event.clientX, y: event.clientY }, current.pan)
+          box.classList.add('dragging')
         }
-        event.currentTarget.classList.remove('drag')
-      }, [])
+        const onMove = event => {
+          const drag = dragRef.current
+          if (drag === null) return
+          const current = viewRef.current
+          const raw = dragPan(drag, { x: event.clientX, y: event.clientY })
+          const clamped = clampPan(raw, current.zoom, current.natural, viewport())
+          schedule(current.zoom, clamped)
+        }
+        const onUp = () => {
+          if (dragRef.current === null) return
+          dragRef.current = null
+          box.classList.remove('dragging')
+          // 拖动结束：把最终值提交进 state，并把读数同步到画面。
+          const current = viewRef.current
+          const clamped = clampPan(current.pan, current.zoom, current.natural, viewport())
+          setPan(clamped)
+          paint(current.zoom, clamped)
+        }
 
+        box.addEventListener('pointerdown', onDown)
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        window.addEventListener('pointercancel', onUp)
+        box.addEventListener('mousedown', onDown)
+        window.addEventListener('mousemove', onMove)
+        window.addEventListener('mouseup', onUp)
+
+        return () => {
+          box.removeEventListener('pointerdown', onDown)
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          window.removeEventListener('pointercancel', onUp)
+          box.removeEventListener('mousedown', onDown)
+          window.removeEventListener('mousemove', onMove)
+          window.removeEventListener('mouseup', onUp)
+        }
+      }, [paint, schedule, viewport])
+
+      /** 键盘：Esc 关闭、方向键平移、+/- 缩放。 */
       useEffect(() => {
         const onKey = event => {
-          if (event.key === 'Escape') { event.stopPropagation(); props.onClose() }
-          else if (event.key === 'ArrowLeft') setOffset(o => ({ x: o.x - 60, y: o.y }))
-          else if (event.key === 'ArrowRight') setOffset(o => ({ x: o.x + 60, y: o.y }))
-          else if (event.key === 'ArrowUp') setOffset(o => ({ x: o.x, y: o.y - 60 }))
-          else if (event.key === 'ArrowDown') setOffset(o => ({ x: o.x, y: o.y + 60 }))
-          else if (event.key === '+' || event.key === '=') zoomAt(1.2)
-          else if (event.key === '-' || event.key === '_') zoomAt(1 / 1.2)
+          if (event.key === 'Escape') { event.stopPropagation(); onClose(); return }
+          const step = event.shiftKey ? 120 : 60
+          const current = viewRef.current
+          if (event.key === 'ArrowLeft') { event.preventDefault(); setPan(clampPan({ x: current.pan.x - step, y: current.pan.y }, current.zoom, current.natural, viewport())) }
+          else if (event.key === 'ArrowRight') { event.preventDefault(); setPan(clampPan({ x: current.pan.x + step, y: current.pan.y }, current.zoom, current.natural, viewport())) }
+          else if (event.key === 'ArrowUp') { event.preventDefault(); setPan(clampPan({ x: current.pan.x, y: current.pan.y - step }, current.zoom, current.natural, viewport())) }
+          else if (event.key === 'ArrowDown') { event.preventDefault(); setPan(clampPan({ x: current.pan.x, y: current.pan.y + step }, current.zoom, current.natural, viewport())) }
+          else if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomAt(ZOOM_STEP) }
+          else if (event.key === '-' || event.key === '_') { event.preventDefault(); zoomAt(1 / ZOOM_STEP) }
         }
         window.addEventListener('keydown', onKey, true)
         return () => window.removeEventListener('keydown', onKey, true)
-      }, [props, zoomAt])
+      }, [onClose, viewport, zoomAt])
 
-      const asset = props.asset || {}
+      const item = asset || {}
+      const readout = natural.width
+        ? natural.width + '×' + natural.height + ' · ' + zoomPercent(zoom) + ' · ' + Math.round(pan.x) + ', ' + Math.round(pan.y)
+        : '读取中…'
+
       return h('div', {
         className: 'dd-modal-backdrop',
-        onMouseDown: event => { if (event.target === event.currentTarget) props.onClose() },
+        onMouseDown: event => { if (event.target === event.currentTarget) onClose() },
       },
         h('div', { className: 'dd-modal', role: 'dialog', 'aria-modal': 'true' },
           h('div', { className: 'dd-modal-head' },
             h(Icon, { name: 'eye', size: 14 }),
-            h('span', { className: 'num', style: { fontSize: '12.5px' } }, asset.id || ''),
+            h('span', { className: 'num', style: { fontSize: '12.5px' } }, item.id || ''),
             h('span', { className: 'dd-spacer' }),
-            natural.width
-              ? h('span', { className: 'num', style: { fontSize: '11px', color: 'var(--ink4)' } },
-                natural.width + '×' + natural.height + ' · ' + Math.round(scale * 100) + '%')
-              : null,
-            h('button', { className: 'dd-btn sm', onClick: applyFit }, t('action.fit', '适应窗口')),
+            // 读数既是用户反馈，也是**实机验收的读数**（缩放% · 位移）。
+            h('span', { className: 'dd-zoom-readout', title: readout }, readout),
+            h('button', { className: 'dd-btn sm', onClick: applyFit, title: '缩放到刚好放得下' }, t('action.fit', '适应窗口')),
             h('button', {
               className: 'dd-btn sm',
-              onClick: () => { setScale(1); setOffset({ x: 0, y: 0 }) },
+              title: '按原始像素显示',
+              onClick: () => {
+                const current = viewRef.current
+                const clamped = clampPan({ x: 0, y: 0 }, 1, current.natural, viewport())
+                setZoom(1)
+                setPan(clamped)
+                paint(1, clamped)
+              },
             }, t('action.actualSize', '1:1')),
-            h('button', { className: 'dd-icon-btn', onClick: props.onClose, title: t('action.close', '关闭') },
+            h('button', { className: 'dd-icon-btn', onClick: onClose, title: t('action.close', '关闭') },
               h(Icon, { name: 'close', size: 13 })),
           ),
           h('div', {
-            className: 'dd-modal-stage',
-            ref: containerRef,
-            onWheel: onWheel,
-            onPointerDown: onPointerDown,
-            onPointerMove: onPointerMove,
-            onPointerUp: endDrag,
-            onPointerCancel: endDrag,
+            className: 'dd-zoom-stage',
+            ref: surfaceRef,
+            title: readout,
             onDoubleClick: applyFit,
+            // 拒绝浏览器的原生图片拖拽：Chromium 会吞掉 move 事件。
+            onDragStart: event => event.preventDefault(),
           },
             h('img', {
-              src: props.src, alt: asset.id || '', onLoad: onLoad,
-              style: { transform: 'translate(' + offset.x + 'px,' + offset.y + 'px) scale(' + scale + ')' },
+              ref: imgRef,
+              src: props.src,
+              alt: item.id || '',
+              draggable: false,
+              style: { transform: 'translate(' + pan.x + 'px,' + pan.y + 'px) scale(' + zoom + ')' },
             }),
+            h('div', { className: 'dd-zoom-hint' }, '滚轮缩放 · 拖动平移 · 双击适应窗口'),
           ),
           h('div', { className: 'dd-modal-foot' },
-            h('span', { className: 'mf' }, '路径 ', h('b', null, asset.path || '—')),
-            asset.source ? h('span', { className: 'mf' }, '来源 ', h('b', null, asset.source)) : null,
-            asset.state ? h('span', { className: 'mf' }, '状态 ', h('b', null, asset.state)) : null,
-            asset.notes ? h('span', { className: 'mf' }, '备注 ', h('b', null, asset.notes)) : null,
-            asset.prompt
-              ? h('div', { className: 'dd-modal-prompt' }, asset.prompt)
+            h('span', { className: 'mf' }, '路径 ', h('b', null, item.path || '—')),
+            item.source ? h('span', { className: 'mf' }, '来源 ', h('b', null, item.source)) : null,
+            item.state ? h('span', { className: 'mf' }, '状态 ', h('b', null, item.state)) : null,
+            item.notes ? h('span', { className: 'mf' }, '备注 ', h('b', null, item.notes)) : null,
+            item.prompt
+              ? h('div', { className: 'dd-modal-prompt' }, item.prompt)
               : h('span', { className: 'mf', style: { color: 'var(--ink4)' } }, '（这张图没有登记提示词）'),
           ),
         ),
@@ -4040,6 +5884,7 @@ select.dd-input{
     }
 
     // ── settings drawer (resizable, with a real folder picker) ─────────────
+
     const DRAWER_WIDTH_KEY = 'dsh-drama-desk:drawer-width'
 
     function SettingsDrawer(props) {
@@ -4214,6 +6059,7 @@ select.dd-input{
     }
 
     // ── folder browser (in-drawer fallback when the host has no native picker) ──
+
     function FolderBrowser(props) {
       const { path, onPick, onClose } = props
       const [listing, setListing] = useState(null)
@@ -4251,6 +6097,7 @@ select.dd-input{
     }
 
     // ── root ───────────────────────────────────────────────────────────────
+
     function DramaDesk() {
       const [overview, setOverview] = useState(null)
       const [pipeline, setPipeline] = useState(null)
@@ -4291,6 +6138,35 @@ select.dd-input{
       const [busy, setBusy] = useState(false)
       const [toast, setToast] = useState(null)
       const [viewer, setViewer] = useState(null)
+      /**
+       * 放大编辑窗口的请求。
+       *
+       * 字段们（Editable）不自己渲染浮层——它们只喊一声，**根组件**统一渲染。
+       * 这样浮层永远在根上：不被任何中间容器的 `overflow` 裁掉，也不被
+       * 别的浮层盖住。
+       */
+      const [textDialog, setTextDialog] = useState(null)
+      useEffect(() => {
+        TEXT_DIALOG_HOST = setTextDialog
+        return () => { TEXT_DIALOG_HOST = null }
+      }, [])
+
+      // ── 侧栏宽度 ────────────────────────────────────────────────────────
+      // 右侧两块（镜详情 / 构思会话）各自记住自己的宽度。
+      const inspector = usePanelWidth({ storageKey: 'dsh-drama-desk:inspector-width', initial: 420 })
+      const chatPanel = usePanelWidth({ storageKey: 'dsh-drama-desk:chat-width', initial: 460 })
+
+      /** 侧栏右上角那枚「全屏」：占满导演工作台这一块，不是占满浏览器。 */
+      const fullToggle = (panel, label) => h('button', {
+        className: 'dd-icon-btn' + (panel.full ? ' on' : ''),
+        type: 'button',
+        title: panel.full ? '退出全屏' : label + '全屏（占满工作台）',
+        'aria-label': panel.full ? '退出全屏' : label + '全屏',
+        onClick: panel.toggleFull,
+      }, h(Icon, { name: panel.full ? 'back' : 'expand', size: 13 }))
+
+      const inspectorControls = fullToggle(inspector, '镜详情')
+      const chatControls = fullToggle(chatPanel, '会话')
       const [drawer, setDrawer] = useState(false)
       const [fullSettings, setFullSettings] = useState(null)
       const [browseTarget, setBrowseTarget] = useState(null)
@@ -4684,6 +6560,28 @@ select.dd-input{
         return () => window.removeEventListener('keydown', onKey)
       }, [pipeline, selectedShot, openShot])
 
+      /**
+       * 跨页跳转到某个阶段（可选带上一镜）。
+       *
+       * 这是「页面之间不割裂」的那根线：资产页里点一个被引用的镜头、
+       * 台账页里点一条任务的镜头、规范页里点某个阶段的适用阶段——
+       * 都应该**直接落到那一镜上**，而不是把用户丢回阶段首页让他自己找。
+       *
+       * 阶段切换的规矩与阶段条一样（AGENTS.md §12）：**只有真的换阶段才清载荷**。
+       */
+      const gotoStage = useCallback((stage, shotId) => {
+        if (!stage) return
+        setView('stage')
+        setHomeMode(false)
+        if (stage !== viewStage) {
+          setViewStage(stage)
+          setStagePayload(null)
+          setStageError(null)
+          stageRevision.current = null
+        }
+        if (shotId !== undefined && shotId !== '') openShot(shotId)
+      }, [viewStage, openShot])
+
       const counts = pipeline ? (pipeline.counts || { fail: 0, warn: 0, generated: 0, pass: 0, none: 0 }) : { fail: 0, warn: 0, generated: 0, pass: 0, none: 0 }
       const nav = [
         { id: 'home', glyph: 'grid', label: '首页' },
@@ -4774,7 +6672,7 @@ select.dd-input{
       }, [viewStage, activeScene, stageData])
 
       return h('div', { className: 'dd', ref: rootRef },
-        h('style', null, CSS),
+        h('style', null, CSS_PARTS.join('\n')),
         h('div', { className: 'dd-ambient', 'aria-hidden': 'true' }),
         h('div', { className: 'dd-texture', 'aria-hidden': 'true' }),
         // ── masthead ───────────────────────────────────────────────────────
@@ -4994,36 +6892,66 @@ select.dd-input{
                                 ? h(AssembleView, { data: stageData, onOpenShot: openShot })
                                 : h(DeliverView, { data: stageData }))
                 : null,
-            view === 'spec' ? h(SpecView, { spec, tab: specTab, onTab: setSpecTab, stage: specStage, onStage: setSpecStage }) : null,
-            view === 'assets' ? h(AssetsView, { assets, workspaceId, onOpenImage: asset => setViewer(asset) }) : null,
-            view === 'ledger' ? h(LedgerView, { ledger }) : null,
+            view === 'spec' ? h(SpecView, { spec, tab: specTab, onTab: setSpecTab, stage: specStage, onStage: setSpecStage, onGoto: gotoStage }) : null,
+            view === 'assets' ? h(AssetsView, { assets, workspaceId, onOpenImage: asset => setViewer(asset), onGoto: gotoStage }) : null,
+            view === 'ledger' ? h(LedgerView, { ledger, onGoto: gotoStage }) : null,
           ),
           (view === 'stage' && !showHome && (viewStage === 'generate' || viewStage === 'storyboard'))
-            ? h(ShotDetail, {
-              detail,
-              loading: detailLoading,
-              busy,
-              actions,
-              workspaceId,
-              sheet: inspectorSheet,
-              onSelectShot: openShot,
-              onClose: () => { setSelectedShot(null); setDetail(null) },
-              onOpenImage: asset => setViewer(asset),
-            })
+            ? h('div', {
+              className: 'dd-side' + (inspector.full ? ' full' : ''),
+              ref: inspector.panelRef,
+              style: inspector.style,
+            },
+              h(ShotDetail, {
+                detail,
+                loading: detailLoading,
+                busy,
+                actions,
+                workspaceId,
+                sheet: inspectorSheet,
+                onSelectShot: openShot,
+                onClose: () => { setSelectedShot(null); setDetail(null) },
+                onOpenImage: asset => setViewer(asset),
+                panelControls: inspectorControls,
+              }),
+              inspector.full ? null : h('div', {
+                className: 'dd-side-resize',
+                onPointerDown: inspector.startResize,
+                title: '拖动调整宽度（' + inspector.width + 'px）',
+                role: 'separator',
+                'aria-label': '调整侧栏宽度',
+              }),
+            )
             : null,
           // ── 构思会话（右栏）────────────────────────────────────────────
           // 首页和 conceive 阶段都在，因为「想创意」不是一次性动作，
           // 是一个持续的过程：想 → 写简报 → 改简报，都在同一段对话里。
           chatVisible
-            ? h(ConceiveChat, {
-              sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
-              seed: conceive && conceive.seed ? conceive.seed : undefined,
-              busy,
-              canStart: workspaceId !== '',
-              onStart: () => openConceive(false),
-              onClose: () => setChatCollapsed(true),
-              onFresh: () => openConceive(true),
-            })
+            ? h('div', {
+              className: 'dd-side' + (chatPanel.full ? ' full' : ''),
+              ref: chatPanel.panelRef,
+              style: chatPanel.style,
+            },
+              h(ConceiveChat, {
+                sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
+                seed: conceive && conceive.seed ? conceive.seed : undefined,
+                busy,
+                settings,
+                canStart: workspaceId !== '',
+                onStart: () => openConceive(false),
+                onClose: () => setChatCollapsed(true),
+                onFresh: () => openConceive(true),
+                panelControls: chatControls,
+                onGoto: gotoStage,
+              }),
+              chatPanel.full ? null : h('div', {
+                className: 'dd-side-resize',
+                onPointerDown: chatPanel.startResize,
+                title: '拖动调整宽度（' + chatPanel.width + 'px）',
+                role: 'separator',
+                'aria-label': '调整侧栏宽度',
+              }),
+            )
             : null,
         ),
         // ── settings drawer ───────────────────────────────────────────────
@@ -5069,6 +6997,19 @@ select.dd-input{
             onClose: () => setViewer(null),
           })
           : null,
+        // ── 放大编辑窗口 ──────────────────────────────────────────────────
+        // 浮层里最后渲染 ⇒ 它在最上面。
+        textDialog
+          ? h(TextDialog, {
+            title: textDialog.title,
+            value: textDialog.value,
+            placeholder: textDialog.placeholder,
+            serif: textDialog.serif,
+            mono: textDialog.mono,
+            onSave: textDialog.onSave,
+            onClose: () => setTextDialog(null),
+          })
+          : null,
       )
     }
 
@@ -5094,6 +7035,24 @@ select.dd-input{
         ]),
         h('path', { key: 'lit', d: FILM_GRID_M, fill: 'currentColor' }),
       ])
+    }
+
+    /**
+     * 自检出口：把内部组件交给**冒烟测试**渲染。
+     *
+     * 只有 `globalThis.__DRAMA_DESK_SELF_CHECK__` 为真时才挂出来——而那个标志
+     * 只有 `scripts/client-smoke.mjs` 会设（它把 bundle 跑在一个**独立的
+     * VM 沙箱**里，沙箱的 globalThis 与页面互不相干）。所以生产环境里
+     * 这里什么都不做，也不往 window 上挂任何东西。
+     *
+     * 为什么要它：组件级的错误（少一个 hook、读了一个 null 字段）**只有真的
+     * 渲染一次才会暴露**。根组件的 SSR 冒烟测试够不到那些需要特定数据的分支
+     * （台账、资产），于是它们只能靠人肉点——而人肉点会漏。
+     */
+    if (typeof globalThis !== 'undefined' && globalThis.__DRAMA_DESK_SELF_CHECK__ === true) {
+      globalThis.__DRAMA_DESK_INTERNALS__ = {
+        Editable, TextDialog, LedgerView, AssetsView, ImageViewer, ConceiveChat, MarkdownLite,
+      }
     }
 
     return {

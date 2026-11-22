@@ -214,6 +214,9 @@ async function readResource(service, resource, query) {
       return await service.browse({ path: query.path })
     case 'conceive-session':
       return await service.conceiveSession({ workspaceId: query.workspace })
+    case 'sessions':
+      // 这个短剧工作区里的会话清单（构思会话窗的「选择对话」用）。
+      return await service.sessions({ workspaceId: query.workspace })
     default:
       throw new Error(`未知接口 ${resource}`)
   }
@@ -322,6 +325,7 @@ async function runAction(service, action, body) {
         generationModel: body.generationModel,
         hostProvider: body.hostProvider,
         hostModel: body.hostModel,
+        hostReasoningEffort: body.hostReasoningEffort,
         autoRefresh: body.autoRefresh,
       })
     case 'compile':

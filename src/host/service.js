@@ -1178,7 +1178,7 @@ export class DramaDeskService {
     }
     // 宿主模型走宿主自己的服务（与 DSH 其它地方的默认模型选择同一个真源）。
     let hostModel
-    if (options.hostProvider !== undefined || options.hostModel !== undefined) {
+    if (options.hostProvider !== undefined || options.hostModel !== undefined || options.hostReasoningEffort !== undefined) {
       const host = this.ctx?.get?.('agentDefaultModel')
       if (host === undefined || typeof host.saveSelection !== 'function') {
         throw new Error('这个宿主没有 agentDefaultModel 服务：无法改宿主模型')
@@ -1191,9 +1191,62 @@ export class DramaDeskService {
       if (hostModel.provider === undefined || hostModel.model === undefined) {
         throw new Error('宿主模型需要同时给出 provider 与 model')
       }
+      // 推理强度：**没给就保持原样**。
+      //
+      // 以前这里只写 provider/model，把 reasoningEffort 丢了——用户在 DSH 里
+      // 选好的推理等级被一次「换个模型」悄悄抹掉。
+      if (options.hostReasoningEffort !== undefined) {
+        const effort = String(options.hostReasoningEffort).trim()
+        if (effort === '') delete hostModel.reasoningEffort
+        else hostModel.reasoningEffort = effort
+      } else if (typeof current.reasoningEffort === 'string' && current.reasoningEffort !== '') {
+        hostModel.reasoningEffort = current.reasoningEffort
+      }
       await host.saveSelection(hostModel)
     }
     return { ok: true, patch, hostModel }
+  }
+
+  /**
+   * 这个短剧工作区里的**会话清单**。
+   *
+   * 构思会话窗要能「选择对话」——而对话固定发生在**同一个 DSH 工作区**里
+   * （AGENTS.md §15⑥：一个短剧项目 = 一个 DSH 工作区）。所以这里列出
+   * **cwd 落在短剧项目总根之内**的那些会话，别把别的项目的会话混进来。
+   *
+   * Host 半边才有完整的会话目录（`ctx.sessions.list()`），客户端拿不到。
+   *
+   * @param {{workspace?: string}} options
+   * @returns {Promise<{sessions: Array<{id: string, title: string, cwd: string, createdAt: number}>}>}
+   */
+  async sessions(options = {}) {
+    const store = this.ctx?.get?.('sessions')
+    if (store === undefined || store === null || typeof store.list !== 'function') {
+      return { sessions: [] }
+    }
+    const locations = await this.locations()
+    const root = locations.project.path
+    const fold = value => (process.platform === 'win32' ? value.toLowerCase() : value)
+    const rootFolded = fold(root)
+    const out = []
+    for (const session of store.list()) {
+      const header = session && session.header ? session.header : undefined
+      const cwd = header && typeof header.cwd === 'string' ? header.cwd : ''
+      if (cwd === '') continue
+      // 只收**总根之内**的会话（含总根本身）。
+      const cwdFolded = fold(cwd)
+      if (cwdFolded !== rootFolded && !cwdFolded.startsWith(rootFolded + '/') && !cwdFolded.startsWith(rootFolded + '\\')) {
+        continue
+      }
+      out.push({
+        id: String(session.id ?? header.id ?? ''),
+        title: typeof header.title === 'string' ? header.title : '',
+        cwd,
+        createdAt: typeof header.createdAt === 'number' ? header.createdAt : 0,
+      })
+    }
+    out.sort((a, b) => b.createdAt - a.createdAt)
+    return { sessions: out }
   }
 
   // ── edits ────────────────────────────────────────────────────────────────

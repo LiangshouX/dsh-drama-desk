@@ -43,6 +43,7 @@ revision 由**文件 mtime + size** 派生，不含时间戳，所以「什么�
 | `settings` | 配置 + provider 列表 + 宿主模型 |
 | `stage` | 该阶段触及的文件（见各阶段定义） |
 | `shot` | `shots.json` + `scenes.json` + 该镜的提示词 + 体检结果 |
+| `sessions` | 短剧项目总根之内的会话清单（见 §7.5）——**不带 revision**：它是宿主的会话目录，不是磁盘派生的 |
 
 ### 0.4 阶段枚举
 
@@ -542,11 +543,15 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 { "projectRoot": "…", "outputRoot": "…", "adapter": "minimax",
   "generationProvider": "minimax", "generationModel": "MiniMax-H3",
   "hostProvider": "deepseek", "hostModel": "deepseek-chat",
+  "hostReasoningEffort": "high",
   "autoRefresh": 4000 }
 ```
 
 - 路径 / adapter / generation / autoRefresh → 走 `configEditor.edit()` 写插件配置。
 - host 模型 → 走 `ctx.get('agentDefaultModel').saveSelection()`。
+- `hostReasoningEffort` → 同一个 `saveSelection()` 的 `reasoningEffort`。
+  **没给就保持原样**（以前只写 provider/model，把用户在 DSH 里选好的推理等级
+  悄悄抹掉了）；给空串表示「回到模型默认」。
 
 ---
 
@@ -638,6 +643,27 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 
 `fresh: true` = 开一段新对话：收掉当前 agent、清掉 `desk_session_id`、重开。
 **旧会话不删**（它还留在 DSH 的会话列表里）。
+
+### 工作区里的会话清单：`GET /sessions?workspace=<id>`
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "sessions": [
+      { "id": "24eaed05-…", "title": "", "cwd": "D:/Default/Videos/DSH-DRAMA-DESK", "createdAt": 1794771973604 }
+    ]
+  }
+}
+```
+
+- 只列 **cwd 落在短剧项目总根之内**的会话（AGENTS.md §15⑥：一个短剧项目 =
+  一个 DSH 工作区）。别的项目的会话不混进来。
+- 客户端**拿不到**完整会话目录（`ctx.sessions` 的客户端门面没有 `list`），
+  所以这一条由 Host 半边出：`ctx.get('sessions').list()`。
+- 用途：构思会话窗的「选择对话」——对话固定发生在这个工作区里，
+  于是「换一个对话」就是在**这一个工作区**里换。
+- 按 `createdAt` 倒序。宿主没有 `sessions` 服务时返回空数组（不是报错）。
 
 ### 开场白（`seed`）的第一行是锚
 
