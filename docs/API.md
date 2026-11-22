@@ -44,6 +44,7 @@ revision 由**文件 mtime + size** 派生，不含时间戳，所以「什么�
 | `stage` | 该阶段触及的文件（见各阶段定义） |
 | `shot` | `shots.json` + `scenes.json` + 该镜的提示词 + 体检结果 |
 | `sessions` | 短剧项目总根之内的会话清单（见 §7.5）——**不带 revision**：它是宿主的会话目录，不是磁盘派生的 |
+| `model-info` | 一个模型的推理强度档位（见 §5.3）——**按需**：可能去问 provider，不进轮询 |
 
 ### 0.4 阶段枚举
 
@@ -552,6 +553,29 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 - `hostReasoningEffort` → 同一个 `saveSelection()` 的 `reasoningEffort`。
   **没给就保持原样**（以前只写 provider/model，把用户在 DSH 里选好的推理等级
   悄悄抹掉了）；给空串表示「回到模型默认」。
+
+### 5.3 一个模型的推理档位：`GET /model-info?provider=&model=`
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "provider": "m-plan",
+    "model": "MiniMax-M3.1-Flash",
+    "available": true,
+    "efforts": [ { "id": "low", "name": "低" }, { "id": "high", "name": "高" } ],
+    "defaultEffort": "high"
+  }
+}
+```
+
+推理等级**是每个模型自己的**（同一个 provider 下，A 模型给 low/high/max，
+B 模型只给 medium），所以档位不能写死在插件里——问适配器：
+`llm.resolveModelInfo(provider, model)`。
+
+这条路径**可能去问 provider**，所以它是**按需**的：模型菜单打开时才问一次，
+**不进轮询**。宿主没有这个模型 / 没答上来时，`efforts` 为空、`available: false`
+（不是报错）。
 
 ---
 

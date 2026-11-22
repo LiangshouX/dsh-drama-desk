@@ -3843,45 +3843,122 @@ select.dd-input{
      * 复用宿主的**同一个真源**（`agentDefaultModel`）——不是插件自己存一份。
      * 改的是**宿主的默认选择**，所以对**新开的会话**生效；当前这段会话
      * 用的是它自己开起来时的模型（界面里写清楚了，不含糊）。
+     *
+     * 形状是**一个两字段的表单**：先选模型、再选档位、最后「应用」——
+     * 而不是「一点就立刻写宿主」。理由：档位是**每个模型自己的**，
+     * 换了模型而档位还留着，宿主会拒（不支持的 effort 在发请求前就被拒）。
+     * 所以两边一起选、一起应用。
      */
     function ChatModelMenu(props) {
       const { hostModel, providers, onChange, onClose } = props
       const [open, setOpen] = useState(false)
-      const [effort, setEffort] = useState(hostModel && hostModel.reasoningEffort ? hostModel.reasoningEffort : '')
-      useEffect(() => {
-        setEffort(hostModel && hostModel.reasoningEffort ? hostModel.reasoningEffort : '')
-      }, [hostModel && hostModel.reasoningEffort])
-      const model = hostModel && hostModel.model ? hostModel.model : '—'
-      const level = hostModel && hostModel.reasoningEffort ? hostModel.reasoningEffort : '默认'
+      /** 菜单里**正在挑**的选择（还没写进宿主）。 */
+      const [pickedProvider, setPickedProvider] = useState('')
+      const [pickedModel, setPickedModel] = useState('')
+      const [pickedEffort, setPickedEffort] = useState('')
+      /** 当前选中的**那个模型**的推理档位目录（按需问宿主一次）。 */
+      const [efforts, setEfforts] = useState([])
+      const [effortsFor, setEffortsFor] = useState('')
       const list = Array.isArray(providers) ? providers : []
+
+      const hostProvider = hostModel && hostModel.provider ? hostModel.provider : ''
+      const hostModelId = hostModel && hostModel.model ? hostModel.model : ''
+      const hostEffort = hostModel && hostModel.reasoningEffort ? hostModel.reasoningEffort : ''
+
+      // 菜单打开时，先把「正在挑的」对齐到宿主当前的选择。
+      useEffect(() => {
+        if (!open) return
+        setPickedProvider(hostProvider)
+        setPickedModel(hostModelId)
+        setPickedEffort(hostEffort)
+      }, [open, hostProvider, hostModelId, hostEffort])
+
+      const catalogKey = pickedProvider !== '' && pickedModel !== '' ? pickedProvider + '/' + pickedModel : ''
+
+      // 问一次「这个模型有哪些档位」。
+      //
+      // **档位是每个模型自己的**（同一个 provider 下，A 模型给 low/high/max，
+      // B 模型只给 medium），所以不能写死——**问适配器**（`llm.resolveModelInfo`）。
+      // 这条路径可能去问 provider，所以**按需**：菜单开着才问，不进轮询。
+      useEffect(() => {
+        if (!open || catalogKey === '' || catalogKey === effortsFor) return
+        let cancelled = false
+        const [provider, model] = catalogKey.split('/')
+        apiGet('model-info', { provider, model })
+          .then(value => {
+            if (cancelled) return
+            setEffortsFor(catalogKey)
+            setEfforts(value && Array.isArray(value.efforts) ? value.efforts : [])
+          })
+          .catch(() => {
+            if (cancelled) return
+            setEffortsFor(catalogKey)
+            setEfforts([])
+          })
+        return () => { cancelled = true }
+      }, [open, catalogKey, effortsFor])
+
+      // 换模型 → 档位重来（旧的档位可能不支持）。
+      const chooseModel = (providerId, modelId) => {
+        setPickedProvider(providerId)
+        setPickedModel(modelId)
+        setPickedEffort('')
+      }
+
+      const apply = () => {
+        if (pickedProvider === '' || pickedModel === '') return
+        onChange(pickedProvider, pickedModel, pickedEffort)
+        setOpen(false)
+      }
+
+      const modelLabel = hostModelId === '' ? '—' : hostModelId
+      const levelLabel = hostEffort === '' ? '默认' : hostEffort
 
       const panel = open
         ? h('div', { className: 'dd-pop' },
           h('div', { className: 'dd-pop-title' }, '模型（宿主的默认选择）'),
           list.length === 0
             ? h('div', { className: 'dd-note' }, '这个宿主没有公布模型目录。')
-            : list.map(provider => h('div', { key: provider.id, className: 'dd-pop-group' },
-              h('div', { className: 'dd-pop-lab' }, provider.name || provider.id),
-              (provider.models || []).map(entry => h('button', {
-                key: entry.id,
-                className: 'dd-pop-item' + (hostModel && hostModel.model === entry.id ? ' on' : ''),
-                onClick: () => { onChange(provider.id, entry.id, effort); setOpen(false) },
-              }, entry.name || entry.id)),
+            : list.map(entry => h('div', { key: entry.id, className: 'dd-pop-group' },
+              h('div', { className: 'dd-pop-lab' }, entry.name || entry.id),
+              (entry.models || []).map(model => h('button', {
+                key: model.id,
+                type: 'button',
+                className: 'dd-pop-item' + (pickedProvider === entry.id && pickedModel === model.id ? ' on' : ''),
+                onClick: () => chooseModel(entry.id, model.id),
+              }, model.name || model.id)),
             )),
           h('div', { className: 'dd-pop-title' }, '推理强度'),
-          h('div', { className: 'dd-pop-row' },
-            h('input', {
-              className: 'num', value: effort, placeholder: '留空 = 模型默认',
-              onChange: event => setEffort(event.target.value),
-              onKeyDown: event => {
-                if (event.key === 'Enter') { event.preventDefault(); onChange(hostModel ? hostModel.provider : '', hostModel ? hostModel.model : '', effort); setOpen(false) }
-                if (event.key === 'Escape') { event.preventDefault(); setOpen(false) }
+          // 档位来自**这个模型自己的目录**（问适配器，不写死）。
+          efforts.length > 0
+            ? h('div', { className: 'dd-pop-efforts' },
+              efforts.map(entry => h('button', {
+                key: entry.id,
+                className: 'dd-pop-effort' + (pickedEffort === entry.id ? ' on' : ''),
+                type: 'button',
+                title: entry.description,
+                onClick: () => setPickedEffort(entry.id),
               },
-            }),
+                h('span', { className: 'nm' }, entry.name),
+                h('span', { className: 'id num' }, entry.id),
+              )),
+              h('button', {
+                className: 'dd-pop-effort' + (pickedEffort === '' ? ' on' : ''),
+                type: 'button',
+                title: '让模型用它自己的默认档位',
+                onClick: () => setPickedEffort(''),
+              }, h('span', { className: 'nm' }, '默认')),
+            )
+            : h('div', { className: 'dd-note' },
+              catalogKey === '' ? '先选一个模型。' : '这个模型没有公布推理档位（或者宿主没答上来）。'),
+          h('div', { className: 'dd-pop-foot' },
             h('button', {
               className: 'dd-btn sm primary',
-              onClick: () => { onChange(hostModel ? hostModel.provider : '', hostModel ? hostModel.model : '', effort); setOpen(false) },
+              type: 'button',
+              disabled: pickedProvider === '' || pickedModel === '',
+              onClick: apply,
             }, '应用'),
+            h('button', { className: 'dd-btn sm', type: 'button', onClick: () => setOpen(false) }, '取消'),
           ),
           h('div', { className: 'dd-note' }, '改的是**宿主的默认选择**：新开的会话会用它。当前这段会话仍用开起来时的模型。'),
         )
@@ -3893,7 +3970,7 @@ select.dd-input{
           type: 'button',
           title: '模型与推理强度',
           onClick: () => setOpen(value => !value),
-        }, h(Icon, { name: 'settings', size: 12 }), h('span', null, model), h('span', { className: 'lv' }, '· ' + level)),
+        }, h(Icon, { name: 'settings', size: 12 }), h('span', null, modelLabel), h('span', { className: 'lv' }, '· ' + levelLabel)),
         panel,
       )
     }
@@ -3937,23 +4014,39 @@ select.dd-input{
     /**
      * Agent 向用户提问。
      *
-     * 宿主有一套成熟的提问交互（`ask_user_question` 工具 + 它的卡片）。
-     * 插件这扇小窗**不重复造**那套轮子：它把问题**显示出来**，并把回答
-     * 交给真正能生效的通道——宿主对话面板里的那张原生卡片。
+     * **回答是直接回传给 agent 的**，走宿主那条 Remote 通道：
+     * `ctx.remote.userQuestions.answer(sessionId, callId, { answers: [{ id, selected }] })`。
+     * 这不是插件自己造的路——**就是宿主对话面板用的那一条**
+     * （AGENTS.md §15①：不许自己折叠会话事件去仿造宿主的行为）。
      *
-     * 找不到可用通道时，按钮是**明确指向宿主**的，不是点了没反应。
+     * 通道不在（老宿主 / 没有那个服务）时，退回「复制答案 + 去完整对话里答」，
+     * **而不是**留一个点了没反应的按钮。
      */
     function ChatQuestion(props) {
-      const { question, options, onOpenHost } = props
-      const [picked, setPicked] = useState([])
+      const { question, options, items, callId, sessionId, onOpenHost } = props
+      const [picked, setPicked] = useState({})
       const [copied, setCopied] = useState(false)
-      const toggle = label => {
-        setPicked(current => current.includes(label)
-          ? current.filter(item => item !== label)
-          : current.concat(label))
+      const [state, setState] = useState('idle')
+      const list = Array.isArray(items) && items.length > 0 ? items : [{ id: '', question, options }]
+
+      const toggle = (itemId, label) => {
         setCopied(false)
+        setPicked(current => {
+          const chosen = current[itemId] ?? []
+          return {
+            ...current,
+            [itemId]: chosen.includes(label)
+              ? chosen.filter(item => item !== label)
+              : chosen.concat(label),
+          }
+        })
       }
-      const answerText = picked.join('；')
+
+      const answerText = Object.keys(picked)
+        .map(itemId => picked[itemId].join('；'))
+        .filter(text => text !== '')
+        .join(' / ')
+
       const copy = () => {
         if (answerText === '') return
         try {
@@ -3965,45 +4058,90 @@ select.dd-input{
         }
         setCopied(true)
       }
+
+      /** 把答案回传给 agent。 */
+      const submit = async () => {
+        // 宿主的回答通道：`remote.userQuestions.answer(sessionId, callId, { answers })`。
+        // 插件在作用域里**显式 inject** 了它（见 90-panel.js 的 inject 列表）——
+        // Cordis 对带点的服务路径有静态保护，不 inject 就取不到。
+        let channel
+        try {
+          const remote = CTX ? CTX.get('remote') : undefined
+          channel = remote !== undefined && remote !== null ? remote.userQuestions : undefined
+        } catch {
+          channel = undefined
+        }
+        if (channel === undefined || typeof channel.answer !== 'function') {
+          setState('nochannel')
+          return
+        }
+        const answers = list
+          .filter(item => (picked[item.id] ?? []).length > 0)
+          .map(item => ({ id: item.id, selected: picked[item.id] }))
+        if (answers.length === 0) return
+        setState('sending')
+        try {
+          await channel.answer(sessionId, callId, { answers })
+          setState('sent')
+        } catch {
+          setState('failed')
+        }
+      }
+
+      const canSubmit = list.some(item => (picked[item.id] ?? []).length > 0)
+
       return h('div', { className: 'dd-question' },
         h('div', { className: 'dd-question-head' },
           h(Icon, { name: 'note', size: 13 }),
           h('span', null, 'AI 需要你回答'),
         ),
-        h('div', { className: 'dd-question-text' }, question),
-        options.length > 0
-          ? h('div', { className: 'dd-question-opts' },
-            options.map(option => h('button', {
-              key: option.label || option,
-              className: 'dd-question-opt' + (picked.includes(option.label || option) ? ' on' : ''),
-              type: 'button',
-              onClick: () => toggle(option.label || option),
-            },
-              h('span', { className: 'nm' }, option.label || option),
-              option.description ? h('span', { className: 'dt' }, option.description) : null,
-            )))
-          : null,
-        picked.length > 0
+        list.map((item, index) => h('div', { key: item.id || ('q' + index), className: 'dd-question-item' },
+          list.length > 1 ? h('div', { className: 'dd-question-q' }, item.question) : null,
+          (item.options || []).length > 0
+            ? h('div', { className: 'dd-question-opts' },
+              item.options.map(option => h('button', {
+                key: option.label,
+                className: 'dd-question-opt' + ((picked[item.id] ?? []).includes(option.label) ? ' on' : ''),
+                type: 'button',
+                onClick: () => toggle(item.id, option.label),
+              },
+                h('span', { className: 'nm' }, option.label),
+                option.description ? h('span', { className: 'dt' }, option.description) : null,
+              )))
+            : null,
+        )),
+        answerText !== ''
           ? h('div', { className: 'dd-question-answer' },
             h('span', { className: 'dd-note' }, '你的选择：'),
             h('span', { className: 'dd-question-answer-text' }, answerText))
           : null,
         h('div', { className: 'dd-question-foot' },
           h('button', {
+            className: 'dd-btn sm primary',
+            type: 'button',
+            disabled: !canSubmit || state === 'sending' || state === 'sent',
+            onClick: () => { void submit() },
+          }, state === 'sending' ? '回传中…' : state === 'sent' ? '已回传' : '回传答案'),
+          h('button', {
             className: 'dd-btn sm',
             type: 'button',
-            disabled: picked.length === 0,
+            disabled: !canSubmit,
             onClick: copy,
           }, copied ? '已复制' : '复制答案'),
           h('button', {
-            className: 'dd-btn sm primary',
+            className: 'dd-btn sm',
             type: 'button',
-            title: '在宿主自己的对话面板里回答（那里有原生的提问卡片，答案才能真正回传）',
+            title: '在宿主自己的对话面板里回答（那里有原生的提问卡片）',
             onClick: onOpenHost,
           }, '在完整对话里回答'),
         ),
-        h('div', { className: 'dd-note dd-question-hint' },
-          '答案要由宿主的提问卡片回传（它才接得上 agent 的等待）；这扇窗负责让你看见问题、选好答案。'),
+        state === 'sent'
+          ? h('div', { className: 'dd-note dd-question-hint' }, '答案已经回传给 agent 了。')
+          : state === 'failed'
+            ? h('div', { className: 'dd-note dd-question-hint' }, '回传没成功（agent 可能已经不等了）。可以复制答案，去完整对话里回。')
+            : state === 'nochannel'
+              ? h('div', { className: 'dd-note dd-question-hint' }, '这个宿主没有把提问的回答通道开给插件，所以这里只能复制答案、去完整对话里回。')
+              : null,
       )
     }
 
@@ -4023,7 +4161,7 @@ select.dd-input{
     function ConceiveChat(props) {
       const {
         sessionId, seed, onClose, onFresh, onStart, canStart, busy,
-        settings, panelControls, onSwitchSession, onGoto,
+        settings, panelControls, onSwitchSession, onGoto, dshWorkspaceId,
       } = props
       const [reference, setReference] = useState(null)
       const [error, setError] = useState(null)
@@ -4177,6 +4315,7 @@ select.dd-input{
                 callId: data.callId,
                 question: parsed.question,
                 options: parsed.options,
+                items: parsed.items,
               })
               continue
             }
@@ -4301,16 +4440,60 @@ select.dd-input{
         Promise.resolve(binding.session.cancel()).catch(() => {})
       }, [binding])
 
-      const openInPanel = useCallback(() => {
+      /**
+       * 打开宿主的完整对话面板；带 `view` 时**先切到宿主自己的那个视图**。
+       *
+       * 这就是「把 DSH 原生的聊天主界面轻量嵌入」在这套架构里**能做到的形态**：
+       * 宿主没有公开的槽渲染 API（`ctx.slots` 只有 register / registerFactory /
+       * inject），所以插件**搬不动**它那些渲染器；但宿主的**会话装配**
+       * （`ctx.uiConversation`）是可达的——插件可以把「这段会话、这个视图」
+       * 交给宿主，让宿主自己渲染。
+       *
+       * 于是：会话窗里点「轨迹」→ 宿主打开**这段会话的原生轨迹视图**。
+       * 那份轨迹（工具卡片、推理、审批、提问卡）比我们这扇小窗渲染得好得多，
+       * 所以**不复刻它，而是把它请过来**。
+       */
+      const openInPanel = useCallback((view) => {
+        if (view !== undefined && activeId !== undefined) {
+          try {
+            const uc = CTX ? CTX.get('uiConversation') : undefined
+            const binding = uc !== undefined && uc !== null && typeof uc.binding === 'function'
+              ? uc.binding(activeId)
+              : undefined
+            if (binding !== undefined && binding !== null && typeof binding.activate === 'function') {
+              binding.activate(view)
+            }
+          } catch {
+            // 切不过去就算了：面板照常能打开，只是停在默认视图。
+          }
+        }
         const helper = CTX ? CTX.get('uiWorkspace') : undefined
         const layout = CTX ? CTX.get('layout') : undefined
         try {
-          if (helper !== undefined && helper !== null && typeof helper.openSession === 'function') helper.openSession(activeId)
+          // **先选工作区，再开会话。**
+          //
+          // 只调 `openSession` 的话，宿主不知道该选哪个工作区——
+          // 对话面板会停在「选择一个工作区开始」的空态。
+          //
+          // `openWorkspace(id, beforeOpen)` 的第二个参数是**宿主的钩子**
+          // （它拿 `nextId` 去做草稿搬迁）。把「打开我们这段会话」挂在这个钩子里：
+          // 工作区被选上的同时，会话也被打开——只调 `openSession` 的话，
+          // 宿主不知道该选哪个工作区，对话面板会停在「选择一个工作区开始」。
+          const workspaceId = dshWorkspaceId
+          if (workspaceId !== undefined && workspaceId !== ''
+            && helper !== undefined && helper !== null && typeof helper.openWorkspace === 'function') {
+            // 钩子里开一次会话：工作区被选上的同时，会话也被选中。
+            helper.openWorkspace(workspaceId, () => {
+              if (typeof helper.openSession === 'function') helper.openSession(activeId)
+            })
+          } else if (helper !== undefined && helper !== null && typeof helper.openSession === 'function') {
+            helper.openSession(activeId)
+          }
           if (layout !== undefined && layout !== null && typeof layout.selectPanel === 'function') layout.selectPanel('conversation')
         } catch {
           // 打不开就算了：面板里这段对话照常能聊。
         }
-      }, [activeId])
+      }, [activeId, dshWorkspaceId])
 
       /** 改宿主默认模型（模型 + 推理强度）。 */
       const changeModel = useCallback(async (provider, model, effort) => {
@@ -4378,7 +4561,11 @@ select.dd-input{
           title: '开一段新对话（旧的那段仍留在 DSH 的会话列表里）',
         }, '新对话'),
         h('button', {
-          className: 'dd-btn sm', onClick: openInPanel, disabled: !hasSession,
+          className: 'dd-btn sm', onClick: () => openInPanel('trajectory'), disabled: !hasSession,
+          title: '打开宿主的原生轨迹视图（工具卡片、推理、审批都在那边）',
+        }, '轨迹'),
+        h('button', {
+          className: 'dd-btn sm', onClick: () => openInPanel(), disabled: !hasSession,
           title: '在宿主的对话面板里打开完整聊天',
         }, '完整对话'),
         panelControls,
@@ -4428,6 +4615,9 @@ select.dd-input{
                 key: row.key,
                 question: row.question,
                 options: row.options,
+                items: row.items,
+                callId: row.callId,
+                sessionId: activeId,
                 onOpenHost: openInPanel,
               })
             }
@@ -4501,11 +4691,14 @@ select.dd-input{
      * 参数是**工具自己约定的形状**，所以这里**容错**：认不出来就给一句原文，
      * 绝不假装解析成功。
      *
+     * 回传答案要用到**每个问题的 id**（`answers: [{ id, selected }]`），
+     * 所以这里把 id 一起解析出来。
+     *
      * @param {string} args
-     * @returns {{question: string, options: Array<{label: string, description?: string}>}}
+     * @returns {{question: string, options: Array<{label: string, description?: string}>, items: Array<{id: string, question: string, options: Array<{label: string}>}>}}
      */
     function parseQuestion(args) {
-      const fallback = { question: String(args ?? '').slice(0, 400), options: [] }
+      const fallback = { question: String(args ?? '').slice(0, 400), options: [], items: [] }
       let parsed
       try {
         parsed = JSON.parse(String(args ?? ''))
@@ -4515,18 +4708,29 @@ select.dd-input{
       if (parsed === null || typeof parsed !== 'object') return fallback
       const questions = Array.isArray(parsed.questions) ? parsed.questions : []
       if (questions.length === 0) return fallback
-      const first = questions[0]
-      if (first === null || typeof first !== 'object') return fallback
-      const options = Array.isArray(first.options)
-        ? first.options
-          .filter(option => option !== null && typeof option === 'object' && typeof option.label === 'string')
-          .map(option => ({ label: option.label, description: typeof option.description === 'string' ? option.description : undefined }))
-        : []
-      const text = typeof first.question === 'string' ? first.question : ''
-      const header = typeof first.header === 'string' ? first.header : ''
-      const detail = typeof first.detail === 'string' ? first.detail : ''
-      const question = [header, text, detail].filter(part => part !== '').join(' · ')
-      return { question: question === '' ? fallback.question : question, options }
+
+      const items = []
+      for (const entry of questions) {
+        if (entry === null || typeof entry !== 'object') continue
+        const options = Array.isArray(entry.options)
+          ? entry.options
+            .filter(option => option !== null && typeof option === 'object' && typeof option.label === 'string')
+            .map(option => ({ label: option.label, description: typeof option.description === 'string' ? option.description : undefined }))
+          : []
+        const parts = [
+          typeof entry.header === 'string' ? entry.header : '',
+          typeof entry.question === 'string' ? entry.question : '',
+          typeof entry.detail === 'string' ? entry.detail : '',
+        ].filter(part => part !== '')
+        items.push({
+          id: typeof entry.id === 'string' ? entry.id : '',
+          question: parts.join(' · '),
+          options,
+        })
+      }
+      if (items.length === 0) return fallback
+      const first = items[0]
+      return { question: first.question === '' ? fallback.question : first.question, options: first.options, items }
     }
 
     // ── 构思会话窗的样式 ──────────────────────────────────────────────────
@@ -4591,6 +4795,17 @@ select.dd-input{
   background:var(--sunken);box-shadow:var(--e-well);border:none;outline:none;
   font-family:var(--f-mono);font-size:11.5px;color:var(--ink);
 }
+/* 推理档位：按**当前模型自己的目录**列出来，不写死。 */
+.dd-pop-efforts{display:flex;flex-direction:column;gap:2px}
+.dd-pop-effort{
+  display:flex;align-items:baseline;gap:8px;width:100%;padding:5px 8px;border-radius:var(--rx-1);
+  text-align:left;font-size:12px;color:var(--ink2);
+}
+.dd-pop-effort:hover{background:var(--sunken);color:var(--ink)}
+.dd-pop-effort.on{color:var(--hot);box-shadow:inset 0 0 0 .5px var(--hot-line)}
+.dd-pop-effort .nm{flex:1 1 auto;min-width:0}
+.dd-pop-effort .id{font-size:10px;color:var(--ink4);flex:none}
+.dd-pop-foot{display:flex;gap:7px;align-items:center;margin-top:6px;padding-top:6px;box-shadow:0 -1px 0 var(--line)}
 .dd-chat-model{gap:6px;max-width:150px;min-width:0}
 .dd-chat-model>span:not(.lv){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dd-chat-model .lv{font-family:var(--f-mono);font-size:10px;color:var(--ink4);flex:none}
@@ -4604,6 +4819,8 @@ select.dd-input{
 .dd-question>*{flex:0 0 auto}
 .dd-question-head{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--hot);font-weight:600}
 .dd-question-text{font-size:12.5px;line-height:1.7;color:var(--ink)}
+.dd-question-item{display:flex;flex-direction:column;gap:6px}
+.dd-question-q{font-size:12.5px;line-height:1.7;color:var(--ink)}
 .dd-question-opts{display:flex;flex-direction:column;gap:5px}
 .dd-question-opt{
   display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;
@@ -6943,6 +7160,7 @@ select.dd-input{
                 onFresh: () => openConceive(true),
                 panelControls: chatControls,
                 onGoto: gotoStage,
+                dshWorkspaceId: conceive && conceive.dshWorkspace ? conceive.dshWorkspace.id : undefined,
               }),
               chatPanel.full ? null : h('div', {
                 className: 'dd-side-resize',
@@ -7056,7 +7274,7 @@ select.dd-input{
     }
 
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'remote', 'remote.userQuestions', 'uiConversation'],
       apply(ctx) {
         CTX = ctx
         try {

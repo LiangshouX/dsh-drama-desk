@@ -845,6 +845,7 @@
                 onFresh: () => openConceive(true),
                 panelControls: chatControls,
                 onGoto: gotoStage,
+                dshWorkspaceId: conceive && conceive.dshWorkspace ? conceive.dshWorkspace.id : undefined,
               }),
               chatPanel.full ? null : h('div', {
                 className: 'dd-side-resize',
@@ -958,7 +959,7 @@
     }
 
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'remote', 'remote.userQuestions', 'uiConversation'],
       apply(ctx) {
         CTX = ctx
         try {

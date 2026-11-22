@@ -1019,6 +1019,48 @@ export class DramaDeskService {
   // ── settings ─────────────────────────────────────────────────────────────
 
   /**
+   * 一个模型的**能力清单**（主要是推理强度档位）。
+   *
+   * 推理等级**是每个模型自己的**：同一个 provider 下，A 模型给 low/high/max，
+   * B 模型只给 medium。所以档位不能写死在插件里——**问适配器**。
+   *
+   * `llm.resolveModelInfo()` 正是干这个的（它可能去问 provider），
+   * 所以这是一条**按需**的路径：模型菜单打开时才调，不进轮询。
+   *
+   * @param {{provider?: string, model?: string}} options
+   * @returns {Promise<{provider?: string, model?: string, efforts: Array<{id: string, name: string, description?: string}>, defaultEffort?: string, available: boolean}>}
+   */
+  async modelInfo(options = {}) {
+    const provider = typeof options.provider === 'string' ? options.provider : undefined
+    const model = typeof options.model === 'string' ? options.model : undefined
+    const empty = { provider, model, efforts: [], available: false }
+    if (provider === undefined || model === undefined) return empty
+    const llm = this.ctx?.get?.('llm')
+    if (llm === undefined || typeof llm.resolveModelInfo !== 'function') return empty
+    let resolved
+    try {
+      resolved = await llm.resolveModelInfo(provider, model)
+    } catch {
+      return empty
+    }
+    const reasoning = resolved && resolved.reasoning ? resolved.reasoning : undefined
+    const efforts = reasoning && Array.isArray(reasoning.efforts) ? reasoning.efforts : []
+    return {
+      provider,
+      model,
+      available: efforts.length > 0,
+      efforts: efforts
+        .filter(entry => entry !== null && typeof entry === 'object' && typeof entry.id === 'string')
+        .map(entry => ({
+          id: entry.id,
+          name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : entry.id,
+          description: typeof entry.description === 'string' && entry.description !== '' ? entry.description : undefined,
+        })),
+      defaultEffort: reasoning && typeof reasoning.defaultEffort === 'string' ? reasoning.defaultEffort : undefined,
+    }
+  }
+
+  /**
    * The plugin's own settings, plus what the host contributes.
    *
    * The host's model selection comes from `agentDefaultModel` (the same
@@ -1571,13 +1613,39 @@ export class DramaDeskService {
     const workspace = await this.requireWorkspace(options)
     const locations = await this.locations()
     const projectRoot = locations.project.path
+    // 这个短剧项目对应的 **DSH 工作区**。
+    //
+    // 客户端要跳到宿主的完整对话面板时，光给 sessionId 不够——宿主得先
+    // **选中工作区**，否则对话面板停在「选择一个工作区开始」的空态。
+    const dshWorkspace = await this.dshWorkspace()
     if (options.create !== true) {
       const state = await deskSessionState(this, workspace)
-      return { ...state, workspacePath: projectRoot, seed: seedMessage(workspace, projectRoot, { isNew: await this.isFreshWork(workspace) }) }
+      return { ...state, workspacePath: projectRoot, dshWorkspace, seed: seedMessage(workspace, projectRoot, { isNew: await this.isFreshWork(workspace) }) }
     }
     const result = await ensureDeskSession(this, workspace, { fresh: options.fresh === true })
     const isNew = await this.isFreshWork(workspace)
-    return { ...result, workspacePath: projectRoot, seed: seedMessage(workspace, projectRoot, { isNew }) }
+    return { ...result, workspacePath: projectRoot, dshWorkspace, seed: seedMessage(workspace, projectRoot, { isNew }) }
+  }
+
+  /**
+   * 这个短剧项目挂在哪个 **DSH 工作区**下面。
+   *
+   * 一个短剧项目 = 一个 DSH 工作区（AGENTS.md §15⑥）。会话挂在这个工作区里，
+   * 所以客户端跳宿主对话面板时需要它的 id —— 否则宿主不知道该选哪个工作区。
+   *
+   * @returns {Promise<{id: string, path: string}|undefined>}
+   */
+  async dshWorkspace() {
+    const locations = await this.locations()
+    const registry = this.ctx?.get?.('workspaceRegistry')
+    if (registry === undefined || registry === null || typeof registry.resolveByPath !== 'function') return undefined
+    try {
+      const found = await registry.resolveByPath(locations.project.path)
+      if (found === null || found === undefined) return undefined
+      return { id: String(found.id ?? ''), path: String(found.path ?? locations.project.path) }
+    } catch {
+      return undefined
+    }
   }
 
   /** 这个作品是不是「刚建、还没开始设计」。开场白要据此说不同的话。 */

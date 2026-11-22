@@ -217,6 +217,12 @@ async function readResource(service, resource, query) {
     case 'sessions':
       // 这个短剧工作区里的会话清单（构思会话窗的「选择对话」用）。
       return await service.sessions({ workspaceId: query.workspace })
+    case 'model-info':
+      // 一个模型的推理强度档位（模型菜单打开时按需问一次）。
+      if (query.provider === undefined || query.model === undefined) {
+        throw new Error('缺少 provider 或 model 参数')
+      }
+      return await service.modelInfo({ provider: query.provider, model: query.model })
     default:
       throw new Error(`未知接口 ${resource}`)
   }

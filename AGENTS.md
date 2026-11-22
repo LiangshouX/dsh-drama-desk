@@ -750,6 +750,58 @@ PowerShell 5.1 的 `Get-Content -Raw` 把**无 BOM 的 UTF-8** 当 ANSI 读，
   （`<system-reminder>` 框住一起送）。模型读得到，界面不显示。
   **不要**在客户端重写这段文案——那会变成第二份真相。
 
+### ⑩ 会话窗能复用宿主的什么、不能复用什么（2026-11-22 实测）
+
+插件的客户端作用域里**能**拿到（`ctx.get`）：
+
+| 服务 | 用来做什么 |
+|---|---|
+| `sessions` | 保留会话、读事件流、收消息 |
+| `remote` | Remote Events（下面那条提问通道） |
+| **`remote.userQuestions`** | **把答案回传给 agent** |
+| `uiConversation` | 宿主的会话装配：每会话绑定、快照、**原生视图** |
+| `uiSession` / `slots` / `locale` | 宿主 UI 基础设施 |
+
+**不能**拿到的：**宿主的对话渲染器**。`ctx.slots` 只有
+`register` / `registerFactory` / `inject` —— **没有公开的「渲染这个槽」API**，
+而宿主的 `conversation.chat.node` / `tool.call.toolview` 都是 `kind:'keyed'`
+且**已被宿主占住**的条目。所以原生聊天主界面**搬不进插件面板**。
+
+> 于是「轻量嵌入」的可落地形态是**驱动**而不是**搬运**：
+> 插件把「这段会话 + 这个视图」交给宿主，让宿主自己渲染。
+> 会话窗里的「轨迹」按钮就是这么做的：它切到宿主的**原生轨迹视图**
+> （`uiConversation.binding(sessionId).activate('trajectory')`），
+> 工具卡片、推理、审批、提问卡全在那边——**不复刻，请过来**。
+
+### ⑪ Cordis 对带点的服务路径有静态保护
+
+`ctx.get('remote.userQuestions')` 会抛：
+
+```
+Error: cannot get property "remote.userQuestions" without inject
+```
+
+作用域**必须显式 inject** 那些带点的路径服务，插件的客户端清单里写：
+
+```js
+inject: ['slots', 'locale', 'remote', 'remote.userQuestions', 'uiConversation'],
+```
+
+（`ctx.get('remote')` 能拿到，但 `remote.userQuestions` 是**另一个**路径——取不到。）
+
+### ⑫ 推理强度是**每个模型自己的**
+
+同一个 provider 下，A 模型给 low/high/max，B 模型只给 medium。
+所以档位**不能写死在插件里**——问适配器：
+
+```
+llm.resolveModelInfo(provider, model) → { reasoning: { efforts: [{id, name}], defaultEffort } }
+```
+
+这条路径**可能去问 provider**，所以它是一条**按需**的接口
+（`GET /api/model-info`），**不进轮询**：模型菜单打开时才问一次。
+
+
 ---
 
 ## 16. 界面物质语言（2026-11-19）
