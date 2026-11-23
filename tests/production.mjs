@@ -64,6 +64,9 @@ test('empty works can acquire numbered scenes, stable roles, shots and registere
     await assert.rejects(addProductionRecord(dir, { kind: 'shot', sceneId: '../bad' }), /场次/)
     await writeFile(join(dir, 'brief.md'), '测试登记', 'utf8')
     const service = new DramaDeskService({ config: { projectRoot: root, outputRoot: root } })
+    const listed = await service.listWorkspaces()
+    assert.equal(listed[0].shots, 2, 'work picker reads actual shots, not stale state counters')
+    assert.equal(listed[0].scenes, 2, 'work picker reads actual scenes')
     const record = { workspaceId: 'sample', id: 'brief', type: 'doc', path: 'brief.md' }
     const saved = await service.registerAsset(record)
     assert.equal(saved.asset.sha256.length, 64)

@@ -14,7 +14,26 @@
     const PANEL_MIN = 320
     const PANEL_MAX = 1200
     /** 拖动时至少还给主区留这么多，否则侧栏能把内容挤没。 */
-    const PANEL_KEEP = 240
+    const PANEL_KEEP = 360
+
+    /** Measure the plugin itself: the host sidebar can consume much of the viewport. */
+    function useDeskWidth(rootRef) {
+      const [available, setAvailable] = useState(1200)
+      useEffect(() => {
+        const element = rootRef.current
+        if (!element) return undefined
+        const measure = () => setAvailable(Math.round(element.getBoundingClientRect().width))
+        measure()
+        if (typeof ResizeObserver === 'undefined') {
+          window.addEventListener('resize', measure)
+          return () => window.removeEventListener('resize', measure)
+        }
+        const observer = new ResizeObserver(measure)
+        observer.observe(element)
+        return () => observer.disconnect()
+      }, [rootRef])
+      return available
+    }
 
     /**
      * 一块可调宽度的侧栏。
@@ -54,7 +73,11 @@
         const box = panelRef.current
         const parent = box === null ? null : box.parentElement
         const available = parent === null ? window.innerWidth : parent.getBoundingClientRect().width
-        return Math.max(min, Math.min(max, Math.round(available - PANEL_KEEP)))
+        const reserved = parent === null ? 0 : Array.from(parent.children)
+          .filter(child => child !== box && (child.classList.contains('dd-side') || child.classList.contains('dd-nav'))
+            && !child.classList.contains('full') && !child.classList.contains('overlay'))
+          .reduce((sum, child) => sum + child.getBoundingClientRect().width, 0)
+        return Math.max(min, Math.min(max, Math.round(available - reserved - PANEL_KEEP)))
       }, [max, min])
 
       const remember = useCallback(value => {
@@ -142,7 +165,7 @@
 
       const style = full
         ? undefined
-        : { width: width + 'px', maxWidth: width + 'px' }
+        : { width: Math.min(width, options.maxAvailable ?? width) + 'px', maxWidth: Math.min(width, options.maxAvailable ?? width) + 'px' }
 
       const resizeProps = full
         ? {}
@@ -195,6 +218,9 @@
   position:absolute;inset:0;width:auto;max-width:none;z-index:6;
   box-shadow:0 0 0 1px var(--line),var(--e-4);
 }
+.dd-side.overlay{position:absolute;inset:0 0 0 auto;z-index:5;width:min(100%,460px)!important;max-width:100%!important;min-width:0;
+  background:var(--bg);box-shadow:var(--e-pop);border-left:1px solid var(--line)}
+.dd-side.overlay .dd-side-resize{display:none}
 /* 把手：左边缘一条 9px 的热区，视觉上是一条发丝线。
    热区要比发丝线宽得多——抓一条 2px 的线是件很累的事。 */
 .dd-side-resize{

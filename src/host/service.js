@@ -238,15 +238,19 @@ export class DramaDeskService {
     const found = await discoverWorkspaces(await this.projectRoot())
     const rows = []
     for (const entry of found) {
-      const work = await this.cachedJson(join(entry.dir, 'work.json'))
-      const state = await this.cachedJson(join(entry.dir, 'state.json'))
+      const [work, state, shotsDoc, scenesDoc] = await Promise.all([
+        this.cachedJson(join(entry.dir, 'work.json')),
+        this.cachedJson(join(entry.dir, 'state.json')),
+        this.cachedJson(join(entry.dir, 'shots.json')),
+        this.cachedJson(join(entry.dir, 'scenes.json')),
+      ])
       rows.push({
         id: entry.id !== '' ? entry.id : (typeof work?.work_id === 'string' ? work.work_id : 'work'),
         dir: entry.dir,
         title: typeof work?.title === 'string' && work.title !== '' ? work.title : entry.id,
         stage: typeof state?.stage === 'string' ? state.stage : undefined,
-        shots: typeof state?.shots_total === 'number' ? state.shots_total : undefined,
-        scenes: typeof state?.scenes_total === 'number' ? state.scenes_total : undefined,
+        shots: Array.isArray(shotsDoc?.shots) ? shotsDoc.shots.length : 0,
+        scenes: Array.isArray(scenesDoc?.scenes) ? scenesDoc.scenes.length : 0,
         // 草稿：还没立项的作品（见 `createWorkspace` 的 `draft`）。名字与目录 ID 都是
         // **暂定**的，界面要如实标出来，并给一个「立项命名」的出口。
         draft: work?.draft === true,

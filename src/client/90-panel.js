@@ -40,14 +40,17 @@
       const [busy, setBusy] = useState(false)
       const [toast, setToast] = useState(null)
       const [viewer, setViewer] = useState(null)
+      const rootRef = useRef(null)
+      const deskWidth = useDeskWidth(rootRef)
+      const narrowDesk = deskWidth < 760
       // 文本编辑**不再有浮层**：多行字段在原地展开一块编辑面（见 41-editing.js）。
       // 用户明确否掉了「点击 → 弹出窗口」这个动作，浮层以及它的宿主全删了。
       // 面板根组件因此也不再需要「替字段渲染弹窗」的那套间接层。
 
       // ── 侧栏宽度 ────────────────────────────────────────────────────────
       // 右侧两块（镜详情 / 构思会话）各自记住自己的宽度。
-      const inspector = usePanelWidth({ storageKey: 'dsh-drama-desk:inspector-width', initial: 420, label: '镜详情' })
-      const chatPanel = usePanelWidth({ storageKey: 'dsh-drama-desk:chat-width', initial: 460, label: '构思会话' })
+      const inspector = usePanelWidth({ storageKey: 'dsh-drama-desk:inspector-width', initial: 420, label: '镜详情', maxAvailable: Math.max(320, deskWidth - 424) })
+      const chatPanel = usePanelWidth({ storageKey: 'dsh-drama-desk:chat-width', initial: 460, label: '制作助手', maxAvailable: Math.max(320, deskWidth - 424) })
 
       /** 侧栏右上角那枚「全屏」：占满导演工作台这一块，不是占满浏览器。 */
       const fullToggle = (panel, label) => h('button', {
@@ -105,7 +108,6 @@
       const stageRevision = useRef(null)
       /** Whether the panel is actually on screen. The host may keep it mounted but hidden. */
       const visibleRef = useRef(true)
-      const rootRef = useRef(null)
 
       const say = useCallback((message, kind) => {
         setToast(message === undefined ? null : { message, kind })
@@ -281,6 +283,7 @@
 
       // ── shot detail ───────────────────────────────────────────────────────
       const openShot = useCallback(async shotId => {
+        if (deskWidth < inspector.width + chatPanel.width + 424) setChatWanted(false)
         setSelectedShot(shotId)
         setDetailLoading(true)
         try {
@@ -291,7 +294,7 @@
         } finally {
           setDetailLoading(false)
         }
-      }, [workspaceId, say])
+      }, [workspaceId, say, deskWidth, inspector.width, chatPanel.width])
 
       const refreshDetail = useCallback(async () => {
         if (!selectedShot) return
@@ -706,6 +709,10 @@
       // 于是它再也不是死按钮。
       const chatAuto = showHome || (view === 'stage' && viewStage === 'conceive')
       const chatVisible = chatWanted === null ? chatAuto : chatWanted
+      const inspectorWanted = view === 'stage' && !showHome
+        && (selectedShot !== null || (!narrowDesk && (viewStage === 'generate' || viewStage === 'storyboard')))
+      const inspectorVisible = inspectorWanted
+        && (!chatVisible || (!narrowDesk && deskWidth >= inspector.width + chatPanel.width + 424))
 
       const stageData = stagePayload ? stagePayload.data : undefined
       // 用**载荷自己的阶段**来选组件：这样即使 viewStage 刚变、请求还在路上，
@@ -874,10 +881,11 @@
               )
               : null,
             h('button', {
-              className: 'dd-icon-btn' + (chatVisible ? ' on' : ''),
+              className: 'dd-btn sm' + (chatVisible ? ' on' : ''),
               type: 'button',
               onClick: () => {
                 const next = !chatVisible
+                if (next) inspector.exitFull()
                 setChatWanted(next)
                 try { window.localStorage.setItem('dsh-drama-desk:chat-open', next ? '1' : '0') } catch { /* 存不下就算了 */ }
               },
@@ -1040,12 +1048,11 @@
           // 界面自己知道该给你看什么，只是没画出来。
           //
           // 生成 / 分镜两页即使没选镜也要开：那里默认显示「这一场的概览」。
-          (view === 'stage' && !showHome
-            && (selectedShot !== null || viewStage === 'generate' || viewStage === 'storyboard'))
+          inspectorWanted
             ? h('div', {
-              className: 'dd-side' + (inspector.full ? ' full' : ''),
+              className: 'dd-side' + (inspector.full ? ' full' : narrowDesk ? ' overlay' : ''),
               ref: inspector.panelRef,
-              style: inspector.style,
+              style: { ...inspector.style, ...(inspectorVisible ? {} : { display: 'none' }) },
               'data-resizing': inspector.dragging ? 'true' : 'false',
             },
               h(ShotDetail, {
@@ -1074,7 +1081,7 @@
           // 是一个持续的过程：想 → 写简报 → 改简报，都在同一段对话里。
           chatVisible
             ? h('div', {
-              className: 'dd-side' + (chatPanel.full ? ' full' : ''),
+              className: 'dd-side' + (chatPanel.full ? ' full' : narrowDesk ? ' overlay' : ''),
               ref: chatPanel.panelRef,
               style: chatPanel.style,
               'data-resizing': chatPanel.dragging ? 'true' : 'false',
