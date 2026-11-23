@@ -5,6 +5,8 @@ description: AI 短剧/微电影的分镜阶段。把场次拆成镜头，逐镜
 
 # drama-storyboard — 分镜表
 
+**插件内入口（优先）**：先用 `drama_desk_production`（workspace 为当前作品 ID、stage 为 storyboard）与 `drama_desk_rules` 读取现状和本阶段规范。需要新增场次/角色/镜头时用 `drama_desk_add`，真源修改用 `drama_desk_edit` / `drama_desk_edit_beat` / `drama_desk_edit_shot`，文件落地后用 `drama_desk_register_asset` 登记。以下 `python tools/drama.py` 是外部 CLI 工作区的示例；只有确认当前工作区存在它时才运行。插件包本身不分发该外部 CLI，不得猜路径或因它缺失而重复失败。
+
 **本阶段产出**：`workspaces/<work-id>/shots.json`（镜头清单）。
 
 场次是叙事单位，镜头是拍摄单位。这一阶段把前者拆成后者，并且把**参考资产、角色状态、音轨需求**逐镜确定下来——因为这些一旦在生成阶段才发现缺失，返工的是钱。

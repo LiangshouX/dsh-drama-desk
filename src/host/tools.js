@@ -86,6 +86,43 @@ export function registerTools(ctx, service) {
   }
 
   const definitions = [
+    tool('drama_desk_register_asset', '登记作品目录内已经存在的文件。实际计算哈希；视频音频用 ffprobe 实测。只追加资产，不发起生成，不自动切当前视频版本。', {
+      workspace: workspaceProperty, id: { type: 'string', required: true }, type: { type: 'string', required: true },
+      path: { type: 'string', required: true }, role: { type: 'string' }, shotId: { type: 'string' },
+      version: { type: 'number' }, source: { type: 'string' },
+    }, async args => await service.registerAsset({ ...args, workspaceId: args.workspace })),
+    tool('drama_desk_edit', '编辑简报、场次、角色或资产的真源字段；与界面共用保存方法。', {
+      workspace: workspaceProperty, kind: { type: 'string', enum: ['brief', 'scene', 'character', 'asset'], required: true },
+      id: { type: 'string' }, patch: { type: 'object', additionalProperties: true }, text: { type: 'string' },
+    }, async args => {
+      const base = { workspaceId: args.workspace, patch: args.patch }
+      if (args.kind === 'brief') return await service.editBrief({ ...base, text: args.text })
+      if (args.kind === 'scene') return await service.editScene({ ...base, sceneId: args.id })
+      if (args.kind === 'character') return await service.editCharacter({ ...base, characterId: args.id })
+      if (args.kind === 'asset') return await service.editAsset({ ...base, assetId: args.id })
+      throw new Error('未知编辑类型')
+    }),
+    tool('drama_desk_add', '新增场次、角色、道具或镜头。编号由 Host 连续分配；不删除历史记录、不写派生字段。后续字段修改用已有编辑工具。', {
+      workspace: workspaceProperty, kind: { type: 'string', enum: ['scene', 'character', 'prop', 'shot'], required: true },
+      sceneId: { type: 'string', description: '新增镜头时必填，已有场次 ID。' },
+      id: { type: 'string', description: '角色或道具的稳定 ID；场次和镜头省略，自动编号。' },
+      fields: { type: 'object', additionalProperties: true, description: '真源字段，不能包含派生字段、状态或当前版本。' },
+    }, async args => await service.addRecord({ workspaceId: args.workspace, kind: args.kind, sceneId: args.sceneId, id: args.id, fields: args.fields })),
+    tool('drama_desk_production', '读一个制作阶段的任务、技能、出口、缺口与实际载荷。只读，不发消息、不推进阶段。', {
+      workspace: workspaceProperty, stage: { type: 'string', description: '九个制作阶段之一；省略用已提交阶段。' },
+    }, async args => await service.productionTask({ workspaceId: args.workspace, stage: args.stage })),
+    tool('drama_desk_assemble', '本地 FFmpeg 顺切粗剪，不发起付费生成。只有已验收且当前版本完整时可运行。返回任务；用 production 的 assemble 阶段查看进度。', {
+      workspace: workspaceProperty, profile: { type: 'string', enum: ['landscape', 'portrait', 'square'] },
+    }, async args => await service.assemble({ workspaceId: args.workspace, profile: args.profile })),
+    tool('drama_desk_review', '读写本镜人工复核。填写意见不等于通过；只有导演明确确认通过后才设置 approve=true。', {
+      workspace: workspaceProperty, shot: { type: 'string', required: true },
+      patch: { type: 'object', additionalProperties: true }, approve: { type: 'boolean' },
+    }, async args => args.approve === true
+      ? await service.approveShot({ workspaceId: args.workspace, shotId: args.shot })
+      : await service.editVerify({ workspaceId: args.workspace, shotId: args.shot, patch: args.patch })),
+    tool('drama_desk_deliver', '导演回看认可后确认一条成片交付，拒绝文件缺失或源版本过期的成片。', {
+      workspace: workspaceProperty, asset: { type: 'string', required: true },
+    }, async args => await service.confirmDelivery({ workspaceId: args.workspace, assetId: args.asset })),
     tool(
       'drama_desk_status',
       '读短剧流水线状态：作品、阶段、场次×镜头网格与每个镜头的体检状态（未生成/已生成未体检/WARN/FAIL/通过）。先看这个。',

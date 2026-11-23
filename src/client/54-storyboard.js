@@ -16,6 +16,7 @@
         }),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
+            h(AddRecordForm, { kinds: ['shot'], scenes: data.scenes || [], busy, actions }),
             shots.length === 0
               ? h('div', { className: 'dd-empty' }, '还没有镜头')
               : h('table', { className: 'dd-table' },

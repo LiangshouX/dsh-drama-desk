@@ -24,6 +24,8 @@
 import { existsSync } from 'node:fs'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { resolveWithin } from './fsx.js'
+import { currentVideo, isFinalVideo } from './media.js'
 
 /**
  * The stage order, as the contract writes it.
@@ -85,23 +87,31 @@ const CHECKERS = {
     return gaps
   },
   verify: work => {
-    const withVideo = new Set(work.assets.filter(asset => asset.type === 'video').map(asset => asset.shot_id))
     const gaps = []
+    if (work.shots.length === 0) gaps.push('还没有分镜')
     for (const shot of work.shots) {
-      if (!withVideo.has(shot.id)) gaps.push(`镜头 ${shot.id} 没有登记视频资产`)
+      const video = currentVideo(work, shot)
+      if (!video) gaps.push(`镜头 ${shot.id} 的当前版本没有唯一有效的视频资产`)
+      else {
+        try { if (!existsSync(resolveWithin(work.dir, video.path))) gaps.push(`镜头 ${shot.id} 的当前视频文件不存在`) }
+        catch { gaps.push(`镜头 ${shot.id} 的当前视频路径无效`) }
+      }
     }
     return gaps
   },
   assemble: work => {
     const gaps = []
+    if (work.shots.length === 0) gaps.push('还没有分镜')
     for (const shot of work.shots) {
       if (shot.status !== 'verified') gaps.push(`镜头 ${shot.id} 的 status 是 ${shot.status ?? '（空）'}，不是 verified`)
     }
     return gaps
   },
   deliver: work => {
-    const finals = work.assets.filter(asset => asset.type === 'video' && typeof asset.path === 'string' && asset.path.includes('final'))
-    return finals.length === 0 ? ['没有登记成片（视频资产路径含 final）'] : []
+    const finals = work.assets.filter(isFinalVideo).filter(asset => {
+      try { return existsSync(resolveWithin(work.dir, asset.path)) } catch { return false }
+    })
+    return finals.length === 0 ? ['没有已登记且文件存在的成片'] : []
   },
 }
 

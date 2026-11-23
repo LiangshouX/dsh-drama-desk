@@ -28,6 +28,11 @@ import {
 } from './conceive.js'
 import { buildStageView, readStagePrompt, shotSummary, STAGE_VIEWS } from './stageviews.js'
 import { resolvePoster, resolvePosterSource } from './posters.js'
+import { assemblyPlan, assemblyJob, startAssembly, finalCuts } from './assembly.js'
+import { currentVideo, videoVersion } from './media.js'
+import { productionTaskFor } from './production.js'
+import { addProductionRecord } from './authoring.js'
+import { registerProductionAsset } from './registration.js'
 import {
   readHostInfo,
   pickDirectory,
@@ -304,6 +309,7 @@ export class DramaDeskService {
     const files = [
       'work.json', 'state.json', 'scenes.json', 'shots.json',
       'characters.json', 'assets.json', 'ledger.json',
+      'creative/brief.md', 'assembly/status.json',
     ]
     for (const name of files) {
       try {
@@ -314,8 +320,16 @@ export class DramaDeskService {
       }
     }
     // 提示词产物与验收报告也会改变判定，所以它们的数量进版本号。
-    parts.push(`prompts:${(await listDirIfExists(join(dir, 'prompts', 'slim'))).length}`)
-    parts.push(`verify:${(await listDirIfExists(join(dir, 'verify'))).length}`)
+    for (const folder of ['prompts/slim', 'prompts/overrides', 'verify']) {
+      const names = (await listDirIfExists(join(dir, folder))).sort()
+      const revisions = await mapLimit(names, 32, async name => {
+        try {
+          const info = await stat(join(dir, folder, name))
+          return `${name}:${info.mtimeMs}:${info.size}`
+        } catch { return `${name}:-` }
+      })
+      parts.push(`${folder}:${revisions.join(',')}`)
+    }
     return parts.join('|')
   }
 
@@ -578,16 +592,17 @@ export class DramaDeskService {
   /** Build one grid cell: status, reason, and the markers a director needs. */
   async buildCell(data, scene, shot, sceneQc, promptExists, reportExists) {
     const ledger = newestLedgerFor(data.ledger, shot.id)
+    const video = currentVideo(data, shot)
     const report = reportExists
       ? await this.cachedJson(join(data.dir, 'verify', `${shot.id}.report.json`))
       : undefined
     const markers = []
     let status = 'none'
     let reason = '台账无记录'
-    if (ledger !== undefined) {
+    if (video !== undefined || ledger !== undefined) {
       status = 'generated'
       reason = '已生成，尚无体检报告'
-      if (report !== undefined && typeof report.verdict === 'string') {
+      if (video !== undefined && report !== undefined && report.source_outdated !== true && typeof report.verdict === 'string') {
         const verdict = report.verdict.toLowerCase()
         if (verdict === 'pass') {
           status = 'pass'
@@ -599,6 +614,10 @@ export class DramaDeskService {
           status = 'warn'
           reason = '验收报告判定 WARN'
         }
+      }
+      if (video && shot.status === 'verified' && report?.human?.video_asset_id === video.id) {
+        status = 'pass'
+        reason = '导演已确认当前视频版本验收通过'
       }
     }
     if (sceneQc !== undefined && sceneQc.verdict === 'FAIL') {
@@ -941,6 +960,7 @@ export class DramaDeskService {
         width: asset.width,
         height: asset.height,
         shotId: asset.shot_id,
+        version: videoVersion(asset),
         deprecatedReason: asset.deprecated_reason,
       }))
   }
@@ -1373,7 +1393,37 @@ export class DramaDeskService {
   /** Edit the 分镜层真源 fields of one shot. */
   async editShot(options) {
     const workspace = await this.requireWorkspace(options)
-    const patch = options.patch
+    const patch = { ...options.patch }
+    if (patch.status === 'verified') throw new Error('请通过人工验收确认动作设置 verified')
+    if (patch.covers !== undefined) {
+      const work = await loadWorkspace(workspace.dir)
+      const shot = work.shots.find(row => row.id === options.shotId)
+      const scene = work.scenes.find(row => row.id === shot?.scene)
+      const count = scene?.beats?.length ?? 0
+      if (!Array.isArray(patch.covers) || patch.covers.some(n => !Number.isInteger(n) || n < 1 || n > count)) {
+        throw new Error('覆盖的拍号必须是当前场次已有的正整数拍号')
+      }
+      patch.covers = [...new Set(patch.covers)]
+    }
+    if (patch.current_version !== undefined) {
+      const work = await loadWorkspace(workspace.dir)
+      const shot = work.shots.find(row => row.id === options.shotId)
+      if (!shot) throw new Error('镜头不存在')
+      const version = Number(patch.current_version)
+      if (!Number.isInteger(version) || version < 1) throw new Error('当前版本必须是正整数')
+      const asset = currentVideo(work, { ...shot, current_version: version })
+      if (!asset || !await isFile(resolveWithin(workspace.dir, asset.path))) throw new Error('该版本没有唯一有效的视频文件，请先在资产页登记')
+      patch.current_version = version
+      if (Number(shot.current_version) !== version || ['pending', 'failed', 'submitted'].includes(shot.status)) {
+        patch.status = 'succeeded'
+        patch.verified_asset_id = null
+      }
+      if (Number(shot.current_version) !== version) {
+        const reportPath = resolveWithin(workspace.dir, `verify/${shot.id}.report.json`)
+        const report = await readJsonIfExists(reportPath)
+        if (report) { report.source_outdated = true; await writeJsonAtomic(reportPath, report) }
+      }
+    }
     await writeShotFields(workspace.dir, options.shotId, patch)
     this.invalidateWork(workspace.dir)
     return { ok: true, saved: true, shotId: options.shotId, patch, stage: await this.commitStageFor(options, workspace) }
@@ -1541,9 +1591,111 @@ export class DramaDeskService {
 
   async editVerify(options = {}) {
     const workspace = await this.requireWorkspace(options)
+    if (options.patch?.verdict !== undefined && !['', 'pass', 'warn', 'fail'].includes(options.patch.verdict)) {
+      throw new Error('人工判定只能是 pass / warn / fail')
+    }
+    const work = await loadWorkspace(workspace.dir)
+    const shot = work.shots.find(row => row.id === options.shotId)
+    if (!shot) throw new Error('镜头不存在')
+    const video = currentVideo(work, shot)
+    if (!video) throw new Error('当前镜头没有唯一有效的视频版本')
+    const path = resolveWithin(workspace.dir, `verify/${shot.id}.report.json`)
+    if (!await isFile(path)) {
+      await writeJsonAtomic(path, { shot_id: shot.id, human: {} })
+    }
+    const previous = await readJsonIfExists(path)
+    if (previous?.human?.video_asset_id && (previous.human.video_asset_id !== video.id
+      || Number(previous.human.current_version) !== Number(shot.current_version))) {
+      previous.human = {}
+      await writeJsonAtomic(path, previous)
+    }
     const saved = await editVerifyReport(workspace.dir, options.shotId, options.patch ?? {})
+    const report = await readJsonIfExists(path)
+    report.human.video_asset_id = video.id
+    report.human.current_version = shot.current_version
+    await writeJsonAtomic(path, report)
+    if (shot.status === 'verified') {
+      await writeShotFields(workspace.dir, shot.id, { status: 'succeeded', verified_asset_id: null })
+    }
     this.invalidateWork(workspace.dir)
     return { ok: true, saved: true, shotId: options.shotId, report: saved, stage: await this.commitStageFor(options, workspace) }
+  }
+
+  async approveShot(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const work = await loadWorkspace(workspace.dir)
+    const shot = work.shots.find(row => row.id === options.shotId)
+    if (!shot) throw new Error('镜头不存在')
+    const video = currentVideo(work, shot)
+    if (!video || !await isFile(resolveWithin(workspace.dir, video.path))) throw new Error('当前视频文件不可用')
+    const report = await readJsonIfExists(resolveWithin(workspace.dir, `verify/${shot.id}.report.json`))
+    if (String(report?.human?.verdict).toLowerCase() !== 'pass' || !String(report?.human?.reviewer ?? '').trim()) {
+      throw new Error('请先填写人工判定 pass 与复核人，再确认验收')
+    }
+    if (report.human.video_asset_id !== video.id || Number(report.human.current_version) !== Number(shot.current_version)) {
+      throw new Error('人工复核对应的版本已改变，请重新回看并填写人工判定')
+    }
+    await writeShotFields(workspace.dir, shot.id, { status: 'verified', verified_asset_id: video.id })
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, shotId: shot.id }
+  }
+
+  async addRecord(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const record = await addProductionRecord(workspace.dir, options)
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, record, stage: await this.commitStageFor(options, workspace) }
+  }
+
+  async registerAsset(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const asset = await registerProductionAsset(workspace.dir, options)
+    if (asset.type === 'video' && asset.shot_id) {
+      const work = await loadWorkspace(workspace.dir)
+      const shot = work.shots.find(row => row.id === asset.shot_id)
+      if (shot && currentVideo(work, shot)?.id === asset.id && ['pending', 'failed'].includes(shot.status)) {
+        await writeShotFields(workspace.dir, shot.id, { status: 'succeeded' })
+      }
+    }
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, asset }
+  }
+
+  async productionTask(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const work = await loadWorkspace(workspace.dir)
+    const stage = options.stage ?? work.state?.stage ?? 'conceive'
+    return { ...productionTaskFor(workspace, work, stage),
+      workspace: { id: workspace.id, title: workspace.title },
+      data: (await this.stageView({ workspaceId: workspace.id, stage })).data }
+  }
+
+  async assemblyStatus(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    return { ...(await assemblyPlan(await loadWorkspace(workspace.dir))), job: await assemblyJob(workspace.dir) }
+  }
+
+  async assemble(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    return startAssembly(this, workspace, options.profile)
+  }
+
+  async confirmDelivery(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const work = await loadWorkspace(workspace.dir)
+    const final = (await finalCuts(work)).find(row => row.assetId === options.assetId)
+    if (!final?.exists) throw new Error('成片文件不存在或已作废')
+    if (final.stale) throw new Error('成片引用的镜头版本已变化，请重新装配')
+    const spec = await this.getSpec()
+    const decision = decideMove(work.state?.stage ?? 'conceive', 'deliver', work, spec)
+    if (work.state?.stage !== 'deliver' && !decision.allowed) throw new Error(decision.reason + '：' + decision.gaps.join('；'))
+    const plan = await assemblyPlan(work)
+    if (!plan.ready) throw new Error('当前镜头还未就绪：' + plan.gaps.join('；'))
+    if (work.state?.stage === 'deliver' && work.state?.delivery_asset_id === final.assetId) return { ok: true, saved: true }
+    await writeJsonAtomic(join(workspace.dir, 'state.json'), { ...work.state, stage: 'deliver',
+      delivery_asset_id: final.assetId, delivered_at: new Date().toISOString() })
+    this.invalidateWork(workspace.dir)
+    return { ok: true, saved: true, assetId: final.assetId }
   }
 
   /** Resolve the workspace or fail with the message the UI shows. */
@@ -1802,6 +1954,7 @@ export class DramaDeskService {
       : await this.resolveWorkspace(ownerId)
     const target = owner !== undefined ? owner : requested
     const scope = await this.scopeOf(target)
+    if (target.id === requested.id && STAGE_VIEWS.includes(options.stage)) scope.stage = options.stage
     const install = installScope(this, sessionId, scope)
     // 冷会话：agent 还不存在（要等用户说出第一句话，宿主才会造出来）。
     // 那就先记下来，等 `agent/created` 一到就挂——否则第一条消息正是没带范围的那条。

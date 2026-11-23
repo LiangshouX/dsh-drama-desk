@@ -33,6 +33,7 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { readJsonIfExists, writeJsonAtomic } from './fsx.js'
+import { PRODUCTION_STAGES } from './production.js'
 
 /** `state.json` 里记住构思会话 id 的字段。 */
 export const SESSION_FIELD = 'desk_session_id'
@@ -115,8 +116,12 @@ export function scopePrompt(scope) {
     '',
     scope.fresh === true
       ? `这是一个**刚建的新作品**，目录还是空的。用 \`drama-conceive\` 技能跟我一起把创意想出来。`
-      : `继续「${name}」的构思时用 \`drama-conceive\` 技能；要改稿就先读 \`${path}/\` 里的文件。`,
+      : `要改稿就先读 \`${path}/\` 里的文件，并按导演本次任务选择对应阶段技能。`,
   )
+  const stage = PRODUCTION_STAGES[scope.stage]
+  if (stage) lines.push('', `导演当前查看：${stage.label}阶段（视图切换不代表进度推进）。`,
+    `相关技能：${stage.skill}；出口：${stage.output}。${stage.task}`,
+    '导演的明确任务优先于当前视图。先用 drama_desk_production 读状态，不能因切页自动执行任务或提交付费生成。')
   return lines.join('\n')
 }
 

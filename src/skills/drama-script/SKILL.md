@@ -5,6 +5,8 @@ description: AI 短剧/微电影的剧本阶段。为每个场次写动作行与
 
 # drama-script — 分场剧本与台词
 
+**插件内入口（优先）**：先用 `drama_desk_production`（workspace 为当前作品 ID、stage 为 script）与 `drama_desk_rules` 读取现状和本阶段规范。需要新增场次/角色/镜头时用 `drama_desk_add`，真源修改用 `drama_desk_edit` / `drama_desk_edit_beat` / `drama_desk_edit_shot`，文件落地后用 `drama_desk_register_asset` 登记。以下 `python tools/drama.py` 是外部 CLI 工作区的示例；只有确认当前工作区存在它时才运行。插件包本身不分发该外部 CLI，不得猜路径或因它缺失而重复失败。
+
 **本阶段产出**：`workspaces/<work-id>/scenes.json` 的 `beats`（每场：动作 + 台词）。
 
 ---

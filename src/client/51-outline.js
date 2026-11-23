@@ -15,6 +15,7 @@
         }),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
+            h(AddRecordForm, { kinds: ['scene'], busy, actions }),
             scenes.length === 0
               ? h('div', { className: 'dd-empty' }, '还没有场次')
               : h('div', { className: 'dd-outline-list' },

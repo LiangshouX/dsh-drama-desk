@@ -33,6 +33,12 @@
           value: shot.title ?? '', disabled: busy,
           onSave: value => save({ title: value }),
         }),
+        h(Editable, { label: '当前视频版本', value: String(shot.current_version ?? 1), disabled: busy,
+          onSave: value => save({ current_version: Number(value) }) }),
+        h(Editable, { label: '覆盖的拍号', value: (shot.covers || []).join(', '), disabled: busy,
+          placeholder: '1, 2, 3', onSave: value => save({ covers: value.split(/[,，\s]+/).filter(Boolean).map(Number) }) }),
+        h(Editable, { label: '参考资产 ID', value: (shot.references || []).join(', '), disabled: busy,
+          placeholder: '在资产页登记后填入 ID', onSave: value => save({ references: value.split(/[,，\s]+/).filter(Boolean) }) }),
         h('div', { style: { gridColumn: '1 / -1' } },
           h(Editable, {
             label: '这一镜要表达什么', title: '这一镜要表达什么（派生摘要 · 只读）',

@@ -20,6 +20,8 @@ import { join } from 'node:path'
 import { readJsonIfExists, readTextIfExists, listDirIfExists, fileSize, isFile, resolveWithin, mapLimit } from './fsx.js'
 import { checkPrerequisite } from './stages.js'
 import { resolvePosterSource, posterSourcesFor } from './posters.js'
+import { currentVideo, videoVersion } from './media.js'
+import { assemblyPlan, assemblyJob, finalCuts } from './assembly.js'
 
 /** 九个阶段视图的 kind（与数据契约 §4 的阶段枚举同序）。 */
 export const STAGE_VIEWS = [
@@ -454,7 +456,7 @@ async function storyboardView(work, service) {
       qc: shotQc(grid.cells.get(shot?.id)),
     })
   }
-  return { shots }
+  return { shots, scenes: (work.scenes ?? []).map(scene => ({ id: scene.id, title: scene.title })) }
 }
 
 // ── generate ────────────────────────────────────────────────────────────────
@@ -569,6 +571,9 @@ async function verifyView(work, service) {
       title: shot?.title ?? '',
       status: shot?.status,
       verdict: verdictOf(cell, report),
+      videoAssetId: currentVideo(work, shot)?.id,
+      currentVersion: shot.current_version,
+      reportStale: report?.source_outdated === true,
       report: report === undefined ? undefined : describeReport(report),
       qc: shotQc(cell, report),
     })
@@ -636,41 +641,13 @@ function describeReport(report) {
 
 /** 装配：每镜的版本、缺口与总量。 */
 async function assembleView(work, service) {
-  const shots = []
-  for (const shot of work.shots ?? []) {
-    const versions = await videoVersions(work, shot)
-    const current = versions.find(row => row.current) ?? versions[versions.length - 1]
-    shots.push({
-      id: shot?.id,
-      scene: shot?.scene,
-      title: shot?.title ?? '',
-      status: shot?.status,
-      duration: shot?.duration,
-      versions: versions.map(row => ({
-        assetId: row.assetId,
-        version: row.version,
-        bytes: row.bytes,
-        durationSec: row.durationSec,
-        width: row.width,
-        height: row.height,
-        createdAt: row.createdAt,
-        source: row.source,
-        costUsd: row.costUsd,
-        current: row.current,
-      })),
-      hasAudio: current?.hasAudio === true,
-      gap: versions.length === 0 || versions.some(row => row.missing),
-    })
+  const plan = await assemblyPlan(work)
+  const job = await assemblyJob(work.dir)
+  const rows = []
+  for (const shot of plan.shots) {
+    rows.push({ ...shot, versions: await videoVersions(work, work.shots.find(row => row.id === shot.id)) })
   }
-  const gaps = [
-    ...checkPrerequisite('verify', work).gaps,
-    ...checkPrerequisite('assemble', work).gaps,
-  ]
-  return {
-    shots,
-    totals: totalsOf(work),
-    gaps: unique(gaps),
-  }
+  return { ...plan, shots: rows, job, totals: totalsOf(work), currentAssetId: job?.assetId }
 }
 
 /** 一镜登记过的所有视频版本（新的在前）。 */
@@ -678,12 +655,11 @@ async function videoVersions(work, shot) {
   const assets = Array.isArray(work?.assets) ? work.assets : []
   const id = shot?.id
   const videos = assets.filter(asset => asset?.shot_id === id && asset?.type === 'video')
-  const currentVersion = shot?.current_version
   const rows = []
   for (const asset of videos) {
     rows.push({
       assetId: asset.id,
-      version: versionOf(asset, currentVersion),
+      version: videoVersion(asset),
       bytes: asset.bytes,
       durationSec: asset.duration_sec,
       width: asset.width,
@@ -693,7 +669,7 @@ async function videoVersions(work, shot) {
       costUsd: asset.cost_usd,
       hasAudio: asset.has_audio === true,
       missing: !(await assetExists(work, asset)),
-      current: versionOf(asset, currentVersion) === currentVersion,
+      current: currentVideo(work, shot)?.id === asset.id,
     })
   }
   rows.sort((a, b) => (b.version ?? 0) - (a.version ?? 0))
@@ -710,55 +686,20 @@ async function assetExists(work, asset) {
   }
 }
 
-/**
- * 资产属于第几版。
- *
- * 真源是 `shots.json` 的 `current_version`；资产自己登记了 `version` 就用它，
- * 否则从 `<shot-id>_v<NN>` 的文件名里读。
- */
-function versionOf(asset, currentVersion) {
-  if (typeof asset?.version === 'number') return asset.version
-  const match = /_v(\d+)$/.exec(typeof asset?.id === 'string' ? asset.id : '')
-  if (match !== null) return Number(match[1])
-  return currentVersion
-}
-
 /** 一镜的当前视频资产（没有就 undefined）。 */
 function currentVideoAsset(work, shot) {
-  const assets = Array.isArray(work?.assets) ? work.assets : []
-  const id = shot?.id
-  const videos = assets.filter(asset => asset?.shot_id === id && asset?.type === 'video')
-  if (videos.length === 0) return undefined
-  const currentVersion = shot?.current_version
-  const matched = videos.find(asset => versionOf(asset, currentVersion) === currentVersion)
-  return matched ?? videos[videos.length - 1]
+  return currentVideo(work, shot)
 }
 
 // ── deliver ─────────────────────────────────────────────────────────────────
 
 /** 交付：登记成片与是否就绪。 */
 async function deliverView(work, service) {
-  const assets = Array.isArray(work?.assets) ? work.assets : []
-  const finals = []
-  for (const asset of assets) {
-    if (asset?.type !== 'video') continue
-    if (typeof asset.path !== 'string' || !asset.path.includes('final')) continue
-    finals.push({
-      assetId: asset.id,
-      path: asset.path,
-      bytes: asset.bytes,
-      durationSec: asset.duration_sec,
-      costUsd: asset.cost_usd,
-      createdAt: asset.created_at,
-    })
-  }
-  const blockers = checkPrerequisite('deliver', work).gaps
-  return {
-    finals,
-    totals: totalsOf(work),
-    ready: blockers.length === 0,
-    blockers,
-  }
+  const finals = await finalCuts(work)
+  const plan = await assemblyPlan(work)
+  const blockers = [...plan.gaps]
+  if (!finals.some(row => row.exists && !row.stale)) blockers.push('没有可用的成片，请先完成本地装配')
+  return { finals, totals: totalsOf(work), ready: blockers.length === 0, blockers }
 }
 
 // ── 共用 ────────────────────────────────────────────────────────────────────
@@ -867,7 +808,7 @@ function shotQc(cell, report) {
  * 另外两种（未生成 / 已生成未体检）不是判定，所以没有 verdict。
  */
 function verdictOf(cell, report) {
-  if (report !== undefined && typeof report?.verdict === 'string') {
+  if (report !== undefined && report.source_outdated !== true && typeof report?.verdict === 'string') {
     const verdict = report.verdict.toLowerCase()
     if (verdict === 'pass') return 'PASS'
     if (verdict === 'fail') return 'FAIL'

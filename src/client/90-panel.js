@@ -338,6 +338,11 @@
       }, [reload, refreshDetail, say])
 
       const actions = useMemo(() => ({
+        registerAsset: record => runEdit('本地资产已登记', () => apiPost('register-asset', { workspaceId, ...record })),
+        addRecord: (kind, record) => runEdit('已新增记录', () => apiPost('add-record', { workspaceId, kind, ...record, stage: writeStage })),
+        assemble: profile => runEdit('本地装配已开始', () => apiPost('assemble', { workspaceId, profile })),
+        approveShot: shotId => runEdit('本镜已验收通过', () => apiPost('approve-shot', { workspaceId, shotId })),
+        confirmDelivery: assetId => runEdit('已确认交付', () => apiPost('confirm-delivery', { workspaceId, assetId })),
         editScene: (sceneId, patch) => runEdit('场次已保存', () => apiPost('edit-scene', {
           workspaceId, sceneId, patch, stage: writeStage,
         })),
@@ -876,8 +881,8 @@
                 setChatWanted(next)
                 try { window.localStorage.setItem('dsh-drama-desk:chat-open', next ? '1' : '0') } catch { /* 存不下就算了 */ }
               },
-              title: chatVisible ? '收起构思会话' : '展开构思会话（在当前页面也能开）',
-            }, h(Icon, { name: 'note', size: 14 })),
+              title: chatVisible ? '收起制作助手' : '展开制作助手 · 继续当前阶段',
+            }, h(Icon, { name: 'note', size: 14 }), h('span', { style: { marginLeft: '5px', fontSize: '11px' } }, '制作助手')),
             h('button', { className: 'dd-icon-btn', onClick: reload, title: t('action.refresh', '刷新') }, h(Icon, { name: 'refresh', size: 14 })),
             h('button', { className: 'dd-icon-btn', onClick: openDrawer, title: t('action.settings', '设置') }, h(Icon, { name: 'settings', size: 14 })),
           ),
@@ -1017,13 +1022,13 @@
                               onSceneChange: setActiveScene,
                             })
                             : shownStage === 'verify'
-                              ? h(VerifyView, { data: stageData, busy, actions, onOpenShot: openShot, onGoto: gotoStage })
+                              ? h(VerifyView, { data: stageData, busy, actions, workspaceId, onOpenShot: openShot, onGoto: gotoStage })
                               : shownStage === 'assemble'
-                                ? h(AssembleView, { data: stageData, onOpenShot: openShot })
-                                : h(DeliverView, { data: stageData }))
+                                ? h(AssembleView, { data: stageData, busy, actions, onOpenShot: openShot, onGoto: gotoStage })
+                                : h(DeliverView, { data: stageData, busy, actions, workspaceId, onGoto: gotoStage }))
                 : null,
             view === 'spec' ? h(SpecView, { spec, tab: specTab, onTab: setSpecTab, stage: specStage, onStage: setSpecStage, onGoto: gotoStage }) : null,
-            view === 'assets' ? h(AssetsView, { assets, workspaceId, onOpenImage: asset => setViewer(asset), onGoto: gotoStage }) : null,
+            view === 'assets' ? h(AssetsView, { assets, workspaceId, busy, actions, onOpenImage: asset => setViewer(asset), onGoto: gotoStage }) : null,
             view === 'ledger' ? h(LedgerView, { ledger, onGoto: gotoStage }) : null,
           ),
           // ── 镜详情（右栏）─────────────────────────────────────────────
@@ -1075,6 +1080,7 @@
               'data-resizing': chatPanel.dragging ? 'true' : 'false',
             },
               h(ConceiveChat, {
+                stage: viewStage || 'conceive',
                 sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
                 busy,
                 canStart: workspaceId !== '',

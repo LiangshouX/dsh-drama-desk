@@ -246,8 +246,30 @@
       )
     }
 
+    function RegisterAssetForm(props) {
+      const { actions, busy } = props
+      const [record, setRecord] = useState({ id: '', type: 'reference_image', path: '', role: '', shotId: '', version: '' })
+      const setField = (key, value) => setRecord(previous => ({ ...previous, [key]: value }))
+      return h('details', { className: 'dd-add-record' }, h('summary', null, '+ 登记作品内文件'),
+        h('p', { className: 'dd-note' }, '先把文件放入作品目录，再登记相对路径。视频登记后，在镜头详情选择当前版本。'),
+        h('form', { className: 'dd-cut-controls', onSubmit: async event => {
+          event.preventDefault()
+          const result = await actions.registerAsset({ ...record, role: record.role || undefined,
+            shotId: record.shotId || undefined, version: record.version ? Number(record.version) : undefined })
+          if (result !== false) setRecord(previous => ({ ...previous, id: '', path: '' }))
+        } },
+          h('label', null, '类型', h('select', { value: record.type, disabled: busy, onChange: event => setField('type', event.target.value) },
+            Object.keys(ASSET_TYPE_LABEL).map(type => h('option', { key: type, value: type }, ASSET_TYPE_LABEL[type])))),
+          ['id', 'path', 'role', 'shotId', 'version'].map(key => h('label', { key },
+            ({ id: '资产 ID', path: '相对路径', role: '角色 ID（可选）', shotId: '镜头 ID（可选）', version: '版本（视频）' })[key],
+            h('input', { value: record[key], disabled: busy, required: key === 'id' || key === 'path',
+              placeholder: key === 'path' ? 'refs/character.png' : undefined,
+              onChange: event => setField(key, event.target.value) }))),
+          h('button', { className: 'dd-btn primary', type: 'submit', disabled: busy }, '登记文件')))
+    }
+
     function AssetsView(props) {
-      const { assets, onOpenImage, workspaceId, onGoto } = props
+      const { assets, onOpenImage, workspaceId, onGoto, busy, actions } = props
       const [typeFilter, setTypeFilter] = useState('')
       const [statusFilter, setStatusFilter] = useState('')
       const [query, setQuery] = useState('')
@@ -682,6 +704,7 @@
           ),
         ),
         h('div', { className: 'dd-scroll' },
+          actions ? h(RegisterAssetForm, { actions, busy }) : null,
           visible.length === 0
             ? h('div', { className: 'dd-empty' },
               viewMode === 'wall' ? '当前筛选下没有能出画面的资产。' : '这里没有资产。')

@@ -16,6 +16,8 @@
  * applies, so the plugin does not open a wider door than the host already has.
  */
 import { execFile } from 'node:child_process'
+import { createReadStream } from 'node:fs'
+import { pipeline as streamPipeline } from 'node:stream/promises'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -168,6 +170,7 @@ export function registerApi(ctx, service) {
         res.writeHead(405, { allow: 'GET, POST' })
         res.end()
       } catch (error) {
+        if (res.headersSent) { res.destroy(); return }
         const message = error instanceof Error ? error.message : String(error)
         sendJson(res, 400, { ok: false, error: message })
       }
@@ -180,6 +183,8 @@ async function readResource(service, resource, query) {
   switch (resource) {
     case 'overview':
       return await service.overview()
+    case 'production':
+      return await service.productionTask({ workspaceId: query.workspace, stage: query.stage })
     case 'pipeline':
       return await service.pipeline({ workspaceId: query.workspace })
     case 'shot':
@@ -231,6 +236,18 @@ async function readResource(service, resource, query) {
 /** Write actions. */
 async function runAction(service, action, body) {
   switch (action) {
+    case 'register-asset':
+      return await service.registerAsset({ workspaceId: body.workspaceId, id: body.id, type: body.type, path: body.path,
+        role: body.role, shotId: body.shotId, version: body.version, source: body.source })
+    case 'add-record':
+      return await service.addRecord({ workspaceId: body.workspaceId, kind: body.kind, sceneId: body.sceneId,
+        id: body.id, fields: body.fields, stage: body.stage })
+    case 'assemble':
+      return await service.assemble({ workspaceId: body.workspaceId, profile: body.profile })
+    case 'approve-shot':
+      return await service.approveShot({ workspaceId: body.workspaceId, shotId: body.shotId })
+    case 'confirm-delivery':
+      return await service.confirmDelivery({ workspaceId: body.workspaceId, assetId: body.assetId })
     case 'edit-beat':
       return await service.editBeat({
         workspaceId: body.workspaceId,
@@ -309,7 +326,7 @@ async function runAction(service, action, body) {
     case 'conceive-scope':
       // 按会话钉住作品范围：客户端每绑定一段会话就调一次（幂等）。
       // 不创建会话、不写盘——它只给这一段 agent 挂一段 prompt context。
-      return await service.conceiveScope({ workspaceId: body.workspaceId, sessionId: body.sessionId })
+      return await service.conceiveScope({ workspaceId: body.workspaceId, sessionId: body.sessionId, stage: body.stage })
     case 'create-directory':
       return await service.makeDirectory({ path: body.path, name: body.name })
     case 'workspace':
@@ -516,21 +533,19 @@ async function serveVideo(service, url, req, res) {
     return
   }
   if (range === null) {
-    const body = await readFile(absolute)
-    res.writeHead(200, { ...VIDEO_HEADERS, 'content-length': String(body.length) })
-    res.end(body)
+    res.writeHead(200, { ...VIDEO_HEADERS, 'content-type': type, 'content-length': String(info.size) })
+    await streamPipeline(createReadStream(absolute), res)
     return
   }
   const start = range.start
   const end = range.end
-  const body = await readFile(absolute)
-  const slice = body.subarray(start, end + 1)
   res.writeHead(206, {
     ...VIDEO_HEADERS,
+    'content-type': type,
     'content-range': `bytes ${start}-${end}/${info.size}`,
-    'content-length': String(slice.length),
+    'content-length': String(end - start + 1),
   })
-  res.end(slice)
+  await streamPipeline(createReadStream(absolute, { start, end }), res)
 }
 
 /** Headers every video response carries. */

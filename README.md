@@ -229,3 +229,10 @@ brief  场次   角色卡  beats   分镜  视频+提示词 验收报告 版本 
 - **接口契约**：`docs/API.md` —— Host ⇄ Client 的唯一真源
 - **数据契约**：`src/spec/core/数据契约.md`
 - **铁律**：`src/spec/models/minimax/rules.md`
+
+
+## v0.2 制作闭环
+
+新增场次、角色、道具与镜头；登记作品内素材；制作助手覆盖九阶段；人工验收绑定当前视频版本；本地 FFmpeg 顺切粗剪；成片回看、下载、确认交付与来源过期检测。
+
+本地装配需要 Python、FFmpeg 与 ffprobe 在 PATH 中。测试运行 `npm test`；构建与打包方式不变。详细进展与后续路线见 [制作迭代路线](docs/dev/production-roadmap.md)。

@@ -2588,6 +2588,41 @@ select.dd-input{
       )
     }
 
+    function AddRecordForm(props) {
+      const { kinds, scenes = [], busy, actions } = props
+      const [kind, setKind] = useState(kinds[0])
+      const [title, setTitle] = useState('')
+      const [id, setId] = useState('')
+      const [scene, setScene] = useState('')
+      const selectedScene = scenes.some(row => row.id === scene) ? scene : scenes[0] && scenes[0].id
+      const labels = { scene: '场次', character: '角色', prop: '道具', shot: '镜头' }
+      return h('details', { className: 'dd-add-record' },
+        h('summary', null, '+ 新增' + kinds.map(value => labels[value]).join(' / ')),
+        h('form', { className: 'dd-cut-controls', onSubmit: async event => {
+          event.preventDefault()
+          const result = await actions.addRecord(kind, { id: id || undefined, sceneId: selectedScene,
+            fields: kind === 'character' || kind === 'prop' ? { name: title } : { title } })
+          if (result !== false) { setTitle(''); setId('') }
+        } },
+          kinds.length > 1 ? h('label', null, '类型', h('select', { value: kind, onChange: event => setKind(event.target.value), disabled: busy },
+            kinds.map(value => h('option', { key: value, value }, labels[value])))) : null,
+          kind === 'shot' ? h('label', null, '场次', h('select', { value: selectedScene || '', disabled: busy, required: true,
+            onChange: event => setScene(event.target.value) }, h('option', { value: '', disabled: true }, '先创建场次'),
+            scenes.map(row => h('option', { key: row.id, value: row.id }, row.id + ' · ' + (row.title || '未命名'))))) : null,
+          kind === 'character' || kind === 'prop' ? h('label', null, '目录 ID', h('input', { value: id, required: true,
+            placeholder: kind === 'prop' ? 'prop_letter' : 'narrator', pattern: '[a-z][a-z0-9_]*', disabled: busy,
+            onChange: event => setId(event.target.value) })) : null,
+          h('label', null, '名称', h('input', { value: title, required: true, disabled: busy, onChange: event => setTitle(event.target.value) })),
+          h('button', { className: 'dd-btn primary', disabled: busy || (kind === 'shot' && !selectedScene), type: 'submit' }, '创建' + labels[kind]),
+        ))
+    }
+
+    CSS_PARTS.push(`
+.dd-add-record{padding:10px 14px;background:var(--raised);border:1px solid var(--line);border-radius:var(--rx-sm);box-shadow:inset 0 1px var(--hl);margin-bottom:12px;font-size:12px}
+.dd-add-record summary{cursor:pointer;color:var(--ink2);min-height:24px;line-height:24px}
+.dd-add-record input{min-width:100px;max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-sm);padding:8px}
+`)
+
     /**
      * 创意简报：一份**文档**，也是这一阶段唯一能改的东西。
      *
@@ -2665,6 +2700,7 @@ select.dd-input{
         }),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
+            h(AddRecordForm, { kinds: ['scene'], busy, actions }),
             scenes.length === 0
               ? h('div', { className: 'dd-empty' }, '还没有场次')
               : h('div', { className: 'dd-outline-list' },
@@ -2841,6 +2877,7 @@ select.dd-input{
         }),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
+            h(AddRecordForm, { kinds: ['character', 'prop'], busy, actions }),
             characters.length === 0 && props_.length === 0
               ? h('div', { className: 'dd-empty' }, '还没有角色卡')
               : h('div', { style: { display: 'flex', flexDirection: 'column', gap: '18px' } },
@@ -2963,6 +3000,7 @@ select.dd-input{
         }),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
+            h(AddRecordForm, { kinds: ['shot'], scenes: data.scenes || [], busy, actions }),
             shots.length === 0
               ? h('div', { className: 'dd-empty' }, '还没有镜头')
               : h('table', { className: 'dd-table' },
@@ -3018,7 +3056,7 @@ select.dd-input{
 
     /** The verify stage: machine verdicts plus the human's call. */
     function VerifyView(props) {
-      const { data, busy, actions, onOpenShot, onGoto } = props
+      const { data, busy, actions, onOpenShot, onGoto, workspaceId } = props
       const shots = data.shots || []
       return h('div', { className: 'dd-main' },
         h(StageHeader, {
@@ -3028,7 +3066,7 @@ select.dd-input{
           right: [
             h('span', { className: 'dd-chip' }, h('b', { className: 'num' }, String(shots.length)), ' 镜待验'),
             h('span', { className: 'dd-chip' }, '通过 ', h('b', { className: 'num' },
-              String(shots.filter(shot => shot.verdict === 'pass').length))),
+              String(shots.filter(shot => shot.status === 'verified').length))),
           ],
         }),
         h('div', { className: 'dd-scroll' },
@@ -3066,6 +3104,15 @@ select.dd-input{
                       }, shot.verdict || (shot.qc && shot.qc.verdict) || '未判'),
                     ),
                     h('div', { className: 'dd-sec-body' },
+                      shot.reportStale ? h('div', { className: 'dd-warnbox' }, '机器报告属于旧版本，以下读数仅供历史参考。请对当前视频重新检查和人工复核。') : null,
+                      shot.videoAssetId ? h('video', { controls: true, preload: 'none', playsInline: true,
+                        src: assetVideoUrl(workspaceId, shot.videoAssetId), className: 'dd-final-player',
+                        'aria-label': shot.id + ' 当前版本回看' }) : h('div', { className: 'dd-note' }, '当前版本还没有可用视频'),
+                      h('div', { className: 'dd-cut-controls' },
+                        h('span', { className: 'dd-badge' }, '当前 v' + (shot.currentVersion ?? '?')),
+                        h('button', { className: 'dd-btn sm primary',
+                          disabled: busy || !shot.videoAssetId || shot.status === 'verified',
+                          onClick: () => actions.approveShot(shot.id) }, shot.status === 'verified' ? '已验收通过' : '确认本镜验收通过')),
                       /* 机器读数是**读数**，不是可改的字段——
                          之前它们跟人工判定长得一模一样，点进去才发现改不了。 */
                       h('div', { className: 'dd-grid3' },
@@ -3117,106 +3164,123 @@ select.dd-input{
       )
     }
 
-    /** The assemble stage: versions, gaps, cost. */
+    /** Local rough cut with a durable job and an explicit readiness check. */
     function AssembleView(props) {
-      const { data, onOpenShot } = props
+      const { data, onOpenShot, onGoto, busy, actions } = props
+      const [profile, setProfile] = useState('landscape')
       const shots = data.shots || []
       const totals = data.totals || {}
+      const job = data.job
+      const running = job && job.status === 'running'
       return h('div', { className: 'dd-main' },
-        h(StageHeader, {
-          stage: 'assemble',
-          title: '装配',
-          desc: '把每镜的当前版本按顺序接起来：缺哪一镜、哪一镜没有声音、总共多少钱。',
-          right: [
-            h('span', { className: 'dd-chip' }, h('b', { className: 'num' }, String(totals.shots ?? shots.length)), ' 镜'),
-            h('span', { className: 'dd-chip' }, '总时长 ', h('b', { className: 'num' }, (totals.seconds ?? 0) + 's')),
-            h('span', { className: 'dd-chip' }, '花费 ', h('b', { className: 'num' }, '$' + formatNumber(totals.costUsd ?? 0, 2))),
-          ],
-        }),
-        h('div', { className: 'dd-scroll' },
-          h('div', { className: 'dd-grid' },
-            data.gaps && data.gaps.length > 0
-              ? h('div', { className: 'dd-warnbox', style: { marginBottom: '12px' } },
-                h('div', null, '还差：'),
-                h('ul', { style: { margin: '5px 0 0', paddingLeft: '18px' } },
-                  data.gaps.map((gap, index) => h('li', { key: index }, gap))),
-              )
-              : null,
-            shots.length === 0
-              ? h('div', { className: 'dd-empty' }, '没有镜头')
-              : h('table', { className: 'dd-table' },
-                h('thead', null, h('tr', null,
-                  h('th', null, '镜头'), h('th', null, '标题'), h('th', { className: 'n' }, '时长'),
-                  h('th', null, '版本'), h('th', null, '音轨'), h('th', { className: 'n' }, '费用'), h('th', null, ''),
-                )),
-                h('tbody', null, shots.map(shot => h('tr', { key: shot.id },
-                  h('td', { className: 'n' }, shot.id),
-                  h('td', null, shot.title || '—'),
-                  h('td', { className: 'n' }, shot.duration ? shot.duration + 's' : '—'),
-                  h('td', null, (shot.versions || []).map(version =>
-                    h('span', {
-                      key: version.assetId,
-                      className: 'dd-badge',
-                      style: version.current ? { color: 'var(--ok)', borderColor: 'color-mix(in srgb,var(--ok) 40%,transparent)' } : undefined,
-                      title: version.createdAt + ' · ' + formatBytes(version.bytes),
-                    }, 'v' + version.version + (version.current ? ' · 当前' : '')))),
-                  h('td', null, shot.hasAudio ? '有' : h('span', { style: { color: 'var(--danger)' } }, '缺')),
-                  h('td', { className: 'n' }, shot.costUsd ? '$' + shot.costUsd.toFixed(2) : '—'),
-                  h('td', null, h('button', { className: 'dd-btn sm', onClick: () => onOpenShot(shot.id) }, '打开')),
-                ))),
-              ),
-          ),
-        ),
+        h(StageHeader, { stage: 'assemble', title: '装配', desc: '按分镜顺序连接已验收的当前版本，生成本地粗剪。',
+          right: [h('span', { className: 'dd-chip', key: 'shots' }, shots.length + ' 镜'),
+            h('span', { className: 'dd-chip', key: 'seconds' }, (totals.seconds ?? 0) + 's'),
+            h('span', { className: 'dd-chip', key: 'cost' }, '$' + formatNumber(totals.costUsd ?? 0, 2))] }),
+        h('div', { className: 'dd-scroll' }, h('div', { className: 'dd-grid' },
+          h('section', { className: 'dd-sec' },
+            h('div', { className: 'dd-sec-head' }, h('span', { className: 't' }, '本地顺切粗剪'),
+              h('span', { className: 'sp' }), h('span', { className: 'dd-badge' }, 'FFmpeg · 零生成费用')),
+            h('div', { className: 'dd-sec-body' },
+              h('p', { className: 'dd-note' }, '保留整段视频与原声，统一为 24fps；画幅不符时留黑边，无音轨时补静音。每次输出新版本。'),
+              h('div', { className: 'dd-cut-controls' },
+                h('label', null, '输出画幅 ', h('select', { value: profile, disabled: busy || running,
+                  onChange: event => setProfile(event.target.value), 'aria-label': '输出画幅' },
+                  h('option', { value: 'landscape' }, '横屏 16:9 · 1280×720'),
+                  h('option', { value: 'portrait' }, '竖屏 9:16 · 720×1280'),
+                  h('option', { value: 'square' }, '方形 1:1 · 1080×1080'))),
+                h('button', { className: 'dd-btn primary', disabled: busy || running || !data.ready,
+                  onClick: () => actions.assemble(profile) }, running ? '正在本地装配…' : '导出本地粗剪'),
+                h('button', { className: 'dd-btn', onClick: () => onGoto('deliver') }, '查看成片')),
+              job ? h('div', { className: 'dd-cut-progress', role: 'status', 'aria-live': 'polite' },
+                h('div', null, job.status === 'failed' || job.status === 'interrupted' ? '装配未完成 · ' + job.message : job.message),
+                running ? h('progress', { max: job.total || 1, value: job.completed || 0, 'aria-label': '装配镜头进度' }) : null,
+                job.status === 'succeeded' ? h('button', { className: 'dd-btn sm', onClick: () => onGoto('deliver') }, '回看这一版') : null) : null)),
+          data.gaps && data.gaps.length ? h('div', { className: 'dd-warnbox' },
+            h('b', null, '还差 ' + data.gaps.length + ' 项'),
+            h('ul', null, data.gaps.slice(0, 6).map((gap, i) => h('li', { key: i }, gap))),
+            data.gaps.length > 6 ? h('details', null, h('summary', null, '其余缺口'),
+              h('ul', null, data.gaps.slice(6).map((gap, i) => h('li', { key: i }, gap)))) : null,
+            h('button', { className: 'dd-btn sm', onClick: () => onGoto('verify') }, '前往验收')) : null,
+          data.warnings && data.warnings.length ? h('details', { className: 'dd-note' },
+            h('summary', null, '音轨提醒 · ' + data.warnings.length + ' 项'),
+            h('ul', null, data.warnings.map((warning, i) => h('li', { key: i }, warning)))) : null,
+          shots.length === 0 ? h('div', { className: 'dd-empty' }, '还没有分镜。先完成分镜与镜头验收，再来装配。')
+            : h('div', { className: 'dd-cut-table' }, h('table', { className: 'dd-table' },
+              h('thead', null, h('tr', null, ['顺序 / 镜头', '内容', '当前版本', '音轨登记', '状态', ''].map(label => h('th', { key: label }, label)))),
+              h('tbody', null, shots.map((shot, index) => h('tr', { key: shot.id },
+                h('td', { className: 'n' }, String(index + 1).padStart(2, '0') + ' · ' + shot.id),
+                h('td', null, shot.title || '—'), h('td', { className: 'n' }, 'v' + (shot.version ?? '?')),
+                h('td', null, shot.hasAudio ? '有' : '待实测'),
+                h('td', null, h('span', { className: 'dd-badge ' + (shot.gap ? 'fail' : shot.status === 'verified' ? 'pass' : 'warn'),
+                  title: (shot.gapReasons || []).join('；') }, shot.gap ? '缺素材' : shot.status === 'verified' ? '已验收' : '待验收')),
+                h('td', null, h('button', { className: 'dd-btn sm', onClick: () => onOpenShot(shot.id) }, '打开镜头'))))))),
+        )),
       )
     }
 
-    /** The deliver stage: the final cut. */
+    CSS_PARTS.push(`
+.dd-cut-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}
+.dd-cut-controls label{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:12px}
+.dd-cut-controls select{max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-sm);padding:8px}
+.dd-cut-progress{border-top:1px solid var(--line);padding-top:12px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.dd-cut-progress progress{width:100%;height:8px;accent-color:var(--hot);margin:10px 0}
+.dd-cut-table{overflow-x:auto;max-width:100%}
+.dd-cut-table table{min-width:550px}
+@container (max-width:560px){.dd-cut-controls{align-items:stretch;flex-direction:column}.dd-cut-controls label{flex-wrap:wrap}}
+`)
+
+    /** Final cuts can be watched, downloaded and explicitly accepted. */
     function DeliverView(props) {
-      const { data } = props
+      const { data, workspaceId, busy, actions, onGoto } = props
+      const [selectedId, setSelectedId] = useState(null)
+      const [playbackError, setPlaybackError] = useState(false)
       const finals = data.finals || []
-      const totals = data.totals || {}
+      const selected = finals.find(row => row.assetId === selectedId) || finals.find(row => row.exists) || finals[0]
+      useEffect(() => { setPlaybackError(false) }, [selected && selected.assetId, workspaceId])
       return h('div', { className: 'dd-main' },
-        h(StageHeader, {
-          stage: 'deliver',
-          title: '交付',
-          desc: '成片登记：视频资产路径里带 final 的那一条，就是这一版交付物。',
-          right: [
-            h('span', { className: 'dd-chip' }, h('b', { className: 'num' }, String(finals.length)), ' 条成片'),
-            h('span', { className: 'dd-chip' }, '总时长 ', h('b', { className: 'num' }, (totals.seconds ?? 0) + 's')),
-            h('span', { className: 'dd-chip' }, '花费 ', h('b', { className: 'num' }, '$' + formatNumber(totals.costUsd ?? 0, 2))),
-          ],
-        }),
-        h('div', { className: 'dd-scroll' },
-          h('div', { className: 'dd-grid' },
-            data.ready === false && data.blockers && data.blockers.length > 0
-              ? h('div', { className: 'dd-warnbox', style: { marginBottom: '12px' } },
-                h('div', null, '还不能交付：'),
-                h('ul', { style: { margin: '5px 0 0', paddingLeft: '18px' } },
-                  data.blockers.map((blocker, index) => h('li', { key: index }, blocker))),
-              )
-              : null,
-            finals.length === 0
-              ? h('div', { className: 'dd-empty' },
-                h('div', { className: 'dd-empty-title' }, '还没有成片'),
-                h('div', null, '成片是视频资产里路径含 final 的那一条。'))
-              : h('table', { className: 'dd-table' },
-                h('thead', null, h('tr', null,
-                  h('th', null, '成片'), h('th', null, '路径'), h('th', { className: 'n' }, '时长'),
-                  h('th', { className: 'n' }, '体积'), h('th', { className: 'n' }, '费用'), h('th', null, '登记时间'),
-                )),
-                h('tbody', null, finals.map(final => h('tr', { key: final.assetId },
-                  h('td', null, final.assetId),
-                  h('td', { className: 'path', title: final.path }, final.path || '—'),
-                  h('td', { className: 'n' }, final.durationSec ? final.durationSec + 's' : '—'),
-                  h('td', { className: 'n' }, formatBytes(final.bytes)),
-                  h('td', { className: 'n' }, final.costUsd ? '$' + final.costUsd.toFixed(2) : '—'),
-                  h('td', { className: 'n' }, formatTime(final.createdAt)),
-                ))),
-              ),
-          ),
-        ),
+        h(StageHeader, { stage: 'deliver', title: '交付', desc: '回看成片、核对来源，再确认这一版。',
+          right: h('span', { className: 'dd-chip' }, finals.length + ' 版成片') }),
+        h('div', { className: 'dd-scroll' }, h('div', { className: 'dd-grid' },
+          selected ? h('section', { className: 'dd-sec' },
+            h('div', { className: 'dd-sec-head' }, h('span', { className: 't' }, selected.confirmed ? '已确认交付' : '成片回看'),
+              h('span', { className: 'sp' }), h('span', { className: 'num' }, selected.assetId)),
+            h('div', { className: 'dd-sec-body' },
+              selected.exists ? h('video', { key: workspaceId + ':' + selected.assetId,
+                className: 'dd-final-player', src: assetVideoUrl(workspaceId, selected.assetId),
+                controls: true, preload: 'metadata', playsInline: true, 'aria-label': '成片回看',
+                onError: () => setPlaybackError(true) }) : h('div', { className: 'dd-warnbox' }, '文件已丢失，请重新装配。'),
+              playbackError ? h('div', { className: 'dd-warnbox' }, '浏览器未能播放此格式，可下载到本地播放器回看。') : null,
+              selected.stale ? h('div', { className: 'dd-warnbox' }, '源镜头已变化。这一版保留供比较，请重新装配后交付。') : null,
+              h('p', { className: 'dd-note' }, (selected.durationSec ? formatNumber(selected.durationSec, 2) + 's · ' : '')
+                + (selected.width ? selected.width + '×' + selected.height + ' · ' : '')
+                + formatBytes(selected.bytes) + ' · ' + formatTime(selected.createdAt)),
+              h('p', { className: 'path', style: { overflowWrap: 'anywhere' } }, selected.path),
+              h('div', { className: 'dd-cut-controls' },
+                h('button', { className: 'dd-btn primary', disabled: busy || !data.ready || !selected.exists || selected.stale || selected.confirmed,
+                  onClick: () => actions.confirmDelivery(selected.assetId) }, selected.confirmed ? '这一版已确认' : '确认这一版交付'),
+                selected.exists ? h('a', { className: 'dd-btn', href: assetVideoUrl(workspaceId, selected.assetId), download: selected.assetId + '.mp4' }, '下载成片') : null,
+                h('button', { className: 'dd-btn', onClick: () => onGoto('assemble') }, '返回装配'))))
+            : h('div', { className: 'dd-empty' }, h('div', { className: 'dd-empty-title' }, '还没有成片'),
+              h('p', null, '验收通过后，在装配页导出第一版本地粗剪。'),
+              h('button', { className: 'dd-btn primary', onClick: () => onGoto('assemble') }, '前往装配')),
+          data.blockers && data.blockers.length ? h('details', { className: 'dd-warnbox' },
+            h('summary', null, '交付前还有 ' + data.blockers.length + ' 项待完成'),
+            h('ul', null, data.blockers.map((blocker, index) => h('li', { key: index }, blocker)))) : null,
+          finals.length > 1 ? h('div', { className: 'dd-sec' }, h('div', { className: 'dd-sec-head' }, '历史成片'),
+            h('div', { className: 'dd-sec-body dd-final-history' }, finals.map(final => h('button', {
+              key: final.assetId, className: 'dd-btn' + (selected && final.assetId === selected.assetId ? ' primary' : ''),
+              onClick: () => setSelectedId(final.assetId), title: final.path,
+            }, final.assetId + (final.confirmed ? ' · 已交付' : final.stale ? ' · 来源已变' : !final.exists ? ' · 丢失' : ''))))) : null,
+        )),
       )
     }
+
+    CSS_PARTS.push(`
+.dd-final-player{display:block;width:100%;max-height:52vh;background:#080a0d;border-radius:var(--rx-sm);margin-bottom:12px}
+.dd-final-history{display:flex;flex-wrap:wrap;gap:8px}
+.dd-final-history .dd-btn{max-width:100%;overflow-wrap:anywhere;white-space:normal}
+`)
 
     // ── the generate stage: the shot wall ──────────────────────────────────
 
@@ -3497,6 +3561,12 @@ select.dd-input{
           value: shot.title ?? '', disabled: busy,
           onSave: value => save({ title: value }),
         }),
+        h(Editable, { label: '当前视频版本', value: String(shot.current_version ?? 1), disabled: busy,
+          onSave: value => save({ current_version: Number(value) }) }),
+        h(Editable, { label: '覆盖的拍号', value: (shot.covers || []).join(', '), disabled: busy,
+          placeholder: '1, 2, 3', onSave: value => save({ covers: value.split(/[,，\s]+/).filter(Boolean).map(Number) }) }),
+        h(Editable, { label: '参考资产 ID', value: (shot.references || []).join(', '), disabled: busy,
+          placeholder: '在资产页登记后填入 ID', onSave: value => save({ references: value.split(/[,，\s]+/).filter(Boolean) }) }),
         h('div', { style: { gridColumn: '1 / -1' } },
           h(Editable, {
             label: '这一镜要表达什么', title: '这一镜要表达什么（派生摘要 · 只读）',
@@ -4164,7 +4234,7 @@ select.dd-input{
     function ConceiveChat(props) {
       const {
         sessionId, onClose, onFresh, onStart, onDraft, canStart, busy,
-        workspaceId, panelControls, dshWorkspaceId, SessionProvider, renderSlot,
+        workspaceId, panelControls, dshWorkspaceId, SessionProvider, renderSlot, stage = 'conceive',
       } = props
       const [activeId, setActiveId] = useState(sessionId)
       /**
@@ -4305,6 +4375,17 @@ select.dd-input{
        */
       const [scope, setScope] = useState(null)
       const [scopeTry, setScopeTry] = useState(0)
+      const [task, setTask] = useState(null)
+      const [taskMessage, setTaskMessage] = useState('')
+      useEffect(() => {
+        let cancelled = false
+        setTask(null)
+        setTaskMessage('')
+        if (workspaceId) apiGet('production', { workspace: workspaceId, stage })
+          .then(value => { if (!cancelled) setTask(value) })
+          .catch(error => { if (!cancelled) setTaskMessage(error.message) })
+        return () => { cancelled = true }
+      }, [workspaceId, stage])
       const askedScope = useRef('')
       useEffect(() => {
         if (!hasSession || workspaceId === undefined || workspaceId === null || workspaceId === '') {
@@ -4313,20 +4394,19 @@ select.dd-input{
           return undefined
         }
         const alive = openState === 'open' ? 'open' : 'cold'
-        const key = workspaceId + '|' + activeId + '|' + alive
+        const key = workspaceId + '|' + activeId + '|' + alive + '|' + stage
         if (askedScope.current === key) return undefined
         askedScope.current = key
         // 会话还冷着、而上一轮已经挂上了：范围还在这一段会话上，不必再问。
-        if (alive === 'cold' && scope !== null && scope.seeded === true) return undefined
         let cancelled = false
-        apiPost('conceive-scope', { workspaceId, sessionId: activeId })
+        apiPost('conceive-scope', { workspaceId, sessionId: activeId, stage })
           .then(value => { if (!cancelled) setScope(value) })
           .catch(problem => {
             if (cancelled) return
             setScope({ ok: false, error: problem instanceof Error ? problem.message : String(problem) })
           })
         return () => { cancelled = true }
-      }, [workspaceId, activeId, openState, scopeTry])
+      }, [workspaceId, activeId, openState, scopeTry, stage])
 
       /** 没挂上时点一下就重来（宿主换了、或者会话刚活过来）。 */
       const retryScope = useCallback(() => {
@@ -4395,7 +4475,7 @@ select.dd-input{
       const head = h('div', { className: 'dd-chat-head' },
         h('div', { className: 'dd-chat-titleline' },
           h(Icon, { name: 'note', size: 14 }),
-          h('span', { className: 'ch-t' }, '构思会话'),
+          h('span', { className: 'ch-t' }, '制作助手'),
           h('span', { className: 'ch-sub' },
             !hasSession ? '还没开始'
               : openState === 'open' ? (running ? '正在想…' : '等你说话')
@@ -4426,7 +4506,7 @@ select.dd-input{
        */
       const emptyState = h('div', { className: 'dd-chat-empty' },
         h('div', null, '这里接的是真的 DSH 会话：'),
-        h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
+        h('div', null, '同一个模型与工具，按当前制作阶段选用技能。'),
         h('div', { style: { marginTop: '14px' } },
           // 还没有作品时，这颗按钮不是死的：它就是「从零开始聊」——
           // 建一个草稿作品、立刻开聊，命名的事往后放。
@@ -4506,7 +4586,22 @@ select.dd-input{
           scope.ok === false ? h('span', { className: 'sc-warn' }, '问不到范围 · 点一下重试') : null,
         )
 
-      return h('div', { className: 'dd-chat' }, head, scopeStrip, body)
+      const taskStrip = task ? h('details', { className: 'dd-production-task' },
+        h('summary', null, task.label + ' · 本阶段任务'),
+        h('p', null, task.task),
+        h('p', { className: 'path' }, '出口：' + task.output),
+        task.gaps.length ? h('ul', null, task.gaps.slice(0, 5).map((gap, index) => h('li', { key: index }, gap)),
+          task.gaps.length > 5 ? h('li', null, '另有 ' + (task.gaps.length - 5) + ' 项，复制任务时包含全部') : null) : null,
+        h('button', { className: 'dd-btn sm', type: 'button', onClick: async () => {
+          try {
+            const latest = await apiGet('production', { workspace: workspaceId, stage })
+            await navigator.clipboard.writeText(latest.prompt)
+            setTaskMessage('已复制，粘贴到下方对话即可继续')
+          } catch (error) { setTaskMessage('复制失败：' + error.message) }
+        } }, '复制阶段任务'),
+      ) : null
+      return h('div', { className: 'dd-chat' }, head, scopeStrip, taskStrip,
+        taskMessage ? h('div', { className: 'dd-note', role: 'status', style: { padding: '8px 12px' } }, taskMessage) : null, body)
     }
 
     // ── 会话窗的样式 ──────────────────────────────────────────────────────
@@ -4514,6 +4609,10 @@ select.dd-input{
     // 「装它的那个盒子」和三样我们自己的东西（头部、原生下拉、说明块）。
 
     CSS_PARTS.push(`
+.dd-production-task{flex:0 0 auto;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--raised);box-shadow:inset 0 1px var(--hl);font-size:12px;max-height:32vh;overflow:auto}
+.dd-production-task summary{cursor:pointer;color:var(--ink2);min-height:24px}
+.dd-production-task p{line-height:1.65;margin:8px 0;overflow-wrap:anywhere}
+.dd-production-task ul{padding-left:18px;line-height:1.7;color:var(--sig-warn)}
 /* 装宿主对话的盒子：它是一条**列向** flex 链的最后一环，必须能把高度
    交给子项（宿主自己内部才是那个滚动容器）——所以 min-height:0 不能少。 */
 .dd-chat{width:100%;flex:1 1 auto;min-height:0;box-shadow:-1px 0 0 var(--line);
@@ -5173,8 +5272,30 @@ select.dd-input{
       )
     }
 
+    function RegisterAssetForm(props) {
+      const { actions, busy } = props
+      const [record, setRecord] = useState({ id: '', type: 'reference_image', path: '', role: '', shotId: '', version: '' })
+      const setField = (key, value) => setRecord(previous => ({ ...previous, [key]: value }))
+      return h('details', { className: 'dd-add-record' }, h('summary', null, '+ 登记作品内文件'),
+        h('p', { className: 'dd-note' }, '先把文件放入作品目录，再登记相对路径。视频登记后，在镜头详情选择当前版本。'),
+        h('form', { className: 'dd-cut-controls', onSubmit: async event => {
+          event.preventDefault()
+          const result = await actions.registerAsset({ ...record, role: record.role || undefined,
+            shotId: record.shotId || undefined, version: record.version ? Number(record.version) : undefined })
+          if (result !== false) setRecord(previous => ({ ...previous, id: '', path: '' }))
+        } },
+          h('label', null, '类型', h('select', { value: record.type, disabled: busy, onChange: event => setField('type', event.target.value) },
+            Object.keys(ASSET_TYPE_LABEL).map(type => h('option', { key: type, value: type }, ASSET_TYPE_LABEL[type])))),
+          ['id', 'path', 'role', 'shotId', 'version'].map(key => h('label', { key },
+            ({ id: '资产 ID', path: '相对路径', role: '角色 ID（可选）', shotId: '镜头 ID（可选）', version: '版本（视频）' })[key],
+            h('input', { value: record[key], disabled: busy, required: key === 'id' || key === 'path',
+              placeholder: key === 'path' ? 'refs/character.png' : undefined,
+              onChange: event => setField(key, event.target.value) }))),
+          h('button', { className: 'dd-btn primary', type: 'submit', disabled: busy }, '登记文件')))
+    }
+
     function AssetsView(props) {
-      const { assets, onOpenImage, workspaceId, onGoto } = props
+      const { assets, onOpenImage, workspaceId, onGoto, busy, actions } = props
       const [typeFilter, setTypeFilter] = useState('')
       const [statusFilter, setStatusFilter] = useState('')
       const [query, setQuery] = useState('')
@@ -5609,6 +5730,7 @@ select.dd-input{
           ),
         ),
         h('div', { className: 'dd-scroll' },
+          actions ? h(RegisterAssetForm, { actions, busy }) : null,
           visible.length === 0
             ? h('div', { className: 'dd-empty' },
               viewMode === 'wall' ? '当前筛选下没有能出画面的资产。' : '这里没有资产。')
@@ -7231,6 +7353,11 @@ select.dd-input{
       }, [reload, refreshDetail, say])
 
       const actions = useMemo(() => ({
+        registerAsset: record => runEdit('本地资产已登记', () => apiPost('register-asset', { workspaceId, ...record })),
+        addRecord: (kind, record) => runEdit('已新增记录', () => apiPost('add-record', { workspaceId, kind, ...record, stage: writeStage })),
+        assemble: profile => runEdit('本地装配已开始', () => apiPost('assemble', { workspaceId, profile })),
+        approveShot: shotId => runEdit('本镜已验收通过', () => apiPost('approve-shot', { workspaceId, shotId })),
+        confirmDelivery: assetId => runEdit('已确认交付', () => apiPost('confirm-delivery', { workspaceId, assetId })),
         editScene: (sceneId, patch) => runEdit('场次已保存', () => apiPost('edit-scene', {
           workspaceId, sceneId, patch, stage: writeStage,
         })),
@@ -7769,8 +7896,8 @@ select.dd-input{
                 setChatWanted(next)
                 try { window.localStorage.setItem('dsh-drama-desk:chat-open', next ? '1' : '0') } catch { /* 存不下就算了 */ }
               },
-              title: chatVisible ? '收起构思会话' : '展开构思会话（在当前页面也能开）',
-            }, h(Icon, { name: 'note', size: 14 })),
+              title: chatVisible ? '收起制作助手' : '展开制作助手 · 继续当前阶段',
+            }, h(Icon, { name: 'note', size: 14 }), h('span', { style: { marginLeft: '5px', fontSize: '11px' } }, '制作助手')),
             h('button', { className: 'dd-icon-btn', onClick: reload, title: t('action.refresh', '刷新') }, h(Icon, { name: 'refresh', size: 14 })),
             h('button', { className: 'dd-icon-btn', onClick: openDrawer, title: t('action.settings', '设置') }, h(Icon, { name: 'settings', size: 14 })),
           ),
@@ -7910,13 +8037,13 @@ select.dd-input{
                               onSceneChange: setActiveScene,
                             })
                             : shownStage === 'verify'
-                              ? h(VerifyView, { data: stageData, busy, actions, onOpenShot: openShot, onGoto: gotoStage })
+                              ? h(VerifyView, { data: stageData, busy, actions, workspaceId, onOpenShot: openShot, onGoto: gotoStage })
                               : shownStage === 'assemble'
-                                ? h(AssembleView, { data: stageData, onOpenShot: openShot })
-                                : h(DeliverView, { data: stageData }))
+                                ? h(AssembleView, { data: stageData, busy, actions, onOpenShot: openShot, onGoto: gotoStage })
+                                : h(DeliverView, { data: stageData, busy, actions, workspaceId, onGoto: gotoStage }))
                 : null,
             view === 'spec' ? h(SpecView, { spec, tab: specTab, onTab: setSpecTab, stage: specStage, onStage: setSpecStage, onGoto: gotoStage }) : null,
-            view === 'assets' ? h(AssetsView, { assets, workspaceId, onOpenImage: asset => setViewer(asset), onGoto: gotoStage }) : null,
+            view === 'assets' ? h(AssetsView, { assets, workspaceId, busy, actions, onOpenImage: asset => setViewer(asset), onGoto: gotoStage }) : null,
             view === 'ledger' ? h(LedgerView, { ledger, onGoto: gotoStage }) : null,
           ),
           // ── 镜详情（右栏）─────────────────────────────────────────────
@@ -7968,6 +8095,7 @@ select.dd-input{
               'data-resizing': chatPanel.dragging ? 'true' : 'false',
             },
               h(ConceiveChat, {
+                stage: viewStage || 'conceive',
                 sessionId: conceive && conceive.sessionId ? conceive.sessionId : undefined,
                 busy,
                 canStart: workspaceId !== '',

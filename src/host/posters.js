@@ -178,7 +178,7 @@ export async function posterSourcesFor(work, shotIds) {
       const references = Array.isArray(shot?.references) ? shot.references : []
       const referenced = assets.filter(asset => typeof asset?.id === 'string' && references.includes(asset.id))
       const image = referenced.find(asset => asset?.type === 'reference_image')
-        ?? referenced.find(asset?.type === 'keyframe')
+        ?? referenced.find(asset => asset?.type === 'keyframe')
       if (image !== undefined) found = { kind: 'asset', assetId: image.id }
     }
     sources.set(id, found)

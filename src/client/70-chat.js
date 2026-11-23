@@ -278,7 +278,7 @@
     function ConceiveChat(props) {
       const {
         sessionId, onClose, onFresh, onStart, onDraft, canStart, busy,
-        workspaceId, panelControls, dshWorkspaceId, SessionProvider, renderSlot,
+        workspaceId, panelControls, dshWorkspaceId, SessionProvider, renderSlot, stage = 'conceive',
       } = props
       const [activeId, setActiveId] = useState(sessionId)
       /**
@@ -419,6 +419,17 @@
        */
       const [scope, setScope] = useState(null)
       const [scopeTry, setScopeTry] = useState(0)
+      const [task, setTask] = useState(null)
+      const [taskMessage, setTaskMessage] = useState('')
+      useEffect(() => {
+        let cancelled = false
+        setTask(null)
+        setTaskMessage('')
+        if (workspaceId) apiGet('production', { workspace: workspaceId, stage })
+          .then(value => { if (!cancelled) setTask(value) })
+          .catch(error => { if (!cancelled) setTaskMessage(error.message) })
+        return () => { cancelled = true }
+      }, [workspaceId, stage])
       const askedScope = useRef('')
       useEffect(() => {
         if (!hasSession || workspaceId === undefined || workspaceId === null || workspaceId === '') {
@@ -427,20 +438,19 @@
           return undefined
         }
         const alive = openState === 'open' ? 'open' : 'cold'
-        const key = workspaceId + '|' + activeId + '|' + alive
+        const key = workspaceId + '|' + activeId + '|' + alive + '|' + stage
         if (askedScope.current === key) return undefined
         askedScope.current = key
         // 会话还冷着、而上一轮已经挂上了：范围还在这一段会话上，不必再问。
-        if (alive === 'cold' && scope !== null && scope.seeded === true) return undefined
         let cancelled = false
-        apiPost('conceive-scope', { workspaceId, sessionId: activeId })
+        apiPost('conceive-scope', { workspaceId, sessionId: activeId, stage })
           .then(value => { if (!cancelled) setScope(value) })
           .catch(problem => {
             if (cancelled) return
             setScope({ ok: false, error: problem instanceof Error ? problem.message : String(problem) })
           })
         return () => { cancelled = true }
-      }, [workspaceId, activeId, openState, scopeTry])
+      }, [workspaceId, activeId, openState, scopeTry, stage])
 
       /** 没挂上时点一下就重来（宿主换了、或者会话刚活过来）。 */
       const retryScope = useCallback(() => {
@@ -509,7 +519,7 @@
       const head = h('div', { className: 'dd-chat-head' },
         h('div', { className: 'dd-chat-titleline' },
           h(Icon, { name: 'note', size: 14 }),
-          h('span', { className: 'ch-t' }, '构思会话'),
+          h('span', { className: 'ch-t' }, '制作助手'),
           h('span', { className: 'ch-sub' },
             !hasSession ? '还没开始'
               : openState === 'open' ? (running ? '正在想…' : '等你说话')
@@ -540,7 +550,7 @@
        */
       const emptyState = h('div', { className: 'dd-chat-empty' },
         h('div', null, '这里接的是真的 DSH 会话：'),
-        h('div', null, '同一个模型、同一套工具、加载了 `drama-conceive` 技能。'),
+        h('div', null, '同一个模型与工具，按当前制作阶段选用技能。'),
         h('div', { style: { marginTop: '14px' } },
           // 还没有作品时，这颗按钮不是死的：它就是「从零开始聊」——
           // 建一个草稿作品、立刻开聊，命名的事往后放。
@@ -620,7 +630,22 @@
           scope.ok === false ? h('span', { className: 'sc-warn' }, '问不到范围 · 点一下重试') : null,
         )
 
-      return h('div', { className: 'dd-chat' }, head, scopeStrip, body)
+      const taskStrip = task ? h('details', { className: 'dd-production-task' },
+        h('summary', null, task.label + ' · 本阶段任务'),
+        h('p', null, task.task),
+        h('p', { className: 'path' }, '出口：' + task.output),
+        task.gaps.length ? h('ul', null, task.gaps.slice(0, 5).map((gap, index) => h('li', { key: index }, gap)),
+          task.gaps.length > 5 ? h('li', null, '另有 ' + (task.gaps.length - 5) + ' 项，复制任务时包含全部') : null) : null,
+        h('button', { className: 'dd-btn sm', type: 'button', onClick: async () => {
+          try {
+            const latest = await apiGet('production', { workspace: workspaceId, stage })
+            await navigator.clipboard.writeText(latest.prompt)
+            setTaskMessage('已复制，粘贴到下方对话即可继续')
+          } catch (error) { setTaskMessage('复制失败：' + error.message) }
+        } }, '复制阶段任务'),
+      ) : null
+      return h('div', { className: 'dd-chat' }, head, scopeStrip, taskStrip,
+        taskMessage ? h('div', { className: 'dd-note', role: 'status', style: { padding: '8px 12px' } }, taskMessage) : null, body)
     }
 
     // ── 会话窗的样式 ──────────────────────────────────────────────────────
@@ -628,6 +653,10 @@
     // 「装它的那个盒子」和三样我们自己的东西（头部、原生下拉、说明块）。
 
     CSS_PARTS.push(`
+.dd-production-task{flex:0 0 auto;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--raised);box-shadow:inset 0 1px var(--hl);font-size:12px;max-height:32vh;overflow:auto}
+.dd-production-task summary{cursor:pointer;color:var(--ink2);min-height:24px}
+.dd-production-task p{line-height:1.65;margin:8px 0;overflow-wrap:anywhere}
+.dd-production-task ul{padding-left:18px;line-height:1.7;color:var(--sig-warn)}
 /* 装宿主对话的盒子：它是一条**列向** flex 链的最后一环，必须能把高度
    交给子项（宿主自己内部才是那个滚动容器）——所以 min-height:0 不能少。 */
 .dd-chat{width:100%;flex:1 1 auto;min-height:0;box-shadow:-1px 0 0 var(--line);

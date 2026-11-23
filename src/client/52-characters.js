@@ -108,6 +108,7 @@
         }),
         h('div', { className: 'dd-scroll' },
           h('div', { className: 'dd-grid' },
+            h(AddRecordForm, { kinds: ['character', 'prop'], busy, actions }),
             characters.length === 0 && props_.length === 0
               ? h('div', { className: 'dd-empty' }, '还没有角色卡')
               : h('div', { style: { display: 'flex', flexDirection: 'column', gap: '18px' } },

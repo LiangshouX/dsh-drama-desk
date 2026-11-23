@@ -5,6 +5,8 @@ description: AI 短剧/微电影项目的创意构思阶段。与用户多轮对
 
 # drama-conceive — 创意构思
 
+**插件内入口（优先）**：先用 `drama_desk_production`（workspace 为当前作品 ID、stage 为 conceive）与 `drama_desk_rules` 读取现状和本阶段规范。需要新增场次/角色/镜头时用 `drama_desk_add`，真源修改用 `drama_desk_edit` / `drama_desk_edit_beat` / `drama_desk_edit_shot`，文件落地后用 `drama_desk_register_asset` 登记。以下 `python tools/drama.py` 是外部 CLI 工作区的示例；只有确认当前工作区存在它时才运行。插件包本身不分发该外部 CLI，不得猜路径或因它缺失而重复失败。
+
 **本阶段唯一产出**：`workspaces/<work-id>/creative/brief.md`。
 
 这个阶段不涉及分镜、提示词、成本、轮询、验收——那些是后续阶段的事，本技能里一个字都不提。用户在这个阶段要的是**有人陪他把故事想明白**，不是一份流程说明。

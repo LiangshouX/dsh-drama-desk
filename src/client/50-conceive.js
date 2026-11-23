@@ -22,6 +22,41 @@
       )
     }
 
+    function AddRecordForm(props) {
+      const { kinds, scenes = [], busy, actions } = props
+      const [kind, setKind] = useState(kinds[0])
+      const [title, setTitle] = useState('')
+      const [id, setId] = useState('')
+      const [scene, setScene] = useState('')
+      const selectedScene = scenes.some(row => row.id === scene) ? scene : scenes[0] && scenes[0].id
+      const labels = { scene: '场次', character: '角色', prop: '道具', shot: '镜头' }
+      return h('details', { className: 'dd-add-record' },
+        h('summary', null, '+ 新增' + kinds.map(value => labels[value]).join(' / ')),
+        h('form', { className: 'dd-cut-controls', onSubmit: async event => {
+          event.preventDefault()
+          const result = await actions.addRecord(kind, { id: id || undefined, sceneId: selectedScene,
+            fields: kind === 'character' || kind === 'prop' ? { name: title } : { title } })
+          if (result !== false) { setTitle(''); setId('') }
+        } },
+          kinds.length > 1 ? h('label', null, '类型', h('select', { value: kind, onChange: event => setKind(event.target.value), disabled: busy },
+            kinds.map(value => h('option', { key: value, value }, labels[value])))) : null,
+          kind === 'shot' ? h('label', null, '场次', h('select', { value: selectedScene || '', disabled: busy, required: true,
+            onChange: event => setScene(event.target.value) }, h('option', { value: '', disabled: true }, '先创建场次'),
+            scenes.map(row => h('option', { key: row.id, value: row.id }, row.id + ' · ' + (row.title || '未命名'))))) : null,
+          kind === 'character' || kind === 'prop' ? h('label', null, '目录 ID', h('input', { value: id, required: true,
+            placeholder: kind === 'prop' ? 'prop_letter' : 'narrator', pattern: '[a-z][a-z0-9_]*', disabled: busy,
+            onChange: event => setId(event.target.value) })) : null,
+          h('label', null, '名称', h('input', { value: title, required: true, disabled: busy, onChange: event => setTitle(event.target.value) })),
+          h('button', { className: 'dd-btn primary', disabled: busy || (kind === 'shot' && !selectedScene), type: 'submit' }, '创建' + labels[kind]),
+        ))
+    }
+
+    CSS_PARTS.push(`
+.dd-add-record{padding:10px 14px;background:var(--raised);border:1px solid var(--line);border-radius:var(--rx-sm);box-shadow:inset 0 1px var(--hl);margin-bottom:12px;font-size:12px}
+.dd-add-record summary{cursor:pointer;color:var(--ink2);min-height:24px;line-height:24px}
+.dd-add-record input{min-width:100px;max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-sm);padding:8px}
+`)
+
     /**
      * 创意简报：一份**文档**，也是这一阶段唯一能改的东西。
      *

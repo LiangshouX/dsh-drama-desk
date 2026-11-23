@@ -945,3 +945,16 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 ```jsonc
 { "ok": true, "data": { "snapshot": 143, "overview": 24, "pipeline": 26 } }
 ```
+# 本地装配与制作任务（新增接口）
+
+- `POST /api/add-record {workspaceId,kind,sceneId?,id?,fields?,stage?}` → `service.addRecord()`。kind=scene/character/prop/shot；场次与镜头自动连续编号，镜头按场次和镜号排序，角色 ID 固定且唯一。只添加真源字段；状态、派生字段拒写。界面新增表单和 `drama_desk_add` 共用此方法。
+- `POST /api/register-asset {workspaceId,id,type,path,role?,shotId?,version?,source?}` → `service.registerAsset()`。只登记作品内已经存在的文件，计算实际 SHA256 与大小；视频音频由 ffprobe 实测。已有 ID 拒绝覆盖。`drama_desk_register_asset` 与资产页共用此方法。
+- `drama_desk_edit` 是 brief/scene/character/asset 字段编辑的 agent 入口，分别调用既有编辑 service。`edit-shot` 切 current_version 时检查已登记的视频与文件，切换后清除旧验收状态；verified 只能由显式验收动作设置。
+- `POST /api/approve-shot {workspaceId,shotId}` → `service.approveShot()`；对等工具 `drama_desk_review(approve=true)`。人工 pass、真实复核人、当前版本文件与人工复核版本必须齐备。
+
+- `GET /api/production?workspace=…&stage=…` → `service.productionTask()`，只读返回本阶段的任务说明、出口文件、前置缺口与可复制的助手指令。不发消息、不推进阶段。
+- `POST /api/assemble {workspaceId, profile}` → `service.assemble()`；profile 为 `landscape`（1280×720）、`portrait`（720×1280）、`square`（1080×1080），默认 landscape。只使用已验收镜头的当前有效版本，按 shots.json 顺序，本地 FFmpeg 统一为 24fps H.264/AAC 并顺切，缺音轨补静音。立即返回 `{ok, job}`；进度从 assemble 阶段载荷 `job` 读取。重复点击在同一进程内复用运行中任务。无网络生成、无费用。
+- assemble 阶段新增 `ready / job / currentAssetId / gaps / warnings`；每镜新增 `videoAssetId / path / gapReasons / costUsd`。缺失历史版本不阻塞当前版本；缺失、作废或无法确定的当前版本阻塞装配。
+- deliver 阶段的成片新增 `exists / stale / manifest / width / height`。新成片以 `purpose: final` 标识；兼容历史路径含 final 的资产，作废资产不作交付物。播放器使用既有 `/drama-desk/video`。
+- `POST /api/confirm-delivery {workspaceId, assetId}` → `service.confirmDelivery()`；确认一条存在且来源未过期的成片，遵守原有逐阶段前置校验，记录 `state.json.delivery_asset_id` 并推进 deliver。重复确认同一成片幂等。
+- agent 对等工具：`drama_desk_production`（stage 可选）、`drama_desk_assemble`（profile 可选）、`drama_desk_deliver`（asset 必填）。

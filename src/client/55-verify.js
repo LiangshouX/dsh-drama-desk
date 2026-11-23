@@ -1,6 +1,6 @@
     /** The verify stage: machine verdicts plus the human's call. */
     function VerifyView(props) {
-      const { data, busy, actions, onOpenShot, onGoto } = props
+      const { data, busy, actions, onOpenShot, onGoto, workspaceId } = props
       const shots = data.shots || []
       return h('div', { className: 'dd-main' },
         h(StageHeader, {
@@ -10,7 +10,7 @@
           right: [
             h('span', { className: 'dd-chip' }, h('b', { className: 'num' }, String(shots.length)), ' 镜待验'),
             h('span', { className: 'dd-chip' }, '通过 ', h('b', { className: 'num' },
-              String(shots.filter(shot => shot.verdict === 'pass').length))),
+              String(shots.filter(shot => shot.status === 'verified').length))),
           ],
         }),
         h('div', { className: 'dd-scroll' },
@@ -48,6 +48,15 @@
                       }, shot.verdict || (shot.qc && shot.qc.verdict) || '未判'),
                     ),
                     h('div', { className: 'dd-sec-body' },
+                      shot.reportStale ? h('div', { className: 'dd-warnbox' }, '机器报告属于旧版本，以下读数仅供历史参考。请对当前视频重新检查和人工复核。') : null,
+                      shot.videoAssetId ? h('video', { controls: true, preload: 'none', playsInline: true,
+                        src: assetVideoUrl(workspaceId, shot.videoAssetId), className: 'dd-final-player',
+                        'aria-label': shot.id + ' 当前版本回看' }) : h('div', { className: 'dd-note' }, '当前版本还没有可用视频'),
+                      h('div', { className: 'dd-cut-controls' },
+                        h('span', { className: 'dd-badge' }, '当前 v' + (shot.currentVersion ?? '?')),
+                        h('button', { className: 'dd-btn sm primary',
+                          disabled: busy || !shot.videoAssetId || shot.status === 'verified',
+                          onClick: () => actions.approveShot(shot.id) }, shot.status === 'verified' ? '已验收通过' : '确认本镜验收通过')),
                       /* 机器读数是**读数**，不是可改的字段——
                          之前它们跟人工判定长得一模一样，点进去才发现改不了。 */
                       h('div', { className: 'dd-grid3' },
