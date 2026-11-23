@@ -164,6 +164,13 @@ unlag_refresh                                  # 刷新页面（客户端半边�
 才会是新的模块代。所以：改了 `src/host/**` → 要等 DSH 重启；只改了 `client.js` → 刷新
 就够；改配置（`cordis.patch.yml`）→ 插件会重启，配置立刻生效（模块代码不变）。
 
+> 但**装新 tarball 会把 Host 也换掉**（实测 0.2.1 / 0.2.2 / 0.2.3 都一样：`install_bundle`
+> 之后 Host 里的新行为立刻生效）。所以「改了 `src/host/**`」的正确答案是先打包再安装，
+> 不是等重启。
+
+> **`pack.mjs` 会先整个删掉 `release/` 再产出。** 上一版的 tarball 不会留下——
+> 要保回滚点就先把它复制到 `tmp/release-backup/`，或者记住它有对应的提交。
+
 > 要重启 DSH 时，先确认 `cordis.patch.yml` 已保存、仓库已提交。
 > 会话是持久化的（`session-persistence-jsonl`），重启后可以恢复。
 
