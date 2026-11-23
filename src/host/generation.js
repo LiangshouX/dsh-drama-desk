@@ -409,7 +409,7 @@ async function buildVideoSection(work, service, workspaceId, channel, options) {
       channelReady: channel.available === true && channel.executable !== false,
       channelReason: channel.available === true && channel.executable !== false
         ? undefined
-        : (channel.reason || '没有可用的生视频通道'),
+        : (channel.reason || '生视频生成器暂时不可用'),
       costUsd: perShotUsd === undefined && projection.submit > 0 ? undefined : round2(projection.costUsd),
       seconds: projection.seconds,
       perShotUsd,
@@ -525,7 +525,7 @@ async function buildImageSection(work, service, channel) {
       channelReady: channel.available === true && channel.executable !== false,
       channelReason: channel.available === true && channel.executable !== false
         ? undefined
-        : (channel.reason || '没有可用的生图通道'),
+        : (channel.reason || '生图生成器暂时不可用'),
       costUsd: perImageUsd === undefined && projection.images > 0 ? undefined : round2(projection.costUsd),
       perImageUsd,
       note: perImageUsd === undefined

@@ -72,7 +72,7 @@ export async function executeGenerationPlan(service, workspace, work, options = 
     includePrompts: true,
   })
   if (fresh.digest !== digest) {
-    throw new Error('计划已经变了（提示词 / 台账 / 通道），摘要对不上：请重新生成计划再执行')
+    throw new Error('计划已经变了（提示词 / 台账 / 生成器），摘要对不上：请重新生成计划再执行')
   }
 
   const results = []
@@ -81,7 +81,7 @@ export async function executeGenerationPlan(service, workspace, work, options = 
     const section = kind === 'image' ? fresh.image : fresh.video
     if (section === undefined) continue
     if (section.summary.channelReady !== true) {
-      throw new Error(`${kind === 'image' ? '生图' : '生视频'}通道现在不可用：${section.summary.channelReason || '未知原因'}`)
+      throw new Error(`${kind === 'image' ? '生图' : '生视频'}生成器现在用不了：${section.summary.channelReason || '未知原因'}`)
     }
     const { driver } = await driverFor(service, kind, section.channel?.channel)
     if (kind === 'image') {

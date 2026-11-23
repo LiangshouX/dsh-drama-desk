@@ -985,7 +985,11 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 
 # 生成控制面（0.3）
 
-三件事：**能出片的通道是哪条**、**做到哪儿花了多少**、**下一批该提交什么**。
+三件事：**能出片的生成器是哪个**、**做到哪儿花了多少**、**下一批该提交什么**。
+
+> **术语**：界面上叫**生成器**（`MiniMax H3 Image` / `MiniMax H3 视频`）；
+> 接口字段仍沿用 `channel` 这个名字（历史原因）。**实现名**（`mcode-tools`、
+> `connector__matrix__…`）只出现在 `cli` / `tool` 这类诊断字段里，不进入产品界面。
 三者都只读：**插件不发起付费生成**，提交仍由 agent 走幂等三步。
 
 ## 通道：`GET /api/channels?host=1&refresh=1`
@@ -997,16 +1001,16 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
     "host": { "providers": [ { "id": "deepseek-account", "models": 4 } ],
               "reachable": true, "modelCount": 4 },
     "connectors": [
-      { "id": "mcode-image", "kind": "image", "label": "MiniMax H3 · 图片（mcode-tools）",
+      { "id": "mcode-image", "kind": "image", "label": "MiniMax H3 Image",
         "driver": "mcode", "tool": "connector__matrix__generate_image",
         "installed": true, "available": true,
         "capabilities": { "maxRequestsPerCall": 10, "area": ["1K", "2K", "4K"] } },
-      { "id": "mcode-video", "kind": "video", "…": "…" }
+      { "id": "mcode-video", "kind": "video", "label": "MiniMax H3 视频", "…": "…" }
     ],
-    "custom": [ { "id": "my-video", "kind": "video", "label": "自制通道", "driver": "mcode", "available": true } ],
+    "custom": [ { "id": "my-video", "kind": "video", "label": "自制生成器", "driver": "mcode", "available": true } ],
     "selection": {
-      "image": { "mode": "inherit", "channel": "mcode-image", "driver": "mcode",
-                 "available": true, "executable": true, "reason": "…" },
+      "image": { "mode": "default", "channel": "mcode-image", "label": "MiniMax H3 Image",
+                 "driver": "mcode", "available": true, "executable": true, "reason": "已就绪" },
       "video": { "mode": "custom", "channel": "my-video", "available": true, "model": "…" }
     },
     "cli": { "path": "C:\\Users\\…\\.minimax\\bin\\mcode-tools.cmd", "source": "minimax-bin", "tried": [] },
@@ -1015,11 +1019,14 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 }
 ```
 
-- `mode: "inherit"` = **继承宿主**（用宿主已认证的 mcode-tools）；`"custom"` = 本插件指定的通道。
-- `installed`：CLI 找没找到；`available`：认证 + 工具 schema 都过得去；`executable`：有驱动绑定。
-- `driver`：执行驱动 id（内置 `mcode`）。自定义通道没有 `driver` 时 `executable: false`——
-  能选中、能显示，但**不会真的出片**。
-- **`available` 与 `reason` 必须成对出现**：配置管理最怕「我配了但它其实调不动」。
+- **`label` 是生成器的产品名**（`MiniMax H3 Image` / `MiniMax H3 视频`），
+  **不是实现名**：`mcode-tools`、`connector__matrix__…` 只出现在 `cli` / `tool` 这类
+  诊断字段里，界面的主区域不显示它们。
+- `mode: "default"` = 用默认生成器；`"custom"` = 配置里点名了某个生成器 id。
+  （0.3 的 `"inherit"` 语义已废弃：生成器是插件实现的，「继承宿主」不再是用户选择。）
+- 自定义生成器没有 `driver` 时 `executable: false`——能显示，但**不会真的出片**。
+- **`available` 与 `reason` 必须成对出现**，且 `reason` 要写成用户能懂的一句话
+  （例如「需要先登录 MiniMax Code」），技术原因放 `cli` / `auth`。
 - 结果按 service 缓存 30 秒；`refresh=1` 强制重探。
 
 ## 看板：`GET /api/generation-board?workspace=`

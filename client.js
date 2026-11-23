@@ -3733,7 +3733,7 @@ select.dd-input{
           h('div', { className: 'dd-plan-sec-head' },
             h('span', { className: 'dd-plan-sec-title' }, title),
             h('span', { className: 'dd-badge ' + (summary.channelReady ? 'pass' : 'fail') },
-              summary.channelReady ? '通道可用' : '通道不可用'),
+              summary.channelReady ? '生成器可用' : '生成器不可用'),
             h('span', { className: 'dd-spacer' }),
             h('span', { className: 'dd-note' },
               '该提交 ' + (summary.submit ?? 0) + ' / 已办 ' + (summary.skip ?? 0)
@@ -3741,7 +3741,7 @@ select.dd-input{
               + (summary.costUsd !== undefined ? ' · 预计 ' + formatUsd(summary.costUsd) : ' · 未定价')),
           ),
           summary.channelReady === false
-            ? h('div', { className: 'dd-warnbox' }, h('b', null, '这条通道现在调不动：'), summary.channelReason || '未知原因')
+            ? h('div', { className: 'dd-warnbox' }, h('b', null, '这个生成器现在用不了：'), summary.channelReason || '未知原因')
             : null,
           rows.length === 0
             ? h('div', { className: 'dd-note' }, kind === 'image'
@@ -3770,7 +3770,7 @@ select.dd-input{
           h(Icon, { name: 'note', size: 14 }),
           h('span', { style: { fontWeight: '600' } }, '生成计划'),
           h('span', { className: 'dd-spacer' }),
-          h('button', { className: 'dd-btn sm', disabled: busy, onClick: onRefresh, title: '重新计算（提示词、台账或通道可能刚变）' }, busy ? '计算中…' : '重新计算'),
+          h('button', { className: 'dd-btn sm', disabled: busy, onClick: onRefresh, title: '重新计算（提示词、台账或生成器状态可能刚变）' }, busy ? '计算中…' : '重新计算'),
           h('button', { className: 'dd-icon-btn', onClick: onClose, title: '关闭' }, h(Icon, { name: 'close', size: 13 })),
         ),
         h('div', { className: 'dd-drawer-body' },
@@ -7175,7 +7175,7 @@ select.dd-input{
 
     const DRAWER_WIDTH_KEY = 'dsh-drama-desk:drawer-width'
 
-    /** 生成通道的读写片段：设置抽屉与（以后的）别处共用。 */
+    /** 生成器设置的读写片段：设置抽屉与（以后的）别处共用。 */
     function channelDraftOf(settings) {
       const channels = settings && settings.generationChannels ? settings.generationChannels : {}
       const image = channels.image || {}
@@ -7192,16 +7192,20 @@ select.dd-input{
     }
 
     /**
-     * 一条生成通道的选择行。
+     * 一个生成器（**我们自己实现的**，不是外部软件）。
      *
-     * `inherit`（空值）是默认：**用宿主已经装好的连接器**。选了具体 id 就是
-     * 本插件自己的决定（自治）。不可用的通道仍然列出来但禁用——导演要能看见
-     * 「有这条通道、但现在调不动、为什么」，而不是它凭空消失。
+     * 下拉里是生成器的**产品名**：MiniMax H3 Image / MiniMax H3 视频，
+     * 以后接 Qwen Image 也只是多一个名字。这里**不出现** `mcode-tools`、
+     * `connector__matrix__…` 这类实现名——那是「怎么连」，不是「用哪个」。
+     * 技术细节收在下面的「诊断」折叠区。
      */
-    function ChannelRow(props) {
-      const { kind, label, channels, channelId, modelId, disabled, onChannel, onModel, resolved } = props
-      const list = (channels || []).filter(channel => channel.kind === kind)
+    function GeneratorRow(props) {
+      const { kind, label, generators, channelId, modelId, disabled, onChannel, onModel, resolved, modelHint } = props
+      const list = (generators || []).filter(item => item.kind === kind)
       const ready = resolved && resolved.available === true
+      const fallback = list.find(item => item.id === (resolved && resolved.channel))
+      const value = channelId || (fallback ? fallback.id : (list[0] ? list[0].id : ''))
+      const options = list.length === 0 ? [{ id: '', label: '（还没有生成器）' }] : list
       return h('div', { className: 'dd-channel' },
         h('div', { className: 'dd-channel-head' },
           h('span', { className: 'dd-channel-lb' }, label),
@@ -7211,83 +7215,18 @@ select.dd-input{
         ),
         h('div', { className: 'dd-channel-row' },
           h('select', {
-            className: 'dd-input', value: channelId || '', disabled,
+            className: 'dd-input', value, disabled,
             onChange: event => onChannel(event.target.value),
             'aria-label': label,
-          },
-            h('option', { value: '' }, '继承宿主（用宿主装好的连接器）'),
-            list.map(channel => h('option', {
-              key: channel.id, value: channel.id,
-              // 不可用的也给选：选完能看到「为什么调不动」，比选不到好排查。
-            }, channel.label + (channel.installed ? '' : '（现在不可用）'))),
-          ),
+          }, options.map(item => h('option', { key: item.id || 'none', value: item.id }, item.label || item.id))),
           h('input', {
             className: 'dd-input', value: modelId || '', disabled,
-            placeholder: '模型 id（留空用通道默认）',
+            placeholder: modelHint || '模型（留空用默认）',
             onChange: event => onModel(event.target.value),
-            'aria-label': label + '模型 id',
+            'aria-label': label + '模型',
           }),
         ),
-        ready
-          ? null
-          : h('div', { className: 'dd-note' }, (resolved && resolved.reason) || '这条通道现在不可用'),
-        ready && resolved.mode === 'inherit'
-          ? h('div', { className: 'dd-note' }, '继承宿主：' + (resolved.label || '') + '（' + (resolved.tool || '未记录工具') + '）')
-          : null,
-      )
-    }
-
-    /**
-     * 自定义通道编辑器（自治）。
-     *
-     * 只存「用什么」：id、种类、显示名、模型 id、可选工具名。**不存密钥**——
-     * 密钥归宿主的凭据服务；插件这边只是告诉 agent「该走哪条路」。
-     */
-    function CustomChannelEditor(props) {
-      const { channels, disabled, onChange } = props
-      const [draft, setDraft] = useState({ id: '', kind: 'video', label: '', model: '' })
-      const list = Array.isArray(channels) ? channels : []
-      const add = () => {
-        const id = draft.id.trim()
-        if (id === '') return
-        if (list.some(row => row.id === id)) return
-        const row = { id, kind: draft.kind === 'image' ? 'image' : 'video' }
-        if (draft.label.trim() !== '') row.label = draft.label.trim()
-        if (draft.model.trim() !== '') row.model = draft.model.trim()
-        onChange([...list, row])
-        setDraft({ id: '', kind: draft.kind, label: '', model: '' })
-      }
-      const remove = id => onChange(list.filter(row => row.id !== id))
-      return h('div', { className: 'dd-custom-ch' },
-        h('div', { className: 'dd-note' }, '自定义通道（自治）：给「宿主没装的那条路」起个名字。不存密钥；提交仍由 agent 走它自己的工具。'),
-        list.map(row => h('div', { className: 'dd-custom-row', key: row.id },
-          h('span', { className: 'dd-badge' }, row.kind === 'image' ? '生图' : '生视频'),
-          h('b', null, row.id),
-          h('span', { className: 'dd-note' }, row.label || ''),
-          row.model ? h('span', { className: 'dd-note' }, row.model) : null,
-          h('span', { className: 'dd-spacer' }),
-          h('button', { className: 'dd-icon-btn', type: 'button', disabled, title: '删掉这条通道', onClick: () => remove(row.id) }, h(Icon, { name: 'trash', size: 12 })),
-        )),
-        h('div', { className: 'dd-channel-row' },
-          h('select', {
-            className: 'dd-input', value: draft.kind, disabled,
-            onChange: event => setDraft({ ...draft, kind: event.target.value }),
-            'aria-label': '新通道种类',
-          }, h('option', { value: 'video' }, '生视频'), h('option', { value: 'image' }, '生图')),
-          h('input', {
-            className: 'dd-input', value: draft.id, disabled, placeholder: '通道 id（必填，如 my-video）',
-            onChange: event => setDraft({ ...draft, id: event.target.value }),
-          }),
-          h('input', {
-            className: 'dd-input', value: draft.label, disabled, placeholder: '显示名（可选）',
-            onChange: event => setDraft({ ...draft, label: event.target.value }),
-          }),
-          h('input', {
-            className: 'dd-input', value: draft.model, disabled, placeholder: '模型 id（可选）',
-            onChange: event => setDraft({ ...draft, model: event.target.value }),
-          }),
-          h('button', { className: 'dd-btn sm', type: 'button', disabled: disabled || draft.id.trim() === '', onClick: add }, '添加'),
-        ),
+        h('div', { className: 'dd-note' }, ready ? '已就绪' : ((resolved && resolved.reason) || '暂时不可用')),
       )
     }
 
@@ -7398,16 +7337,6 @@ select.dd-input{
             h('div', { className: 'dd-note' }, '规范模型适配 = 规则分层里的那一份（提示词写法 / 体检项 / 接口 quirks）。'),
           ),
           h(ModelRow, {
-            label: '生成模型（提交生成时用谁 · 旧字段）',
-            providers,
-            providerId: draft.generationProvider,
-            modelId: draft.generationModel,
-            disabled: busy,
-            onProvider: value => setDraft(current => ({ ...current, generationProvider: value, generationModel: '' })),
-            onModel: value => set('generationModel', value),
-            note: '这一对是 0.2 时的字段，等价于下面的「生视频通道」；保留是为了不弄坏已有的 profile。',
-          }),
-          h(ModelRow, {
             label: '宿主模型（这个工作台自己用谁思考）',
             providers,
             providerId: draft.hostProvider,
@@ -7438,104 +7367,105 @@ select.dd-input{
         ),
       )
 
-      // ── 生成通道（生图 / 生视频）───────────────────────────────────────
-      // 「继承宿主」= 用宿主已经装好的连接器；「自治」= 本插件指定或自定义一条。
-      // 这里同时给出**可用性**与**为什么不可用**：通道配置最怕的就是
-      // 「我配了但它其实调不动」这种沉默失败。
-      // 通道列表 = 宿主探测到的 + **这次刚加进草稿的自定义通道**。
-      // 只在保存后才出现在下拉里会让人以为「加了没用」。
-      const probedCustom = channels ? (channels.custom || []) : []
-      const draftCustom = Array.isArray(draft.channels) ? draft.channels : []
-      const mergedChannels = [
-        ...(channels ? (channels.connectors || []) : []),
-        ...probedCustom,
-        ...draftCustom
-          .filter(row => !probedCustom.some(known => known.id === row.id))
-          .map(row => ({ ...row, custom: true, installed: true })),
-      ]
+      // ── 生成器 ────────────────────────────────────────────────────────
+      // 这里列的是**我们插件实现的生成器**，按产品名选：MiniMax H3 Image / MiniMax H3 视频。
+      // 「继承宿主 / mcode-tools / connector__matrix__…」这些是实现细节，不进这一层；
+      // 需要排查时它们都在下面的「诊断」里。
+      const generators = channels
+        ? [...(channels.connectors || []), ...(channels.custom || [])]
+        : []
       const selection = channels ? (channels.selection || {}) : {}
       // 本地选择要**立刻**给出可用性：探测结果是「保存前的配置」的答案，
-      // 拿它去标刚选的通道会显示成「不可用」——那是假的。
+      // 拿它去标刚选的生成器会显示成「不可用」——那是假的。
       const resolveLocal = (kind, channelId, modelId, hostResolved) => {
-        if (channelId === '' || channelId === undefined) return hostResolved
-        const hit = mergedChannels.find(row => row.id === channelId && row.kind === kind)
-        if (hit === undefined) return { mode: 'custom', available: false, reason: '配置指定的通道不在可用列表里' }
+        if (channelId === '' || channelId === undefined || channelId === 'inherit') return hostResolved
+        const hit = generators.find(row => row.id === channelId && row.kind === kind)
+        if (hit === undefined) return { mode: 'custom', available: false, reason: '这个生成器不在了（可能来自旧配置）' }
         return {
           mode: 'custom',
           channel: hit.id,
           label: hit.label,
-          tool: hit.tool,
           model: modelId !== '' ? modelId : hit.model,
-          available: hit.installed !== false,
-          reason: hit.installed === false ? (hit.reason || '这条通道现在调不动') : '本插件指定的通道（保存后生效）',
+          available: hit.available === true,
+          reason: hit.available === true ? '已就绪（保存后生效）' : '暂时不可用，见诊断',
         }
       }
+      const videoModels = (selection.video && selection.video.capabilities && selection.video.capabilities.models) || []
+      const modelHintFor = models => (models.length === 0
+        ? '模型（留空用默认）'
+        : '默认 ' + models[0] + '；可填 ' + models.slice(1).join(' / '))
       const channelSection = h('div', null,
-        h('h4', null, '生成通道'),
+        h('h4', null, '生成器'),
         h('div', { style: { marginTop: '9px', display: 'flex', flexDirection: 'column', gap: '12px' } },
-          h(ChannelRow, {
-            kind: 'image', label: '生图通道',
-            channels: mergedChannels,
+          h(GeneratorRow, {
+            kind: 'image', label: '生图生成器',
+            generators,
             channelId: draft.imageChannel, modelId: draft.imageModel, disabled: busy,
             onChannel: value => set('imageChannel', value),
             onModel: value => set('imageModel', value),
             resolved: resolveLocal('image', draft.imageChannel, draft.imageModel, selection.image),
+            modelHint: '模型（留空用默认）',
           }),
-          h(ChannelRow, {
-            kind: 'video', label: '生视频通道',
-            channels: mergedChannels,
+          h(GeneratorRow, {
+            kind: 'video', label: '生视频生成器',
+            generators,
             channelId: draft.videoChannel, modelId: draft.videoModel, disabled: busy,
             onChannel: value => set('videoChannel', value),
             onModel: value => set('videoModel', value),
             resolved: resolveLocal('video', draft.videoChannel, draft.videoModel, selection.video),
+            modelHint: modelHintFor(videoModels),
           }),
-          h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
-            h('button', {
-              className: 'dd-btn sm', type: 'button', disabled: busy || typeof onRefreshChannels !== 'function',
-              onClick: onRefreshChannels, title: '重新探测宿主的连接器与模型目录',
-            }, '重新探测'),
-            h('span', { className: 'dd-note' },
-              channels ? '探测结果缓存 30 秒；连接器在不在由宿主的 subprocess 服务判定。' : '打开设置时探测一次。'),
-          ),
-          // 连接器 CLI：路径 + 认证 + 付费执行开关。
-          // 「CLI 在」只是必要条件，`auth status` 才是充分条件——两件事分开显示。
-          h('div', { className: 'dd-channel' },
-            h('div', { className: 'dd-channel-head' },
-              h('span', { className: 'dd-channel-lb' }, '连接器 CLI'),
-              channels && channels.cli && channels.cli.path
-                ? h('span', { className: 'dd-badge pass' }, '已找到')
-                : h('span', { className: 'dd-badge fail' }, '未找到'),
-              channels && channels.auth && channels.auth.status === 'authenticated'
-                ? h('span', { className: 'dd-badge pass' }, '已认证')
-                : h('span', { className: 'dd-badge fail' }, '未认证'),
-            ),
-            h('div', { className: 'dd-channel-row' },
-              h('input', {
-                className: 'dd-input', value: draft.mcodePath, disabled: busy,
-                placeholder: 'mcode-tools 路径（留空 = 自动发现；填 off = 禁用）',
-                onChange: event => set('mcodePath', event.target.value),
-              }),
+          h('div', null,
+            h('div', { className: 'dd-field' },
+              h('label', null, '付费执行'),
               h('select', {
                 className: 'dd-input', value: draft.paidExecution, disabled: busy,
                 onChange: event => set('paidExecution', event.target.value),
-                title: 'off = 只出计划，任何执行工具都会拒绝',
               },
                 h('option', { value: 'receipt' }, '允许执行（必须带计划摘要）'),
                 h('option', { value: 'off' }, '只出计划（不提交）'),
               ),
             ),
+            h('div', { className: 'dd-note' }, '关掉时任何付费执行都会被拒绝；计划与看板不受影响。'),
+          ),
+          h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+            h('button', {
+              className: 'dd-btn sm', type: 'button', disabled: busy || typeof onRefreshChannels !== 'function',
+              onClick: onRefreshChannels, title: '重新检测生成器是否就绪',
+            }, '重新检测'),
+          ),
+          // ── 诊断（默认收起）──────────────────────────────────────────
+          // 这一块是给「它为什么不可用」用的：组件路径、认证、底层工具名。
+          // 产品界面不该出现这些名字，但排查时必须看得到。
+          h('details', { className: 'dd-diag' },
+            h('summary', null, '诊断'),
             h('div', { className: 'dd-note' },
+              '组件：',
               channels && channels.cli && channels.cli.path
-                ? '当前使用：' + channels.cli.path + (channels.cli.source ? '（' + channels.cli.source + '）' : '')
-                : '没找到 mcode-tools：可以手填路径，或把它装到 PATH 上。'),
+                ? channels.cli.path + (channels.cli.source ? '（' + channels.cli.source + '）' : '')
+                : '未找到',
+              ' · 认证：',
+              channels && channels.auth && channels.auth.status
+                ? channels.auth.status
+                : (channels && channels.auth && channels.auth.error ? '检查失败' : '未检查'),
+            ),
+            h('div', { className: 'dd-channel-row', style: { marginTop: '8px' } },
+              h('input', {
+                className: 'dd-input', value: draft.mcodePath, disabled: busy,
+                placeholder: '生成组件路径（留空 = 自动；填 off = 禁用）',
+                onChange: event => set('mcodePath', event.target.value),
+              }),
+            ),
+            h('div', { className: 'dd-note' },
+              '底层工具：',
+              (channels && channels.connectors ? channels.connectors : [])
+                .map(row => row.tool)
+                .filter(Boolean)
+                .join(' · ') || '（未探测到）'),
             channels && channels.auth && channels.auth.error
               ? h('div', { className: 'dd-note' }, '认证检查失败：' + channels.auth.error)
               : null,
           ),
-          h(CustomChannelEditor, {
-            channels: draft.channels, disabled: busy,
-            onChange: value => set('channels', value),
-          }),
         ),
       )
 
@@ -7612,21 +7542,19 @@ select.dd-input{
       )
     }
 
-    // 通道配置的样式跟着组件走。窄抽屉里下面这排输入要能折行，
-    // 否则「添加自定义通道」会挤成一条读不出来的长条。
+    // 生成器设置的样式跟着组件走。窄抽屉里这一行要能折成一列。
     CSS_PARTS.push(`
 .dd-channel{display:flex;flex-direction:column;gap:5px;padding:9px 10px;border-radius:var(--rx-2);
   background:var(--sunken);box-shadow:var(--e-well)}
 .dd-channel-head{display:flex;align-items:center;gap:8px}
 .dd-channel-lb{font-size:12px;font-weight:600;color:var(--ink2)}
 .dd-channel-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:2px}
-.dd-custom-ch{display:flex;flex-direction:column;gap:6px;padding-top:8px;border-top:.5px solid var(--line)}
-.dd-custom-row{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:var(--rx-1);background:var(--panel-2)}
-.dd-custom-row b{font-family:var(--f-mono);font-size:11px}
-.dd-custom-ch .dd-channel-row{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
+/* 诊断：默认收起的技术细节（组件路径 / 认证 / 底层工具名）。 */
+.dd-diag{padding-top:8px;border-top:.5px solid var(--line)}
+.dd-diag summary{cursor:pointer;font-size:11.5px;color:var(--ink3);user-select:none}
+.dd-diag[open] summary{color:var(--ink2);margin-bottom:6px}
 @container dd-root (max-width:520px){
   .dd-channel-row{grid-template-columns:1fr}
-  .dd-custom-ch .dd-channel-row{grid-template-columns:1fr}
 }
 `)
 

@@ -82,11 +82,14 @@ export async function buildDrivers(service) {
   return { drivers, cli, notes }
 }
 
-/** 内置通道的**静态元数据**：即使 CLI 不在，也要把「本来有这条路」列出来。 */
+/** 内置通道的**静态元数据**：即使运行时组件不在，也要把「本来有这个生成器」列出来。 */
 const BUILTIN_META = [
-  { id: 'mcode-image', kind: 'image', label: 'MiniMax H3 · 图片（mcode-tools）', driver: 'mcode' },
-  { id: 'mcode-video', kind: 'video', label: 'MiniMax H3 · 视频（mcode-tools）', driver: 'mcode' },
+  { id: 'mcode-image', kind: 'image', label: 'MiniMax H3 Image', driver: 'mcode' },
+  { id: 'mcode-video', kind: 'video', label: 'MiniMax H3 视频', driver: 'mcode' },
 ]
+
+/** 用户看得懂的生成器名。 */
+const KIND_LABEL = { image: '生图生成器', video: '生视频生成器' }
 
 /**
  * 探测所有通道（内置 + 自定义），解析「生图/生视频」各自落到哪条。
@@ -237,12 +240,15 @@ function resolveSelection(kind, channels, config, drivers) {
   const wanted = kind === 'image' ? config?.imageChannel : config?.videoChannel
   const model = kind === 'image' ? config?.imageModel : config?.videoModel
   const usable = channels.filter(channel => channel.kind === kind)
-  const inherit = wanted === '' || wanted === undefined || wanted === 'inherit'
-  if (inherit) {
+  const titled = KIND_LABEL[kind] ?? '生成器'
+  // 空值 = 用**默认生成器**。不再有「继承宿主」这种面向用户的模式：
+  // 生成器是我们实现的，用户在界面里选的是生成器的名字。
+  const useDefault = wanted === '' || wanted === undefined || wanted === 'inherit'
+  if (useDefault) {
     const candidate = usable.find(channel => channel.driver !== undefined && channel.available === true)
     if (candidate !== undefined) {
       return {
-        mode: 'inherit',
+        mode: 'default',
         channel: candidate.id,
         label: candidate.label,
         tool: candidate.tool,
@@ -251,28 +257,27 @@ function resolveSelection(kind, channels, config, drivers) {
         available: true,
         executable: candidate.executable !== false,
         capabilities: candidate.capabilities,
-        reason: '继承宿主：用宿主已装好的连接器（已认证）',
+        reason: '已就绪',
       }
     }
-    const installed = usable.find(channel => channel.installed === true && channel.driver !== undefined)
+    const installed = usable.find(channel => channel.driver !== undefined)
     return {
-      mode: 'inherit',
+      mode: 'default',
       channel: installed?.id,
       label: installed?.label,
       driver: installed?.driver,
       model: isEmpty(model) ? undefined : model,
       available: false,
       executable: false,
-      reason: installed?.reason
-        ? `继承宿主，但这条通道现在用不了：${installed.reason}`
-        : `继承宿主，但没有可用的${kind === 'image' ? '生图' : '生视频'}通道（CLI 不在 / 未认证 / 工具不可用）`,
+      reason: unavailableReason(kind, installed),
     }
   }
   const picked = usable.find(channel => channel.id === wanted)
   if (picked === undefined) {
     return {
       mode: 'custom', channel: wanted, model: isEmpty(model) ? undefined : model,
-      available: false, executable: false, reason: `配置指定的通道「${wanted}」不在可用列表里`,
+      available: false, executable: false,
+      reason: `选中的生成器「${wanted}」不在了（可能来自旧配置）`,
     }
   }
   return {
@@ -286,9 +291,27 @@ function resolveSelection(kind, channels, config, drivers) {
     executable: picked.executable !== false && picked.driver !== undefined,
     capabilities: picked.capabilities,
     reason: picked.available === true
-      ? (picked.executable === false ? picked.reason : '本插件指定的通道')
-      : (picked.reason || '通道不可用'),
+      ? (picked.executable === false ? picked.reason : '已就绪')
+      : unavailableReason(kind, picked),
   }
+}
+
+/**
+ * 把底层失败翻成**用户能懂的一句话**。
+ *
+ * 界面不该出现 `mcode-tools` / `connector__matrix__…` 这种实现名——
+ * 那是产品名与实现细节的混淆。技术细节只放在设置里的「诊断」区。
+ */
+function unavailableReason(kind, channel) {
+  const title = KIND_LABEL[kind] ?? '生成器'
+  const detail = typeof channel?.reason === 'string' ? channel.reason : ''
+  if (channel === undefined) return `这个作品还没有可用的${title}`
+  if (/mcode-tools|找不到|不在/.test(detail)) {
+    return `${title}需要本机安装并登录 MiniMax Code（生成组件未就绪）`
+  }
+  if (/未认证|登录|认证/.test(detail)) return `${title}需要先登录 MiniMax Code`
+  if (detail === '') return `${title}暂时不可用`
+  return `${title}暂时不可用：${detail}`
 }
 
 function isEmpty(value) {

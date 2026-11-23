@@ -282,3 +282,14 @@ brief  场次   角色卡  beats   分镜  视频+提示词 验收报告 版本 
 - 生图来源是作品里的 `image-requests.json`；实测一张 2K 图 15 秒落地 1.55 MB。
 - 新增工具：`drama_desk_execute_generation` / `drama_desk_poll_generation`；
   `drama-generate` 技能改为「先读计划 → 报批 → 执行 → 轮询」。
+
+### v0.4.3 术语与设置页
+
+- 设置里不再出现「继承宿主 / 指定通道」这种**架构概念**：直接列**生成器**，
+  用产品名选（`MiniMax H3 Image`、`MiniMax H3 视频`），以后接 Qwen Image 也只是多一个名字。
+- 生成器名里不再带 `mcode-tools`、`connector__matrix__…` 这类实现名；
+  组件路径、认证状态、底层工具名收进「诊断」折叠区，排查时看得到、平时不打扰。
+- 不可用时的提示改成用户能懂的一句话（如「需要先登录 MiniMax Code」），
+  技术原因仍保留在 `/channels` 的 `cli` / `auth` 字段里。
+- 自定义通道的编辑界面移除（配置里的 `channels[]` 仍可用，属于高级用法）；
+  界面只呈现我们自己实现的生成器。

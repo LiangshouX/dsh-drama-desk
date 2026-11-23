@@ -130,7 +130,7 @@ test('the plan never re-submits a shot whose prompt fingerprint is already in th
     assert.equal(plan.summary.seconds, 8)
     // 通道探测在测试环境里必然不可用（没有宿主 subprocess），但**不许**把行标成阻塞。
     assert.equal(plan.summary.channelReady, false)
-    assert.match(plan.summary.channelReason, /mcode-tools|通道/)
+    assert.match(plan.summary.channelReason, /登录|生成组件|禁用/)
     assert.equal(byId.get('SC01-SH04').reasons.some(text => /通道/.test(text)), false,
       'channel availability is a batch warning, not a per-shot blocker')
   } finally {
@@ -206,13 +206,16 @@ test('the settings HTTP action forwards the generation channel fields', async ()
   }
 })
 
-test('channel probing inherits the host, explains a missing connector, and honours a custom channel', async () => {
+test('生成器探测：默认生成器不可用时会说清原因，自定义生成器按名字可选', async () => {
   const inherited = await probeChannels(bareService(), { refresh: true })
-  assert.equal(inherited.selection.video.mode, 'inherit')
+  // 空通道配置 = 用**默认生成器**（不再有「继承宿主」这个面向用户的概念）。
+  assert.equal(inherited.selection.video.mode, 'default')
   assert.equal(inherited.selection.video.available, false)
-  // 测试里显式禁用 CLI；不可用必须**说清为什么**（而不是一句「不可用」）。
-  assert.match(inherited.selection.video.reason, /禁用|mcode-tools|通道/)
+  // 不可用时给的是**用户能懂的一句话**（技术细节在 /channels 的 cli/auth 里）。
+  assert.match(inherited.selection.video.reason, /登录|生成组件|禁用/)
   assert.equal(inherited.connectors.length, 2)
+  assert.equal(inherited.connectors[0].label, 'MiniMax H3 Image', '生成器用产品名，不出现实现名')
+  assert.equal(inherited.connectors[1].label, 'MiniMax H3 视频')
   assert.ok(inherited.connectors.every(channel => channel.installed === false))
 
   const custom = await probeChannels(bareService({

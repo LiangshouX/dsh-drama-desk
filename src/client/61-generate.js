@@ -312,7 +312,7 @@
           h('div', { className: 'dd-plan-sec-head' },
             h('span', { className: 'dd-plan-sec-title' }, title),
             h('span', { className: 'dd-badge ' + (summary.channelReady ? 'pass' : 'fail') },
-              summary.channelReady ? '通道可用' : '通道不可用'),
+              summary.channelReady ? '生成器可用' : '生成器不可用'),
             h('span', { className: 'dd-spacer' }),
             h('span', { className: 'dd-note' },
               '该提交 ' + (summary.submit ?? 0) + ' / 已办 ' + (summary.skip ?? 0)
@@ -320,7 +320,7 @@
               + (summary.costUsd !== undefined ? ' · 预计 ' + formatUsd(summary.costUsd) : ' · 未定价')),
           ),
           summary.channelReady === false
-            ? h('div', { className: 'dd-warnbox' }, h('b', null, '这条通道现在调不动：'), summary.channelReason || '未知原因')
+            ? h('div', { className: 'dd-warnbox' }, h('b', null, '这个生成器现在用不了：'), summary.channelReason || '未知原因')
             : null,
           rows.length === 0
             ? h('div', { className: 'dd-note' }, kind === 'image'
@@ -349,7 +349,7 @@
           h(Icon, { name: 'note', size: 14 }),
           h('span', { style: { fontWeight: '600' } }, '生成计划'),
           h('span', { className: 'dd-spacer' }),
-          h('button', { className: 'dd-btn sm', disabled: busy, onClick: onRefresh, title: '重新计算（提示词、台账或通道可能刚变）' }, busy ? '计算中…' : '重新计算'),
+          h('button', { className: 'dd-btn sm', disabled: busy, onClick: onRefresh, title: '重新计算（提示词、台账或生成器状态可能刚变）' }, busy ? '计算中…' : '重新计算'),
           h('button', { className: 'dd-icon-btn', onClick: onClose, title: '关闭' }, h(Icon, { name: 'close', size: 13 })),
         ),
         h('div', { className: 'dd-drawer-body' },

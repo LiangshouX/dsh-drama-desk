@@ -192,8 +192,8 @@ export function registerTools(ctx, service) {
     ),
     tool(
       'drama_desk_channels',
-      '读可用的生成通道：宿主的连接器（生图 / 生视频）与插件自定义通道，以及「现在这条通道能不能用、为什么不能」。只读，不提交任何生成。',
-      { refresh: { type: 'boolean', description: 'true = 重新探测（默认用 30 秒缓存）。' } },
+      '读可用的生成器（我们插件实现的，按产品名：MiniMax H3 Image / MiniMax H3 视频；以后会有更多），以及「现在能不能用、为什么不能」。只读，不提交任何生成。技术细节在 cli / auth 字段里。',
+      { refresh: { type: 'boolean', description: 'true = 重新检测（默认用 30 秒缓存）。' } },
       async args => await service.channels({ refresh: args.refresh === true }),
     ),
     tool(
@@ -256,17 +256,17 @@ export function registerTools(ctx, service) {
     ),
     tool(
       'drama_desk_settings',
-      '读插件设置：项目根、产物位置（及其解析理由）、规范模型适配、宿主当前模型、生图 / 生视频通道。给 projectRoot/outputRoot/model/imageChannel/videoChannel 等则写入设置。',
+      '读插件设置：项目根、产物位置（及其解析理由）、规范模型适配、宿主当前模型、生图 / 生视频生成器。给 projectRoot/outputRoot/model/imageChannel/videoChannel 等则写入设置。',
       {
         workspace: workspaceProperty,
         projectRoot: { type: 'string', description: '新项目根（作品所在目录）。' },
         outputRoot: { type: 'string', description: '新产物位置。' },
         model: { type: 'string', description: '规范分层里的模型适配 id。' },
-        imageChannel: { type: 'string', description: "生图通道 id；'' 或 'inherit' = 继承宿主的连接器。" },
-        imageModel: { type: 'string', description: '生图模型 id；空 = 用通道自己的默认。' },
-        videoChannel: { type: 'string', description: "生视频通道 id；'' 或 'inherit' = 继承宿主的连接器。" },
-        videoModel: { type: 'string', description: '生视频模型 id；空 = 用通道自己的默认。' },
-        mcodePath: { type: 'string', description: 'mcode-tools 的路径；留空 = 自动发现。' },
+        imageChannel: { type: 'string', description: "生图生成器 id；留空 = 默认生成器（MiniMax H3 Image）。" },
+        imageModel: { type: 'string', description: '生图模型 id；空 = 用生成器默认。' },
+        videoChannel: { type: 'string', description: "生视频生成器 id；留空 = 默认生成器（MiniMax H3 视频）。" },
+        videoModel: { type: 'string', description: '生视频模型 id（如 MiniMax-H3 / MiniMax-Hailuo-2.3）；空 = 用生成器默认。' },
+        mcodePath: { type: 'string', description: '生成组件路径（高级；留空 = 自动发现，填 off = 禁用）。' },
         paidExecution: { type: 'string', enum: ['receipt', 'off'], description: "receipt（默认）= 带计划摘要可执行；off = 只出计划。" },
       },
       async args => {

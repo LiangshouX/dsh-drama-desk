@@ -11,8 +11,8 @@
  */
 import { McodeToolsError, MCODE_TOOLS, sha256 } from '../transport/cli.js'
 
-const IMAGE_LABEL = 'MiniMax H3 · 图片（mcode-tools）'
-const VIDEO_LABEL = 'MiniMax H3 · 视频（mcode-tools）'
+const IMAGE_LABEL = 'MiniMax H3 Image'
+const VIDEO_LABEL = 'MiniMax H3 视频'
 
 /**
  * 造一对驱动（图片 / 视频），共用同一个 CLI 客户端。
@@ -58,13 +58,13 @@ function createImageDriver(client) {
     async probe() {
       try {
         const capabilities = await this.capabilities()
-        return { available: true, reason: `可用（${MCODE_TOOLS.generateImage}）`, capabilities }
+        return { available: true, reason: '已就绪', capabilities }
       } catch (cause) {
         return { available: false, reason: cause instanceof Error ? cause.message : String(cause) }
       }
     },
 
-    /** 认证状态（注册表用它把「CLI 在」升级成「真能用」）。 */
+    /** 认证状态（注册表用它把「组件在」升级成「真能用」）。 */
     probeAuth: () => client.authStatus(),
 
     /**
@@ -138,7 +138,7 @@ function createVideoDriver(client) {
     async probe() {
       try {
         const capabilities = await this.capabilities()
-        return { available: true, reason: `可用（${MCODE_TOOLS.submitVideo}）`, capabilities }
+        return { available: true, reason: '已就绪', capabilities }
       } catch (cause) {
         return { available: false, reason: cause instanceof Error ? cause.message : String(cause) }
       }
