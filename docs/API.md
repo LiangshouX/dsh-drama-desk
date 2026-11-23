@@ -1109,6 +1109,18 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 
 ## 执行：`POST /api/execute-generation`（**会花钱**）
 
+`imageRequests?: string[]` 将生图限定到点名的请求（空数组 = 不选图片），与生成计划使用相同筛选。
+同一作品并发执行会拒绝后来的调用，不排队、不自动重试。
+
+### 人物与道具形象（后台准备，未发布）
+
+- `GET /api/character-visual?workspace=<id>&character=<id>` → 建议画面描述、生成器状态、最近请求与执行记录。只读。
+- `POST /api/prepare-character-visual`：`{workspaceId, characterId, prompt, area, aspectRatio}`，保存一条新的、只出一张图的请求，返回 `{requestId, plan}`；不提交生成。允许 1K/2K/4K，1:1/3:4/4:3/9:16/16:9。
+- `POST /api/select-character-reference`：`{workspaceId, characterId, assetId}`，将属于此人物/道具且文件存在的有效参考图设为选定形象，更新 `reference_assets`，历史候选图保留。不替换已经生成镜头的参考图。
+- 执行仍通过 `executeGeneration`，带 `kinds:["image"]`、`imageRequests:[requestId]`、`digest`、`approve:true`。本轮只有后台接口，人物页入口尚未实现；准备、打开和切页都不发起生成。
+- 同一 request ID 防重；明确另建一次形象请求可用相同描述生成新候选。图片保存提示词和角色归属；成功后留在人物卡上等待用户选择。
+- Agent 工具：`drama_desk_character_visual`（`op: read|prepare|select`）与 UI 调用相同的 Host 方法。
+
 ```jsonc
 { "workspaceId": "…", "digest": "<plan 的 digest>", "approve": true,
   "kinds": ["image", "video"], "shots": ["SC01-SH02"], "limit": 5 }

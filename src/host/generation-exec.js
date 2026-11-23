@@ -19,7 +19,7 @@ import { McodeToolsError } from './transport/cli.js'
 import { resolveWithin } from './fsx.js'
 import { videoVersion } from './media.js'
 import { registerProductionAsset } from './registration.js'
-import { writeShotFields } from './workspace.js'
+import { writeShotFields, writeAssetFields, loadWorkspace } from './workspace.js'
 import {
   FINGERPRINT_ALGO, appendLedgerEntry, fingerprintOf, patchLedgerEntry, promptSha, readLedger,
 } from './ledger.js'
@@ -51,7 +51,18 @@ function createUploadCache() {
  * @param {{digest: string, approve: boolean, kinds?: Array<'image'|'video'>, shots?: string[], limit?: number}} options
  * @returns {Promise<object>}
  */
+const executing = new Set()
+
 export async function executeGenerationPlan(service, workspace, work, options = {}) {
+  if (executing.has(work.dir)) throw new Error('这个作品正在提交生成，请等待结果，不要重复提交')
+  executing.add(work.dir)
+  try { return await executeUnlocked(service, workspace, work, options) }
+  finally { executing.delete(work.dir) }
+}
+
+async function executeUnlocked(service, workspace, work, options) {
+  // Reload under the lock so a waiting caller cannot execute against an older ledger.
+  work = await loadWorkspace(work.dir)
   if (options.approve !== true) {
     throw new Error('执行付费生成需要显式 approve: true，并且必须带上刚算出来的计划摘要（digest）')
   }
@@ -70,6 +81,7 @@ export async function executeGenerationPlan(service, workspace, work, options = 
     shots: options.shots,
     limit: options.limit,
     includePrompts: true,
+    imageRequests: options.imageRequests,
   })
   if (fresh.digest !== digest) {
     throw new Error('计划已经变了（提示词 / 台账 / 生成器），摘要对不上：请重新生成计划再执行')
@@ -233,6 +245,8 @@ async function saveImage(work, row, produced, driver) {
     role: row.request?.role,
     source: 'mcode:generate_image',
   })
+  await writeAssetFields(work.dir, asset.id, { prompt: row.request?.promptText ?? '',
+    notes: '生成形象；清晰度 ' + (row.request?.area ?? '默认') + '；比例 ' + (row.request?.aspectRatio ?? '默认') })
   return { path: relative, assetId: asset.id }
 }
 

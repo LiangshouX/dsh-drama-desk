@@ -17,6 +17,8 @@ import { generationPlan } from '../src/host/generation.js'
 import { executeGenerationPlan, pollGenerationTasks } from '../src/host/generation-exec.js'
 import { loadWorkspace } from '../src/host/workspace.js'
 import { writeJsonAtomic } from '../src/host/fsx.js'
+import { characterVisual, prepareCharacterVisual, selectCharacterReference } from '../src/host/character-visual.js'
+import { buildStageView } from '../src/host/stageviews.js'
 
 function serviceWith(config) {
   return {
@@ -303,6 +305,67 @@ test('付费执行的三道闸：approve、digest、配置开关', async () => {
     await assert.rejects(executeGenerationPlan(off, { id: 'sample' }, work, {
       digest: (await generationPlan(work, off, 'sample')).digest, approve: true,
     }), /关闭了付费执行/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('人物形象后台：限定单图、防重复提交、保留描述、选择参考与另出候选', async () => {
+  ensureFakeDrivers('ok')
+  const root = await mkdtemp(join(tmpdir(), 'drama-character-visual-'))
+  try {
+    const dir = await makeWork(root)
+    await writeJsonAtomic(join(dir, 'characters.json'), { characters: [
+      { id: 'lead', name: '主角', appearance: '蓝色外套', reference_assets: [] },
+      { id: 'other', name: '配角', reference_assets: [] },
+    ], props: [{ id: 'clock', name: '钟表', appearance: '黄铜外壳', reference_assets: [] }] })
+    const service = serviceWith(fakeConfig())
+    let work = await loadWorkspace(dir)
+    const info = await characterVisual(work, service, 'lead')
+    assert.match(info.prompt, /蓝色外套/)
+    assert.equal(info.latest, null)
+    await assert.rejects(prepareCharacterVisual(work, service, 'sample', { characterId: 'missing', prompt: 'p' }), /找不到/)
+    await assert.rejects(prepareCharacterVisual(work, service, 'sample', { characterId: 'lead', prompt: ' ' }), /描述/)
+    await assert.rejects(generationPlan(work, service, 'sample', { imageRequests: 'img-1' }), /必须/)
+    await assert.rejects(generationPlan(work, service, 'sample', { imageRequests: ['missing'] }), /不存在/)
+    const input = { characterId: 'lead', prompt: '主角穿蓝色外套，单人定妆照', area: '2K', aspectRatio: '3:4' }
+    const prepared = await prepareCharacterVisual(work, service, 'sample', input)
+    assert.equal(prepared.plan.image.rows.length, 1, '不能夹带原有 img-1 生图任务')
+    assert.equal(prepared.plan.image.rows[0].id, prepared.requestId)
+    assert.equal((await loadWorkspace(dir)).ledger.length, 0, '准备不提交')
+    const options = { digest: prepared.plan.digest, approve: true, kinds: ['image'], imageRequests: [prepared.requestId] }
+    const competing = await Promise.allSettled([
+      executeGenerationPlan(service, { id: 'sample' }, work, options),
+      executeGenerationPlan(service, { id: 'sample' }, work, options),
+    ])
+    assert.equal(competing[0].status, 'fulfilled')
+    assert.equal(competing[1].status, 'rejected')
+    assert.match(competing[1].reason.message, /不要重复/)
+    const result = competing[0].value
+    assert.equal(result.executed.length, 1)
+    assert.equal(result.executed[0].status, 'succeeded')
+    work = await loadWorkspace(dir)
+    const image = work.assets.find(row => row.id === result.executed[0].assetId)
+    assert.equal(image.role, 'lead')
+    assert.equal(image.prompt, input.prompt)
+    assert.equal(work.ledger.length, 1)
+    await assert.rejects(executeGenerationPlan(service, { id: 'sample' }, work, options), /计划已经变了/)
+    const again = await generationPlan(work, service, 'sample', { imageRequests: [prepared.requestId] })
+    assert.equal(again.image.rows[0].action, 'skip')
+    assert.equal((await generationPlan(work, service, 'sample', { imageRequests: [] })).image.rows.length, 0)
+    await assert.rejects(selectCharacterReference(work, { characterId: 'other', assetId: image.id }), /属于/)
+    await selectCharacterReference(work, { characterId: 'lead', assetId: image.id })
+    work = await loadWorkspace(dir)
+    assert.deepEqual(work.characters[0].reference_assets, [image.id])
+    assert.equal(work.state.stage, 'generate', '选择形象不改阶段')
+    const view = await buildStageView({ kind: 'characters', work, service })
+    assert.equal(view.characters[0].assets[0].id, image.id)
+    const next = await prepareCharacterVisual(work, service, 'sample', input)
+    assert.notEqual(next.requestId, prepared.requestId)
+    assert.equal(next.plan.image.rows[0].action, 'submit', '明确另出候选可使用相同描述')
+    const prop = await characterVisual(work, service, 'clock')
+    assert.match(prop.prompt, /黄铜外壳/)
+    assert.equal((await loadWorkspace(dir)).ledger.length, 1, '准备新候选仍不提交')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -86,6 +86,17 @@ export function registerTools(ctx, service) {
   }
 
   const definitions = [
+    tool('drama_desk_character_visual', '读取人物/道具的形象方案，准备一张候选图，或选定形象参考。prepare 不花钱；付费执行仍需 execute_generation 明确确认且限定 imageRequests。', {
+      workspace: workspaceProperty, characterId: { type: 'string', required: true },
+      op: { type: 'string', enum: ['read', 'prepare', 'select'], required: true },
+      prompt: { type: 'string' }, area: { type: 'string' }, aspectRatio: { type: 'string' }, assetId: { type: 'string' },
+    }, async args => {
+      const input = { ...args, workspaceId: args.workspace }
+      if (args.op === 'read') return await service.characterVisual(input)
+      if (args.op === 'prepare') return await service.prepareCharacterVisual(input)
+      if (args.op === 'select') return await service.selectCharacterReference(input)
+      throw new Error('未知形象操作')
+    }),
     tool('drama_desk_register_asset', '登记作品目录内已经存在的文件。实际计算哈希；视频音频用 ffprobe 实测。只追加资产，不发起生成，不自动切当前视频版本。', {
       workspace: workspaceProperty, id: { type: 'string', required: true }, type: { type: 'string', required: true },
       path: { type: 'string', required: true }, role: { type: 'string' }, shotId: { type: 'string' },
@@ -201,11 +212,13 @@ export function registerTools(ctx, service) {
       '生成计划：分「生图 / 生视频」两段，逐条给出「该提交 / 已在跑别重发 / 缺什么」、幂等指纹（full-v2）、预计费用、请求参数，以及一个计划摘要 digest。只读；执行要靠 drama_desk_execute_generation 并带上这个 digest。',
       {
         workspace: workspaceProperty,
+        imageRequests: { type: 'array', items: { type: 'string' }, description: '只计划这些图片请求；空数组不选图片。' },
         shots: { type: 'array', items: { type: 'string' }, description: '只算这些镜；省略 = 全片。' },
         limit: { type: 'number', description: '最多算几镜视频要提交（分批提交时用）。' },
       },
       async args => await service.generationPlan({
         workspaceId: args.workspace,
+        imageRequests: args.imageRequests,
         shots: Array.isArray(args.shots) ? args.shots : undefined,
         limit: args.limit,
       }),
@@ -215,6 +228,7 @@ export function registerTools(ctx, service) {
       '执行一份生成计划（**会花钱**）。必须带 drama_desk_generation_plan 返回的 digest 与 approve=true；插件会现算计划并核对摘要，对不上就拒。不自动重试付费提交。提交前必须已向导演重述模型 / 分辨率 / 时长并取得明确确认。',
       {
         workspace: workspaceProperty,
+        imageRequests: { type: 'array', items: { type: 'string' }, description: '只执行这些图片请求；必须与复核的计划一致。' },
         digest: { type: 'string', description: '生成计划返回的 digest（必填）。', required: true },
         approve: { type: 'boolean', description: '必须显式为 true。', required: true },
         kinds: { type: 'array', items: { type: 'string', enum: ['image', 'video'] }, description: '只执行哪几段；省略 = 两段都执行。' },
@@ -224,6 +238,7 @@ export function registerTools(ctx, service) {
       async args => await service.executeGeneration({
         workspaceId: args.workspace,
         digest: args.digest,
+        imageRequests: args.imageRequests,
         approve: args.approve === true,
         kinds: Array.isArray(args.kinds) ? args.kinds : undefined,
         shots: Array.isArray(args.shots) ? args.shots : undefined,

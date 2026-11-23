@@ -207,7 +207,10 @@ async function readResource(service, resource, query) {
         shots: typeof query.shots === 'string' && query.shots !== '' ? query.shots.split(',') : undefined,
         limit: query.limit === undefined ? undefined : Number(query.limit),
         includePrompts: query.prompts === '1',
+        imageRequests: typeof query.imageRequests === 'string' ? query.imageRequests.split(',').filter(Boolean) : undefined,
       })
+    case 'character-visual':
+      return await service.characterVisual({ workspaceId: query.workspace, characterId: query.character })
     case 'stages':
       return await service.stageState({ workspaceId: query.workspace })
     case 'settings':
@@ -387,7 +390,13 @@ async function runAction(service, action, body) {
         kinds: Array.isArray(body.kinds) ? body.kinds : undefined,
         shots: Array.isArray(body.shots) ? body.shots : undefined,
         limit: body.limit,
+        imageRequests: body.imageRequests,
       })
+    case 'prepare-character-visual':
+      return await service.prepareCharacterVisual({ workspaceId: body.workspaceId, characterId: body.characterId,
+        prompt: body.prompt, area: body.area, aspectRatio: body.aspectRatio })
+    case 'select-character-reference':
+      return await service.selectCharacterReference({ workspaceId: body.workspaceId, characterId: body.characterId, assetId: body.assetId })
     case 'poll-generation':
       return await service.pollGeneration({ workspaceId: body.workspaceId })
     case 'compile':

@@ -31,6 +31,7 @@ import { resolvePoster, resolvePosterSource } from './posters.js'
 import { assemblyPlan, assemblyJob, startAssembly, finalCuts } from './assembly.js'
 import { probeChannels, forgetChannels, generationBoard, generationPlan } from './generation.js'
 import { executeGenerationPlan, pollGenerationTasks } from './generation-exec.js'
+import { characterVisual, prepareCharacterVisual, selectCharacterReference } from './character-visual.js'
 import { currentVideo, videoVersion } from './media.js'
 import { productionTaskFor } from './production.js'
 import { addProductionRecord } from './authoring.js'
@@ -315,7 +316,7 @@ export class DramaDeskService {
     const parts = []
     const files = [
       'work.json', 'state.json', 'scenes.json', 'shots.json',
-      'characters.json', 'assets.json', 'ledger.json',
+      'characters.json', 'assets.json', 'ledger.json', 'image-requests.json',
       'creative/brief.md', 'assembly/status.json',
     ]
     for (const name of files) {
@@ -1057,6 +1058,7 @@ export class DramaDeskService {
       shots: Array.isArray(options.shots) ? options.shots : undefined,
       limit: options.limit,
       includePrompts: options.includePrompts === true,
+      imageRequests: options.imageRequests,
     })
   }
 
@@ -1078,7 +1080,25 @@ export class DramaDeskService {
       kinds: Array.isArray(options.kinds) ? options.kinds : undefined,
       shots: Array.isArray(options.shots) ? options.shots : undefined,
       limit: options.limit,
+      imageRequests: options.imageRequests,
     })
+  }
+
+  async characterVisual(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    return characterVisual(await loadWorkspace(workspace.dir), this, options.characterId)
+  }
+
+  async prepareCharacterVisual(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    return prepareCharacterVisual(await loadWorkspace(workspace.dir), this, workspace.id, options)
+  }
+
+  async selectCharacterReference(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const result = await selectCharacterReference(await loadWorkspace(workspace.dir), options)
+    this.invalidateWork(workspace.dir)
+    return result
   }
 
   /**

@@ -266,9 +266,16 @@ export function generationBoard(work) {
  * @param {{shots?: string[], limit?: number, includePrompts?: boolean}} [options]
  */
 export async function generationPlan(work, service, workspaceId, options = {}) {
+  if (options.imageRequests !== undefined && (!Array.isArray(options.imageRequests)
+    || options.imageRequests.some(id => typeof id !== 'string' || id.trim() === ''))) {
+    throw new Error('imageRequests 必须是图片请求 ID 数组；不选图片请传空数组')
+  }
   const channels = await probeChannels(service, { host: false })
   const video = await buildVideoSection(work, service, workspaceId, channels.selection.video, options)
-  const image = await buildImageSection(work, service, channels.selection.image)
+  const image = await buildImageSection(work, service, channels.selection.image, options)
+  if (Array.isArray(options.imageRequests) && options.imageRequests.some(id => !image.rows.some(row => row.id === id))) {
+    throw new Error('所选图片请求不存在，请刷新计划后重试')
+  }
   const digest = sha256(canonicalJson({
     channel: { image: channels.selection.image?.channel ?? null, video: channels.selection.video?.channel ?? null },
     image: image.rows.map(row => ({ id: row.id, action: row.action, request: row.request, fingerprint: row.fingerprint })),
@@ -430,7 +437,7 @@ async function buildVideoSection(work, service, workspaceId, channel, options) {
  *                   "targetShotId": "SC01-SH01", "role": "keyframe" } ] }
  * ```
  */
-async function buildImageSection(work, service, channel) {
+async function buildImageSection(work, service, channel, options) {
   const doc = await readJsonIfExists(join(work?.dir ?? '', 'image-requests.json'))
   const requests = Array.isArray(doc?.requests) ? doc.requests : []
   const ledger = Array.isArray(work?.ledger) ? work.ledger : []
@@ -441,6 +448,7 @@ async function buildImageSection(work, service, channel) {
   for (let index = 0; index < requests.length; index += 1) {
     const request = requests[index] ?? {}
     const id = typeof request.id === 'string' && request.id.trim() !== '' ? request.id.trim() : 'img-' + (index + 1)
+    if (Array.isArray(options.imageRequests) && !options.imageRequests.includes(id)) continue
     const promptText = typeof request.prompt === 'string' ? request.prompt : ''
     const reasons = []
     let action = 'submit'
@@ -463,8 +471,8 @@ async function buildImageSection(work, service, channel) {
       kind: 'image', prompt: promptText, area: request.area, n: request.count ?? 1,
       aspectRatio: request.aspectRatio, references: referenceAssetIds,
     })
-    const entry = ledger.find(row => row?.kind === 'image'
-      && (row?.request_id === id || row?.fingerprint === fingerprint))
+    const entry = [...ledger].reverse().find(row => row?.kind === 'image'
+      && (row?.request_id === id || (request.purpose !== 'character-visual' && row?.fingerprint === fingerprint)))
     if (action !== 'blocked' && entry !== undefined) {
       const matched = entry.fingerprint_algo === FINGERPRINT_ALGO
         ? entry.fingerprint === fingerprint

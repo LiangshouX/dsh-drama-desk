@@ -263,6 +263,7 @@ async function charactersView(work) {
   const characters = []
   for (const character of work.characters ?? []) {
     const owned = assets.filter(asset => assetBelongsTo(asset, character?.id, character?.reference_assets))
+      .sort((a, b) => Number(b.id === character?.reference_assets?.[0]) - Number(a.id === character?.reference_assets?.[0]))
     characters.push({
       id: character?.id,
       name: character?.name ?? '',
@@ -282,6 +283,7 @@ async function charactersView(work) {
   const props = []
   for (const prop of work.props ?? []) {
     const owned = assets.filter(asset => assetBelongsTo(asset, prop?.id, prop?.reference_assets))
+      .sort((a, b) => Number(b.id === prop?.reference_assets?.[0]) - Number(a.id === prop?.reference_assets?.[0]))
     props.push({
       id: prop?.id,
       name: prop?.name ?? '',
