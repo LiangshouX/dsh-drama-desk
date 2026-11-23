@@ -6265,7 +6265,9 @@ select.dd-input{
 .dd-cost-bar i{position:absolute;inset:0 auto 0 0;background:var(--hot);border-radius:3px;transition:width var(--t-mid) var(--ease)}
 .dd-cost-bar.over i{background:var(--sig-fail)}
 .dd-cost-models{flex:1 1 300px;min-width:220px;display:flex;flex-direction:column;gap:3px}
-.dd-cost-model{display:grid;grid-template-columns:minmax(0,1fr) 70px 64px auto;align-items:center;gap:8px;font-size:11px}
+/* 名字列给一个上限，条形占剩下的空间——否则名字把条形推到最右边，
+   中间留一大段空白，看起来像「这条花费是空的」。 */
+.dd-cost-model{display:grid;grid-template-columns:minmax(80px,170px) minmax(50px,1fr) 64px auto;align-items:center;gap:8px;font-size:11px}
 .dd-cost-model .cm-name{font-family:var(--f-mono);color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dd-cost-model .cm-bar{position:relative;height:4px;border-radius:2px;background:var(--sunken);overflow:hidden}
 .dd-cost-model .cm-bar i{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--hot) 70%,transparent);border-radius:2px}
