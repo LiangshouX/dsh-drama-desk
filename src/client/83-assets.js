@@ -838,6 +838,44 @@
       // 现在：hook 全在前，无条件跑；数据没到就早退。
       if (!ledger) return h('div', { className: 'dd-empty' }, '正在读取台账…')
 
+      // 开销：按模型分组 + 预算燃烧。台账页不只需要明细，
+      // 导演还要能一眼回答「钱花在哪、还剩多少」。
+      const byModel = Array.isArray(ledger.byModel) ? ledger.byModel : []
+      const budget = ledger.budget
+      const spent = typeof totals.costUsd === 'number' ? totals.costUsd : 0
+      const limit = budget && typeof budget.limit_usd === 'number' ? budget.limit_usd : undefined
+      const burn = limit === undefined || limit <= 0 ? (spent > 0 ? 100 : 0) : Math.min(100, (spent / limit) * 100)
+      const maxModelCost = byModel.reduce((max, row) => Math.max(max, typeof row.costUsd === 'number' ? row.costUsd : 0), 0)
+      const costPanel = h('div', { className: 'dd-cost' },
+        h('div', { className: 'dd-cost-main' },
+          h('div', { className: 'dd-cost-line' },
+            h('span', { className: 'dd-cost-spent' }, formatUsd(spent)),
+            h('span', { className: 'dd-note' },
+              limit === undefined ? '未设预算上限' : ' / ' + formatUsd(limit) + ' 预算'),
+            h('span', { className: 'dd-spacer' }),
+            h('span', { className: 'dd-note' },
+              limit === undefined
+                ? ''
+                : '余 ' + formatUsd(Math.max(0, limit - spent))
+                  + (spent > limit ? ' · 已超支' : '')),
+          ),
+          h('div', { className: 'dd-cost-bar' + (spent > (limit || Infinity) ? ' over' : '') },
+            h('i', { style: { width: burn + '%' } }),
+          ),
+        ),
+        byModel.length === 0
+          ? h('div', { className: 'dd-note' }, '还没有可分组的花费')
+          : h('div', { className: 'dd-cost-models' },
+            byModel.map(row => h('div', { className: 'dd-cost-model', key: row.model },
+              h('span', { className: 'cm-name' }, row.model),
+              h('span', { className: 'cm-bar' },
+                h('i', { style: { width: (maxModelCost <= 0 ? 0 : (row.costUsd / maxModelCost) * 100) + '%' } })),
+              h('span', { className: 'cm-num' }, formatUsd(row.costUsd)),
+              h('span', { className: 'dd-note' }, row.tasks + ' 条'),
+            )),
+          ),
+      )
+
       return h('div', { className: 'dd-main' },
         h('div', { className: 'dd-toolbar' },
           h('span', { className: 'dd-chip' }, '任务 ', h('b', { className: 'num' }, String(totals.tasks !== undefined ? totals.tasks : entries.length))),
@@ -849,6 +887,7 @@
           h('span', { className: 'dd-spacer' }),
           h('span', { className: 'dd-note' }, '幂等三步：台账 → 提交 → 立刻回写'),
         ),
+        costPanel,
         h('div', { className: 'dd-facets' },
           h('div', { className: 'dd-facet-row' },
             h('span', { className: 'dd-facet-lab' }, '状态'),
@@ -922,6 +961,25 @@
 
     // ── 资产页的样式 ──────────────────────────────────────────────────────
     CSS_PARTS.push(`
+/* ── 台账开销 ─────────────────────────────────────────────────────────── */
+.dd-cost{display:flex;gap:16px;padding:9px 20px 10px;flex:none;flex-wrap:wrap;
+  box-shadow:0 1px 0 var(--line) inset}
+.dd-cost-main{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:5px}
+.dd-cost-line{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.dd-cost-spent{font-family:var(--f-mono);font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.dd-cost-bar{position:relative;height:5px;border-radius:3px;background:var(--sunken);box-shadow:var(--e-well);overflow:hidden}
+.dd-cost-bar i{position:absolute;inset:0 auto 0 0;background:var(--hot);border-radius:3px;transition:width var(--t-mid) var(--ease)}
+.dd-cost-bar.over i{background:var(--sig-fail)}
+.dd-cost-models{flex:1 1 300px;min-width:220px;display:flex;flex-direction:column;gap:3px}
+.dd-cost-model{display:grid;grid-template-columns:minmax(0,1fr) 70px 64px auto;align-items:center;gap:8px;font-size:11px}
+.dd-cost-model .cm-name{font-family:var(--f-mono);color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-cost-model .cm-bar{position:relative;height:4px;border-radius:2px;background:var(--sunken);overflow:hidden}
+.dd-cost-model .cm-bar i{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--hot) 70%,transparent);border-radius:2px}
+.dd-cost-model .cm-num{font-family:var(--f-mono);color:var(--ink);text-align:right}
+@container dd-root (max-width:760px){
+  .dd-cost{gap:9px;padding:8px 14px}
+  .dd-cost-model{grid-template-columns:minmax(0,1fr) 56px 60px}
+}
 /* ── 分类索引 ─────────────────────────────────────────────────────────── */
 .dd-facets{display:flex;flex-direction:column;gap:6px;padding:9px 20px 8px;flex:none}
 .dd-facets>*{flex:0 0 auto}

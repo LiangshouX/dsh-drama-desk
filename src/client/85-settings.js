@@ -55,8 +55,122 @@
 
     const DRAWER_WIDTH_KEY = 'dsh-drama-desk:drawer-width'
 
+    /** 生成通道的读写片段：设置抽屉与（以后的）别处共用。 */
+    function channelDraftOf(settings) {
+      const channels = settings && settings.generationChannels ? settings.generationChannels : {}
+      const image = channels.image || {}
+      const video = channels.video || {}
+      return {
+        imageChannel: image.channel || '',
+        imageModel: image.model || '',
+        videoChannel: video.channel || '',
+        videoModel: video.model || '',
+        channels: Array.isArray(channels.custom) ? channels.custom : [],
+      }
+    }
+
+    /**
+     * 一条生成通道的选择行。
+     *
+     * `inherit`（空值）是默认：**用宿主已经装好的连接器**。选了具体 id 就是
+     * 本插件自己的决定（自治）。不可用的通道仍然列出来但禁用——导演要能看见
+     * 「有这条通道、但现在调不动、为什么」，而不是它凭空消失。
+     */
+    function ChannelRow(props) {
+      const { kind, label, channels, channelId, modelId, disabled, onChannel, onModel, resolved } = props
+      const list = (channels || []).filter(channel => channel.kind === kind)
+      const ready = resolved && resolved.available === true
+      return h('div', { className: 'dd-channel' },
+        h('div', { className: 'dd-channel-head' },
+          h('span', { className: 'dd-channel-lb' }, label),
+          ready
+            ? h('span', { className: 'dd-badge pass' }, '可用')
+            : h('span', { className: 'dd-badge fail' }, '不可用'),
+        ),
+        h('div', { className: 'dd-channel-row' },
+          h('select', {
+            className: 'dd-input', value: channelId || '', disabled,
+            onChange: event => onChannel(event.target.value),
+            'aria-label': label,
+          },
+            h('option', { value: '' }, '继承宿主（用宿主装好的连接器）'),
+            list.map(channel => h('option', {
+              key: channel.id, value: channel.id,
+              // 不可用的也给选：选完能看到「为什么调不动」，比选不到好排查。
+            }, channel.label + (channel.installed ? '' : '（现在不可用）'))),
+          ),
+          h('input', {
+            className: 'dd-input', value: modelId || '', disabled,
+            placeholder: '模型 id（留空用通道默认）',
+            onChange: event => onModel(event.target.value),
+            'aria-label': label + '模型 id',
+          }),
+        ),
+        ready
+          ? null
+          : h('div', { className: 'dd-note' }, (resolved && resolved.reason) || '这条通道现在不可用'),
+        ready && resolved.mode === 'inherit'
+          ? h('div', { className: 'dd-note' }, '继承宿主：' + (resolved.label || '') + '（' + (resolved.tool || '未记录工具') + '）')
+          : null,
+      )
+    }
+
+    /**
+     * 自定义通道编辑器（自治）。
+     *
+     * 只存「用什么」：id、种类、显示名、模型 id、可选工具名。**不存密钥**——
+     * 密钥归宿主的凭据服务；插件这边只是告诉 agent「该走哪条路」。
+     */
+    function CustomChannelEditor(props) {
+      const { channels, disabled, onChange } = props
+      const [draft, setDraft] = useState({ id: '', kind: 'video', label: '', model: '' })
+      const list = Array.isArray(channels) ? channels : []
+      const add = () => {
+        const id = draft.id.trim()
+        if (id === '') return
+        if (list.some(row => row.id === id)) return
+        const row = { id, kind: draft.kind === 'image' ? 'image' : 'video' }
+        if (draft.label.trim() !== '') row.label = draft.label.trim()
+        if (draft.model.trim() !== '') row.model = draft.model.trim()
+        onChange([...list, row])
+        setDraft({ id: '', kind: draft.kind, label: '', model: '' })
+      }
+      const remove = id => onChange(list.filter(row => row.id !== id))
+      return h('div', { className: 'dd-custom-ch' },
+        h('div', { className: 'dd-note' }, '自定义通道（自治）：给「宿主没装的那条路」起个名字。不存密钥；提交仍由 agent 走它自己的工具。'),
+        list.map(row => h('div', { className: 'dd-custom-row', key: row.id },
+          h('span', { className: 'dd-badge' }, row.kind === 'image' ? '生图' : '生视频'),
+          h('b', null, row.id),
+          h('span', { className: 'dd-note' }, row.label || ''),
+          row.model ? h('span', { className: 'dd-note' }, row.model) : null,
+          h('span', { className: 'dd-spacer' }),
+          h('button', { className: 'dd-icon-btn', type: 'button', disabled, title: '删掉这条通道', onClick: () => remove(row.id) }, h(Icon, { name: 'trash', size: 12 })),
+        )),
+        h('div', { className: 'dd-channel-row' },
+          h('select', {
+            className: 'dd-input', value: draft.kind, disabled,
+            onChange: event => setDraft({ ...draft, kind: event.target.value }),
+            'aria-label': '新通道种类',
+          }, h('option', { value: 'video' }, '生视频'), h('option', { value: 'image' }, '生图')),
+          h('input', {
+            className: 'dd-input', value: draft.id, disabled, placeholder: '通道 id（必填，如 my-video）',
+            onChange: event => setDraft({ ...draft, id: event.target.value }),
+          }),
+          h('input', {
+            className: 'dd-input', value: draft.label, disabled, placeholder: '显示名（可选）',
+            onChange: event => setDraft({ ...draft, label: event.target.value }),
+          }),
+          h('input', {
+            className: 'dd-input', value: draft.model, disabled, placeholder: '模型 id（可选）',
+            onChange: event => setDraft({ ...draft, model: event.target.value }),
+          }),
+          h('button', { className: 'dd-btn sm', type: 'button', disabled: disabled || draft.id.trim() === '', onClick: add }, '添加'),
+        ),
+      )
+    }
+
     function SettingsDrawer(props) {
-      const { settings, onClose, onSave, busy, onPickFolder } = props
+      const { settings, channels, onClose, onSave, busy, onPickFolder, onRefreshChannels } = props
       const [width, setWidth] = useState(() => {
         try {
           const stored = Number(window.localStorage.getItem(DRAWER_WIDTH_KEY))
@@ -71,6 +185,7 @@
         adapter: settings.adapter || settings.specModel || '',
         generationProvider: settings.generation ? settings.generation.provider : '',
         generationModel: settings.generation ? settings.generation.model : '',
+        ...channelDraftOf(settings),
         hostProvider: settings.hostModel ? settings.hostModel.provider : '',
         hostModel: settings.hostModel ? settings.hostModel.model : '',
         autoRefresh: settings.autoRefresh || 4000,
@@ -83,12 +198,13 @@
           adapter: settings.adapter || settings.specModel || '',
           generationProvider: settings.generation ? settings.generation.provider : '',
           generationModel: settings.generation ? settings.generation.model : '',
+          ...channelDraftOf(settings),
           hostProvider: settings.hostModel ? settings.hostModel.provider : '',
           hostModel: settings.hostModel ? settings.hostModel.model : '',
           autoRefresh: settings.autoRefresh || 4000,
         })
       }, [settings.projectRoot, settings.outputRoot, settings.adapter, settings.specModel,
-        settings.generation, settings.hostModel, settings.autoRefresh])
+        settings.generation, settings.generationChannels, settings.hostModel, settings.autoRefresh])
 
       // 宽度可拖。拖的时候用 ref 记账，避免每一帧都 setState。
       const dragRef = useRef(null)
@@ -159,14 +275,14 @@
             h('div', { className: 'dd-note' }, '规范模型适配 = 规则分层里的那一份（提示词写法 / 体检项 / 接口 quirks）。'),
           ),
           h(ModelRow, {
-            label: '生成模型（提交生成时用谁）',
+            label: '生成模型（提交生成时用谁 · 旧字段）',
             providers,
             providerId: draft.generationProvider,
             modelId: draft.generationModel,
             disabled: busy,
             onProvider: value => setDraft(current => ({ ...current, generationProvider: value, generationModel: '' })),
             onModel: value => set('generationModel', value),
-            note: '这里列的是宿主已经配好的模型路由，不需要在本插件里再存一份 API key。',
+            note: '这一对是 0.2 时的字段，等价于下面的「生视频通道」；保留是为了不弄坏已有的 profile。',
           }),
           h(ModelRow, {
             label: '宿主模型（这个工作台自己用谁思考）',
@@ -178,6 +294,13 @@
             onModel: value => set('hostModel', value),
             note: '宿主模型由 DSH 统一管理；这里改的是全局默认模型选择。',
           }),
+          h('div', { className: 'dd-note' },
+            channels && channels.host
+              ? (channels.host.reachable
+                ? '宿主模型目录：' + (channels.host.providers || []).length + ' 条路由 · '
+                  + (channels.host.modelCount || 0) + ' 个模型'
+                : (channels.host.note || '宿主没有公布模型目录'))
+              : '模型目录在打开设置时读取。'),
           h('div', null,
             h('div', { className: 'dd-field' },
               h('label', null, '自动刷新间隔 (ms)'),
@@ -189,6 +312,45 @@
             ),
             h('div', { className: 'dd-note' }, '0 = 关闭轮询。轮询只发一个请求；面板不可见时自动停。'),
           ),
+        ),
+      )
+
+      // ── 生成通道（生图 / 生视频）───────────────────────────────────────
+      // 「继承宿主」= 用宿主已经装好的连接器；「自治」= 本插件指定或自定义一条。
+      // 这里同时给出**可用性**与**为什么不可用**：通道配置最怕的就是
+      // 「我配了但它其实调不动」这种沉默失败。
+      const selection = channels ? (channels.selection || {}) : {}
+      const channelSection = h('div', null,
+        h('h4', null, '生成通道'),
+        h('div', { style: { marginTop: '9px', display: 'flex', flexDirection: 'column', gap: '12px' } },
+          h(ChannelRow, {
+            kind: 'image', label: '生图通道',
+            channels: channels ? [...(channels.connectors || []), ...(channels.custom || [])] : [],
+            channelId: draft.imageChannel, modelId: draft.imageModel, disabled: busy,
+            onChannel: value => set('imageChannel', value),
+            onModel: value => set('imageModel', value),
+            resolved: selection.image,
+          }),
+          h(ChannelRow, {
+            kind: 'video', label: '生视频通道',
+            channels: channels ? [...(channels.connectors || []), ...(channels.custom || [])] : [],
+            channelId: draft.videoChannel, modelId: draft.videoModel, disabled: busy,
+            onChannel: value => set('videoChannel', value),
+            onModel: value => set('videoModel', value),
+            resolved: selection.video,
+          }),
+          h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+            h('button', {
+              className: 'dd-btn sm', type: 'button', disabled: busy || typeof onRefreshChannels !== 'function',
+              onClick: onRefreshChannels, title: '重新探测宿主的连接器与模型目录',
+            }, '重新探测'),
+            h('span', { className: 'dd-note' },
+              channels ? '探测结果缓存 30 秒；连接器在不在由宿主的 subprocess 服务判定。' : '打开设置时探测一次。'),
+          ),
+          h(CustomChannelEditor, {
+            channels: draft.channels, disabled: busy,
+            onChange: value => set('channels', value),
+          }),
         ),
       )
 
@@ -208,6 +370,7 @@
         warnings,
         pathSection,
         modelSection,
+        channelSection,
         actions,
       )
 
@@ -263,3 +426,21 @@
         ),
       )
     }
+
+    // 通道配置的样式跟着组件走。窄抽屉里下面这排输入要能折行，
+    // 否则「添加自定义通道」会挤成一条读不出来的长条。
+    CSS_PARTS.push(`
+.dd-channel{display:flex;flex-direction:column;gap:5px;padding:9px 10px;border-radius:var(--rx-2);
+  background:var(--sunken);box-shadow:var(--e-well)}
+.dd-channel-head{display:flex;align-items:center;gap:8px}
+.dd-channel-lb{font-size:12px;font-weight:600;color:var(--ink2)}
+.dd-channel-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:2px}
+.dd-custom-ch{display:flex;flex-direction:column;gap:6px;padding-top:8px;border-top:.5px solid var(--line)}
+.dd-custom-row{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:var(--rx-1);background:var(--panel-2)}
+.dd-custom-row b{font-family:var(--f-mono);font-size:11px}
+.dd-custom-ch .dd-channel-row{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
+@container dd-root (max-width:520px){
+  .dd-channel-row{grid-template-columns:1fr}
+  .dd-custom-ch .dd-channel-row{grid-template-columns:1fr}
+}
+`)

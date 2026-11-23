@@ -22,6 +22,7 @@ import { checkPrerequisite } from './stages.js'
 import { resolvePosterSource, posterSourcesFor } from './posters.js'
 import { currentVideo, videoVersion } from './media.js'
 import { assemblyPlan, assemblyJob, finalCuts } from './assembly.js'
+import { generationBoard } from './generation.js'
 
 /** 九个阶段视图的 kind（与数据契约 §4 的阶段枚举同序）。 */
 export const STAGE_VIEWS = [
@@ -492,6 +493,9 @@ async function generateView(work, service) {
   return {
     scenes,
     counts: grid.counts,
+    // 生产看板：进度、在途、预算余量、剩余预估。与舞台视图同一份载荷，
+    // 免得界面上再为「进度/开销」多发一次请求。
+    board: generationBoard(work),
     specAvailable: await specAvailableOf(work, service, grid),
   }
 }

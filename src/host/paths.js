@@ -75,7 +75,17 @@ export function resolveConfig(raw) {
     model,
     autoRefresh,
     // 生成模型：提交生成时用谁。空 = 不由插件决定（agent 走自己的模型）。
+    // 这一对是**旧字段**，留着是为了不弄坏已有的 profile；新配置走下面四条。
     generationProvider: text(config.generationProvider) ?? '',
     generationModel: text(config.generationModel) ?? '',
+    // 生成通道：'' / 'inherit' = 继承宿主的连接器；否则是本插件指定的通道 id。
+    // `imageModel` / `videoModel` 留空 = 用通道自己的默认。
+    imageChannel: text(config.imageChannel) ?? '',
+    imageModel: text(config.imageModel) ?? '',
+    videoChannel: text(config.videoChannel) ?? '',
+    videoModel: text(config.videoModel) ?? '',
+    // 自定义通道（自治）：[{id, kind, label, model?, tool?, cli?, note?}]。
+    // 只存「用什么」，不存任何密钥——密钥归宿主凭据服务。
+    channels: Array.isArray(config.channels) ? config.channels : [],
   }
 }

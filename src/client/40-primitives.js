@@ -53,6 +53,24 @@
       return value.replace('T', ' ').replace('Z', '')
     }
 
+    /** 钱：预算与花费都是美元，两位小数就够（单镜 0.08–0.88）。 */
+    function formatUsd(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+      return '$' + (Math.round(value * 100) / 100).toFixed(2)
+    }
+
+    /** 时长：秒 → 「38 秒 / 12 分 / 1 小时 32 分」。给人读的时间，不是毫秒。 */
+    function formatSeconds(seconds) {
+      if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '—'
+      const total = Math.round(seconds)
+      if (total < 60) return total + ' 秒'
+      const minutes = Math.round(total / 60)
+      if (minutes < 60) return minutes + ' 分'
+      const hours = Math.floor(minutes / 60)
+      const rest = minutes % 60
+      return hours + ' 小时' + (rest > 0 ? ' ' + rest + ' 分' : '')
+    }
+
     /** Small inline glyph set — 24×24 grid, stroke 1.6, round caps (host convention). */
     function Icon(props) {
       const size = props.size ?? 16

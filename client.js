@@ -1728,6 +1728,24 @@ select.dd-input{
       return value.replace('T', ' ').replace('Z', '')
     }
 
+    /** 钱：预算与花费都是美元，两位小数就够（单镜 0.08–0.88）。 */
+    function formatUsd(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+      return '$' + (Math.round(value * 100) / 100).toFixed(2)
+    }
+
+    /** 时长：秒 → 「38 秒 / 12 分 / 1 小时 32 分」。给人读的时间，不是毫秒。 */
+    function formatSeconds(seconds) {
+      if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '—'
+      const total = Math.round(seconds)
+      if (total < 60) return total + ' 秒'
+      const minutes = Math.round(total / 60)
+      if (minutes < 60) return minutes + ' 分'
+      const hours = Math.floor(minutes / 60)
+      const rest = minutes % 60
+      return hours + ' 小时' + (rest > 0 ? ' ' + rest + ' 分' : '')
+    }
+
     /** Small inline glyph set — 24×24 grid, stroke 1.6, round caps (host convention). */
     function Icon(props) {
       const size = props.size ?? 16
@@ -3399,7 +3417,7 @@ select.dd-input{
 
     /** The generate stage: scene navigation + the wall. */
     function GenerateView(props) {
-      const { data, selectedShot, onSelectShot, busy, actions, workspaceId, onOpenImage, onSceneChange } = props
+      const { data, selectedShot, onSelectShot, busy, actions, workspaceId, onOpenImage, onSceneChange, onGenerationPlan } = props
       const scenes = data.scenes || []
       const [sceneId, setSceneId] = useState('')
       const [filter, setFilter] = useState('all')
@@ -3484,6 +3502,10 @@ select.dd-input{
             ),
           ],
         }),
+        // ── 生产看板 ────────────────────────────────────────────────────
+        // 「做到哪儿了、花了多少」不该去台账页才能拼出来：放在生成台顶上，
+        // 一眼扫到进度、在途、预算余量与剩余预估。
+        data.board ? h(GenerationBoard, { board: data.board, busy, onPlan: onGenerationPlan }) : null,
         h('div', { className: 'dd-strip-nav' },
           h('button', {
             className: 'dd-icon-btn', disabled: activeIndex <= 0,
@@ -3576,6 +3598,182 @@ select.dd-input{
         ),
       )
     }
+
+    /**
+     * 生成台顶上的**生产看板**。
+     *
+     * 它回答三件事，全部来自 Host 的 `generationBoard()`（不从台账页借算）：
+     * 做到哪儿了（已生成 / 待登记 / 在途 / 失败 / 未开工）、花了多少（预算余量）、
+     * 剩下的还要多少（按单价与实测速度推算）。
+     *
+     * 「待登记」单独一档：任务成功但文件还没下载登记时，网格里仍然没有画面——
+     * 那是**真实存在的一步**，混进「已生成」会让进度说谎。
+     */
+    function GenerationBoard(props) {
+      const { board, busy, onPlan } = props
+      const counts = board.counts || {}
+      const budget = board.budget || {}
+      const forecast = board.forecast || {}
+      const speed = board.speed || {}
+      const total = Math.max(1, counts.total || 0)
+      const donePct = ((counts.done || 0) / total) * 100
+      const pendingPct = ((counts.pending || 0) / total) * 100
+      const money = value => (typeof value === 'number' ? formatUsd(value) : '—')
+      const flying = Array.isArray(board.inFlight) ? board.inFlight : []
+      return h('div', { className: 'dd-board' },
+        h('div', { className: 'dd-board-p' },
+          h('div', { className: 'dd-board-line' },
+            h('span', { className: 'dd-board-pct' }, board.progress + '%'),
+            h('span', { className: 'dd-board-cap' },
+              '已生成 ' + (counts.done || 0) + ' / ' + (counts.total || 0) + ' 镜'),
+            h('span', { className: 'dd-board-rest' },
+              (counts.pending ? counts.pending + ' 待登记 · ' : '')
+              + (counts.inFlight ? counts.inFlight + ' 在途 · ' : '')
+              + (counts.failed ? counts.failed + ' 失败 · ' : '')
+              + (counts.todo || 0) + ' 未开工'),
+          ),
+          h('div', { className: 'dd-board-bar', role: 'img', 'aria-label': '生成进度 ' + board.progress + '%' },
+            h('i', { style: { width: Math.max(0, Math.min(100, donePct)) + '%' } }),
+            pendingPct > 0 ? h('i', { className: 'pending', style: { width: Math.min(100, pendingPct) + '%' } }) : null,
+          ),
+        ),
+        h('div', { className: 'dd-board-money' },
+          h('div', null, '已花 ', h('b', null, money(budget.spentUsd)),
+            budget.limitUsd === undefined ? ' · 未设预算' : ' / ' + money(budget.limitUsd),
+            budget.remainingUsd === undefined ? '' : ' · 余 ' + money(budget.remainingUsd)),
+          h('div', null,
+            (forecast.shotsLeft || 0) + ' 镜没出',
+            forecast.costUsd === undefined ? '' : ' ≈ ' + money(forecast.costUsd),
+            forecast.seconds === undefined ? '' : ' · 约 ' + formatSeconds(forecast.seconds)),
+          h('div', { className: 'dd-note', title: forecast.basis || '' },
+            '均价 ' + money(budget.perShotUsd)
+            + (speed.avgSecondsPerShot ? ' · 实测 ' + formatSeconds(speed.avgSecondsPerShot) + '/镜' : '')),
+        ),
+        h('div', { className: 'dd-board-actions' },
+          flying.length > 0
+            ? h('div', { className: 'dd-board-fly', title: flying.map(entry => entry.shotId + ' · ' + entry.status).join('\n') },
+              h('span', { className: 'dd-led gen' }),
+              h('span', null, '在途 ' + flying.length + ' · '
+                + flying.slice(0, 2).map(entry => entry.shotId + ' ' + formatSeconds(entry.elapsedSec || 0)).join('、')))
+            : null,
+          h('button', {
+            className: 'dd-btn sm primary', disabled: busy === true,
+            title: '算出下一批该提交哪些镜、预计花多少、哪些已经在跑（不会提交任何东西）',
+            onClick: () => { if (typeof onPlan === 'function') onPlan(10) },
+          }, '生成计划'),
+        ),
+      )
+    }
+
+    /**
+     * 生成计划浮层：逐镜「该提交 / 已在跑别重发 / 缺什么」。
+     *
+     * **它不提交任何东西。** 导演看完，要么把提交清单复制给 agent 走幂等三步，
+     * 要么自己回去改提示词。幂等判据是提示词 sha256——台账里同一条指纹意味着
+     * 同一个请求，重发就是重复付费。
+     */
+    function GenerationPlanDrawer(props) {
+      const { plan, busy, onClose, onRefresh, onCopy } = props
+      const summary = plan ? (plan.summary || {}) : null
+      const rows = plan && Array.isArray(plan.rows) ? plan.rows : []
+      const actionLabel = { submit: '该提交', skip: '已在跑', blocked: '缺东西' }
+      const actionTone = { submit: 'pass', skip: 'warn', blocked: 'fail' }
+      const submits = rows.filter(row => row.action === 'submit')
+      const copyList = () => {
+        const lines = [
+          '生成计划 · ' + (plan.workspace ? plan.workspace.id : ''),
+          '通道：' + (plan.channel ? (plan.channel.label || plan.channel.channel || '未选') : '未选')
+            + (plan.channel && plan.channel.model ? ' · ' + plan.channel.model : ''),
+          '该提交 ' + submits.length + ' 镜，预计 ' + (summary && summary.costUsd !== undefined ? formatUsd(summary.costUsd) : '未定价')
+            + '，素材时长合计 ' + formatSeconds(summary ? summary.seconds : undefined),
+          ...submits.map((row, index) => [
+            (index + 1) + '. ' + row.id + ' ' + (row.title || ''),
+            '   时长 ' + (row.request.duration ?? '?') + 's · 画幅 ' + (row.request.ratio ?? '?')
+              + ' · 参考图 ' + row.request.referenceCount + ' · 提示词 sha ' + (row.prompt.sha256 || '').slice(0, 12),
+          ].join('\n')),
+          '',
+          '提交前先用 drama_desk_generation_plan 复核；提交后按幂等三步回写台账。',
+        ]
+        onCopy(lines.join('\n'))
+      }
+      return h('div', { className: 'dd-drawer dd-plan' },
+        h('div', { className: 'dd-drawer-head' },
+          h(Icon, { name: 'note', size: 14 }),
+          h('span', { style: { fontWeight: '600' } }, '生成计划'),
+          h('span', { className: 'dd-spacer' }),
+          h('button', { className: 'dd-btn sm', disabled: busy, onClick: onRefresh, title: '重新计算（提示词或台账可能刚变）' }, busy ? '计算中…' : '重新计算'),
+          h('button', { className: 'dd-icon-btn', onClick: onClose, title: '关闭' }, h(Icon, { name: 'close', size: 13 })),
+        ),
+        h('div', { className: 'dd-drawer-body' },
+          !plan
+            ? h('div', { className: 'dd-note' }, busy ? '正在计算…' : '还没有计划')
+            : h('div', null,
+              summary && summary.channelReady === false
+                ? h('div', { className: 'dd-warnbox' },
+                  h('b', null, '这条通道现在调不动：'),
+                  summary.channelReason || '没有可用的生视频通道',
+                  h('div', { className: 'dd-note' }, '计划本身仍然有效：该提交哪些镜、要花多少都算好了。设置 → 生成通道里可以换成自定义通道。'))
+                : null,
+              h('div', { className: 'dd-plan-sum' },
+                h('span', { className: 'dd-badge pass' }, '该提交 ' + (summary ? summary.submit : 0)),
+                h('span', { className: 'dd-badge warn' }, '已在跑 ' + (summary ? summary.skip : 0)),
+                h('span', { className: 'dd-badge fail' }, '缺东西 ' + (summary ? summary.blocked : 0)),
+                h('span', { className: 'dd-spacer' }),
+                h('span', { className: 'num' },
+                  '预计 ' + (summary && summary.costUsd !== undefined ? formatUsd(summary.costUsd) : '未定价')
+                  + ' · 素材 ' + formatSeconds(summary ? summary.seconds : undefined)),
+              ),
+              h('div', { className: 'dd-note' }, summary ? summary.note : ''),
+              h('div', { className: 'dd-plan-actions' },
+                h('button', { className: 'dd-btn sm primary', disabled: submits.length === 0, onClick: copyList }, '复制提交清单'),
+                h('button', { className: 'dd-btn sm', disabled: !plan, onClick: () => onCopy(JSON.stringify({ channel: plan.channel, summary, submits }, null, 2)) }, '复制 JSON'),
+                h('span', { className: 'dd-note' }, '复制给制作助手，由它按幂等三步提交；插件自己不发起付费生成。'),
+              ),
+              h('div', { className: 'dd-plan-table' },
+                h('table', { className: 'dd-table' },
+                  h('thead', null, h('tr', null,
+                    h('th', null, '镜号'), h('th', null, '动作'), h('th', null, '为什么'), h('th', { className: 'n' }, '费用'))),
+                  h('tbody', null, rows.map(row => h('tr', { key: row.id },
+                    h('td', { className: 'n' }, row.id),
+                    h('td', null, h('span', { className: 'dd-badge ' + (actionTone[row.action] || '') }, actionLabel[row.action] || row.action)),
+                    h('td', { className: 'dd-plan-why' },
+                      (row.reasons || []).join('；') || '可以直接提交',
+                      row.prompt && row.prompt.stale ? h('span', { className: 'dd-badge warn' }, '过期') : null),
+                    h('td', { className: 'n' }, row.request && row.request.costUsd !== undefined ? formatUsd(row.request.costUsd) : '—'),
+                  ))),
+                ),
+              ),
+            ),
+        ),
+      )
+    }
+
+    CSS_PARTS.push(`
+.dd-board{display:flex;align-items:stretch;gap:14px;padding:11px 20px;flex:none;flex-wrap:wrap;
+  border-bottom:.5px solid var(--line);background:linear-gradient(180deg,color-mix(in srgb,var(--hot) 4%,var(--panel)),transparent)}
+.dd-board-p{flex:1 1 260px;min-width:0}
+.dd-board-line{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.dd-board-pct{font-family:var(--f-mono);font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-.03em}
+.dd-board-cap{font-size:12px;color:var(--ink2)}
+.dd-board-rest{font-size:11px;color:var(--ink3);font-family:var(--f-mono)}
+.dd-board-bar{position:relative;height:6px;border-radius:3px;background:var(--sunken);box-shadow:var(--e-well);margin-top:7px;overflow:hidden}
+.dd-board-bar i{position:absolute;inset:0 auto 0 0;background:var(--hot);border-radius:3px;transition:width var(--t-mid) var(--ease)}
+.dd-board-bar i.pending{background:color-mix(in srgb,var(--sig-fly) 70%,transparent);left:auto;right:0}
+.dd-board-money{flex:0 1 300px;min-width:200px;font-size:11.5px;color:var(--ink2);font-family:var(--f-mono);display:flex;flex-direction:column;gap:3px;justify-content:center}
+.dd-board-money b{color:var(--ink);font-weight:600}
+.dd-board-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.dd-board-fly{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--sig-fly);font-family:var(--f-mono);white-space:nowrap}
+.dd-plan{width:min(720px,94%)}
+.dd-plan-sum{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 6px}
+.dd-plan-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
+.dd-plan-table{overflow-x:auto;max-width:100%}
+.dd-plan-table table{min-width:520px}
+.dd-plan-why{color:var(--ink2);font-size:11.5px;line-height:1.5}
+@container dd-root (max-width:760px){
+  .dd-board{padding:9px 14px;gap:9px}
+  .dd-board-money{flex:1 1 100%}
+}
+`)
 
     // ── shot detail ────────────────────────────────────────────────────────
 
@@ -5917,6 +6115,44 @@ select.dd-input{
       // 现在：hook 全在前，无条件跑；数据没到就早退。
       if (!ledger) return h('div', { className: 'dd-empty' }, '正在读取台账…')
 
+      // 开销：按模型分组 + 预算燃烧。台账页不只需要明细，
+      // 导演还要能一眼回答「钱花在哪、还剩多少」。
+      const byModel = Array.isArray(ledger.byModel) ? ledger.byModel : []
+      const budget = ledger.budget
+      const spent = typeof totals.costUsd === 'number' ? totals.costUsd : 0
+      const limit = budget && typeof budget.limit_usd === 'number' ? budget.limit_usd : undefined
+      const burn = limit === undefined || limit <= 0 ? (spent > 0 ? 100 : 0) : Math.min(100, (spent / limit) * 100)
+      const maxModelCost = byModel.reduce((max, row) => Math.max(max, typeof row.costUsd === 'number' ? row.costUsd : 0), 0)
+      const costPanel = h('div', { className: 'dd-cost' },
+        h('div', { className: 'dd-cost-main' },
+          h('div', { className: 'dd-cost-line' },
+            h('span', { className: 'dd-cost-spent' }, formatUsd(spent)),
+            h('span', { className: 'dd-note' },
+              limit === undefined ? '未设预算上限' : ' / ' + formatUsd(limit) + ' 预算'),
+            h('span', { className: 'dd-spacer' }),
+            h('span', { className: 'dd-note' },
+              limit === undefined
+                ? ''
+                : '余 ' + formatUsd(Math.max(0, limit - spent))
+                  + (spent > limit ? ' · 已超支' : '')),
+          ),
+          h('div', { className: 'dd-cost-bar' + (spent > (limit || Infinity) ? ' over' : '') },
+            h('i', { style: { width: burn + '%' } }),
+          ),
+        ),
+        byModel.length === 0
+          ? h('div', { className: 'dd-note' }, '还没有可分组的花费')
+          : h('div', { className: 'dd-cost-models' },
+            byModel.map(row => h('div', { className: 'dd-cost-model', key: row.model },
+              h('span', { className: 'cm-name' }, row.model),
+              h('span', { className: 'cm-bar' },
+                h('i', { style: { width: (maxModelCost <= 0 ? 0 : (row.costUsd / maxModelCost) * 100) + '%' } })),
+              h('span', { className: 'cm-num' }, formatUsd(row.costUsd)),
+              h('span', { className: 'dd-note' }, row.tasks + ' 条'),
+            )),
+          ),
+      )
+
       return h('div', { className: 'dd-main' },
         h('div', { className: 'dd-toolbar' },
           h('span', { className: 'dd-chip' }, '任务 ', h('b', { className: 'num' }, String(totals.tasks !== undefined ? totals.tasks : entries.length))),
@@ -5928,6 +6164,7 @@ select.dd-input{
           h('span', { className: 'dd-spacer' }),
           h('span', { className: 'dd-note' }, '幂等三步：台账 → 提交 → 立刻回写'),
         ),
+        costPanel,
         h('div', { className: 'dd-facets' },
           h('div', { className: 'dd-facet-row' },
             h('span', { className: 'dd-facet-lab' }, '状态'),
@@ -6001,6 +6238,25 @@ select.dd-input{
 
     // ── 资产页的样式 ──────────────────────────────────────────────────────
     CSS_PARTS.push(`
+/* ── 台账开销 ─────────────────────────────────────────────────────────── */
+.dd-cost{display:flex;gap:16px;padding:9px 20px 10px;flex:none;flex-wrap:wrap;
+  box-shadow:0 1px 0 var(--line) inset}
+.dd-cost-main{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:5px}
+.dd-cost-line{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.dd-cost-spent{font-family:var(--f-mono);font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.dd-cost-bar{position:relative;height:5px;border-radius:3px;background:var(--sunken);box-shadow:var(--e-well);overflow:hidden}
+.dd-cost-bar i{position:absolute;inset:0 auto 0 0;background:var(--hot);border-radius:3px;transition:width var(--t-mid) var(--ease)}
+.dd-cost-bar.over i{background:var(--sig-fail)}
+.dd-cost-models{flex:1 1 300px;min-width:220px;display:flex;flex-direction:column;gap:3px}
+.dd-cost-model{display:grid;grid-template-columns:minmax(0,1fr) 70px 64px auto;align-items:center;gap:8px;font-size:11px}
+.dd-cost-model .cm-name{font-family:var(--f-mono);color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-cost-model .cm-bar{position:relative;height:4px;border-radius:2px;background:var(--sunken);overflow:hidden}
+.dd-cost-model .cm-bar i{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--hot) 70%,transparent);border-radius:2px}
+.dd-cost-model .cm-num{font-family:var(--f-mono);color:var(--ink);text-align:right}
+@container dd-root (max-width:760px){
+  .dd-cost{gap:9px;padding:8px 14px}
+  .dd-cost-model{grid-template-columns:minmax(0,1fr) 56px 60px}
+}
 /* ── 分类索引 ─────────────────────────────────────────────────────────── */
 .dd-facets{display:flex;flex-direction:column;gap:6px;padding:9px 20px 8px;flex:none}
 .dd-facets>*{flex:0 0 auto}
@@ -6857,8 +7113,122 @@ select.dd-input{
 
     const DRAWER_WIDTH_KEY = 'dsh-drama-desk:drawer-width'
 
+    /** 生成通道的读写片段：设置抽屉与（以后的）别处共用。 */
+    function channelDraftOf(settings) {
+      const channels = settings && settings.generationChannels ? settings.generationChannels : {}
+      const image = channels.image || {}
+      const video = channels.video || {}
+      return {
+        imageChannel: image.channel || '',
+        imageModel: image.model || '',
+        videoChannel: video.channel || '',
+        videoModel: video.model || '',
+        channels: Array.isArray(channels.custom) ? channels.custom : [],
+      }
+    }
+
+    /**
+     * 一条生成通道的选择行。
+     *
+     * `inherit`（空值）是默认：**用宿主已经装好的连接器**。选了具体 id 就是
+     * 本插件自己的决定（自治）。不可用的通道仍然列出来但禁用——导演要能看见
+     * 「有这条通道、但现在调不动、为什么」，而不是它凭空消失。
+     */
+    function ChannelRow(props) {
+      const { kind, label, channels, channelId, modelId, disabled, onChannel, onModel, resolved } = props
+      const list = (channels || []).filter(channel => channel.kind === kind)
+      const ready = resolved && resolved.available === true
+      return h('div', { className: 'dd-channel' },
+        h('div', { className: 'dd-channel-head' },
+          h('span', { className: 'dd-channel-lb' }, label),
+          ready
+            ? h('span', { className: 'dd-badge pass' }, '可用')
+            : h('span', { className: 'dd-badge fail' }, '不可用'),
+        ),
+        h('div', { className: 'dd-channel-row' },
+          h('select', {
+            className: 'dd-input', value: channelId || '', disabled,
+            onChange: event => onChannel(event.target.value),
+            'aria-label': label,
+          },
+            h('option', { value: '' }, '继承宿主（用宿主装好的连接器）'),
+            list.map(channel => h('option', {
+              key: channel.id, value: channel.id,
+              // 不可用的也给选：选完能看到「为什么调不动」，比选不到好排查。
+            }, channel.label + (channel.installed ? '' : '（现在不可用）'))),
+          ),
+          h('input', {
+            className: 'dd-input', value: modelId || '', disabled,
+            placeholder: '模型 id（留空用通道默认）',
+            onChange: event => onModel(event.target.value),
+            'aria-label': label + '模型 id',
+          }),
+        ),
+        ready
+          ? null
+          : h('div', { className: 'dd-note' }, (resolved && resolved.reason) || '这条通道现在不可用'),
+        ready && resolved.mode === 'inherit'
+          ? h('div', { className: 'dd-note' }, '继承宿主：' + (resolved.label || '') + '（' + (resolved.tool || '未记录工具') + '）')
+          : null,
+      )
+    }
+
+    /**
+     * 自定义通道编辑器（自治）。
+     *
+     * 只存「用什么」：id、种类、显示名、模型 id、可选工具名。**不存密钥**——
+     * 密钥归宿主的凭据服务；插件这边只是告诉 agent「该走哪条路」。
+     */
+    function CustomChannelEditor(props) {
+      const { channels, disabled, onChange } = props
+      const [draft, setDraft] = useState({ id: '', kind: 'video', label: '', model: '' })
+      const list = Array.isArray(channels) ? channels : []
+      const add = () => {
+        const id = draft.id.trim()
+        if (id === '') return
+        if (list.some(row => row.id === id)) return
+        const row = { id, kind: draft.kind === 'image' ? 'image' : 'video' }
+        if (draft.label.trim() !== '') row.label = draft.label.trim()
+        if (draft.model.trim() !== '') row.model = draft.model.trim()
+        onChange([...list, row])
+        setDraft({ id: '', kind: draft.kind, label: '', model: '' })
+      }
+      const remove = id => onChange(list.filter(row => row.id !== id))
+      return h('div', { className: 'dd-custom-ch' },
+        h('div', { className: 'dd-note' }, '自定义通道（自治）：给「宿主没装的那条路」起个名字。不存密钥；提交仍由 agent 走它自己的工具。'),
+        list.map(row => h('div', { className: 'dd-custom-row', key: row.id },
+          h('span', { className: 'dd-badge' }, row.kind === 'image' ? '生图' : '生视频'),
+          h('b', null, row.id),
+          h('span', { className: 'dd-note' }, row.label || ''),
+          row.model ? h('span', { className: 'dd-note' }, row.model) : null,
+          h('span', { className: 'dd-spacer' }),
+          h('button', { className: 'dd-icon-btn', type: 'button', disabled, title: '删掉这条通道', onClick: () => remove(row.id) }, h(Icon, { name: 'trash', size: 12 })),
+        )),
+        h('div', { className: 'dd-channel-row' },
+          h('select', {
+            className: 'dd-input', value: draft.kind, disabled,
+            onChange: event => setDraft({ ...draft, kind: event.target.value }),
+            'aria-label': '新通道种类',
+          }, h('option', { value: 'video' }, '生视频'), h('option', { value: 'image' }, '生图')),
+          h('input', {
+            className: 'dd-input', value: draft.id, disabled, placeholder: '通道 id（必填，如 my-video）',
+            onChange: event => setDraft({ ...draft, id: event.target.value }),
+          }),
+          h('input', {
+            className: 'dd-input', value: draft.label, disabled, placeholder: '显示名（可选）',
+            onChange: event => setDraft({ ...draft, label: event.target.value }),
+          }),
+          h('input', {
+            className: 'dd-input', value: draft.model, disabled, placeholder: '模型 id（可选）',
+            onChange: event => setDraft({ ...draft, model: event.target.value }),
+          }),
+          h('button', { className: 'dd-btn sm', type: 'button', disabled: disabled || draft.id.trim() === '', onClick: add }, '添加'),
+        ),
+      )
+    }
+
     function SettingsDrawer(props) {
-      const { settings, onClose, onSave, busy, onPickFolder } = props
+      const { settings, channels, onClose, onSave, busy, onPickFolder, onRefreshChannels } = props
       const [width, setWidth] = useState(() => {
         try {
           const stored = Number(window.localStorage.getItem(DRAWER_WIDTH_KEY))
@@ -6873,6 +7243,7 @@ select.dd-input{
         adapter: settings.adapter || settings.specModel || '',
         generationProvider: settings.generation ? settings.generation.provider : '',
         generationModel: settings.generation ? settings.generation.model : '',
+        ...channelDraftOf(settings),
         hostProvider: settings.hostModel ? settings.hostModel.provider : '',
         hostModel: settings.hostModel ? settings.hostModel.model : '',
         autoRefresh: settings.autoRefresh || 4000,
@@ -6885,12 +7256,13 @@ select.dd-input{
           adapter: settings.adapter || settings.specModel || '',
           generationProvider: settings.generation ? settings.generation.provider : '',
           generationModel: settings.generation ? settings.generation.model : '',
+          ...channelDraftOf(settings),
           hostProvider: settings.hostModel ? settings.hostModel.provider : '',
           hostModel: settings.hostModel ? settings.hostModel.model : '',
           autoRefresh: settings.autoRefresh || 4000,
         })
       }, [settings.projectRoot, settings.outputRoot, settings.adapter, settings.specModel,
-        settings.generation, settings.hostModel, settings.autoRefresh])
+        settings.generation, settings.generationChannels, settings.hostModel, settings.autoRefresh])
 
       // 宽度可拖。拖的时候用 ref 记账，避免每一帧都 setState。
       const dragRef = useRef(null)
@@ -6961,14 +7333,14 @@ select.dd-input{
             h('div', { className: 'dd-note' }, '规范模型适配 = 规则分层里的那一份（提示词写法 / 体检项 / 接口 quirks）。'),
           ),
           h(ModelRow, {
-            label: '生成模型（提交生成时用谁）',
+            label: '生成模型（提交生成时用谁 · 旧字段）',
             providers,
             providerId: draft.generationProvider,
             modelId: draft.generationModel,
             disabled: busy,
             onProvider: value => setDraft(current => ({ ...current, generationProvider: value, generationModel: '' })),
             onModel: value => set('generationModel', value),
-            note: '这里列的是宿主已经配好的模型路由，不需要在本插件里再存一份 API key。',
+            note: '这一对是 0.2 时的字段，等价于下面的「生视频通道」；保留是为了不弄坏已有的 profile。',
           }),
           h(ModelRow, {
             label: '宿主模型（这个工作台自己用谁思考）',
@@ -6980,6 +7352,13 @@ select.dd-input{
             onModel: value => set('hostModel', value),
             note: '宿主模型由 DSH 统一管理；这里改的是全局默认模型选择。',
           }),
+          h('div', { className: 'dd-note' },
+            channels && channels.host
+              ? (channels.host.reachable
+                ? '宿主模型目录：' + (channels.host.providers || []).length + ' 条路由 · '
+                  + (channels.host.modelCount || 0) + ' 个模型'
+                : (channels.host.note || '宿主没有公布模型目录'))
+              : '模型目录在打开设置时读取。'),
           h('div', null,
             h('div', { className: 'dd-field' },
               h('label', null, '自动刷新间隔 (ms)'),
@@ -6991,6 +7370,45 @@ select.dd-input{
             ),
             h('div', { className: 'dd-note' }, '0 = 关闭轮询。轮询只发一个请求；面板不可见时自动停。'),
           ),
+        ),
+      )
+
+      // ── 生成通道（生图 / 生视频）───────────────────────────────────────
+      // 「继承宿主」= 用宿主已经装好的连接器；「自治」= 本插件指定或自定义一条。
+      // 这里同时给出**可用性**与**为什么不可用**：通道配置最怕的就是
+      // 「我配了但它其实调不动」这种沉默失败。
+      const selection = channels ? (channels.selection || {}) : {}
+      const channelSection = h('div', null,
+        h('h4', null, '生成通道'),
+        h('div', { style: { marginTop: '9px', display: 'flex', flexDirection: 'column', gap: '12px' } },
+          h(ChannelRow, {
+            kind: 'image', label: '生图通道',
+            channels: channels ? [...(channels.connectors || []), ...(channels.custom || [])] : [],
+            channelId: draft.imageChannel, modelId: draft.imageModel, disabled: busy,
+            onChannel: value => set('imageChannel', value),
+            onModel: value => set('imageModel', value),
+            resolved: selection.image,
+          }),
+          h(ChannelRow, {
+            kind: 'video', label: '生视频通道',
+            channels: channels ? [...(channels.connectors || []), ...(channels.custom || [])] : [],
+            channelId: draft.videoChannel, modelId: draft.videoModel, disabled: busy,
+            onChannel: value => set('videoChannel', value),
+            onModel: value => set('videoModel', value),
+            resolved: selection.video,
+          }),
+          h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+            h('button', {
+              className: 'dd-btn sm', type: 'button', disabled: busy || typeof onRefreshChannels !== 'function',
+              onClick: onRefreshChannels, title: '重新探测宿主的连接器与模型目录',
+            }, '重新探测'),
+            h('span', { className: 'dd-note' },
+              channels ? '探测结果缓存 30 秒；连接器在不在由宿主的 subprocess 服务判定。' : '打开设置时探测一次。'),
+          ),
+          h(CustomChannelEditor, {
+            channels: draft.channels, disabled: busy,
+            onChange: value => set('channels', value),
+          }),
         ),
       )
 
@@ -7010,6 +7428,7 @@ select.dd-input{
         warnings,
         pathSection,
         modelSection,
+        channelSection,
         actions,
       )
 
@@ -7065,6 +7484,24 @@ select.dd-input{
         ),
       )
     }
+
+    // 通道配置的样式跟着组件走。窄抽屉里下面这排输入要能折行，
+    // 否则「添加自定义通道」会挤成一条读不出来的长条。
+    CSS_PARTS.push(`
+.dd-channel{display:flex;flex-direction:column;gap:5px;padding:9px 10px;border-radius:var(--rx-2);
+  background:var(--sunken);box-shadow:var(--e-well)}
+.dd-channel-head{display:flex;align-items:center;gap:8px}
+.dd-channel-lb{font-size:12px;font-weight:600;color:var(--ink2)}
+.dd-channel-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:2px}
+.dd-custom-ch{display:flex;flex-direction:column;gap:6px;padding-top:8px;border-top:.5px solid var(--line)}
+.dd-custom-row{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:var(--rx-1);background:var(--panel-2)}
+.dd-custom-row b{font-family:var(--f-mono);font-size:11px}
+.dd-custom-ch .dd-channel-row{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
+@container dd-root (max-width:520px){
+  .dd-channel-row{grid-template-columns:1fr}
+  .dd-custom-ch .dd-channel-row{grid-template-columns:1fr}
+}
+`)
 
     // ── root ───────────────────────────────────────────────────────────────
 
@@ -7133,6 +7570,12 @@ select.dd-input{
       const chatControls = fullToggle(chatPanel, '会话')
       const [drawer, setDrawer] = useState(false)
       const [fullSettings, setFullSettings] = useState(null)
+      /** 生成通道探测结果（设置抽屉打开时才问；不进轮询）。 */
+      const [channels, setChannels] = useState(null)
+      /** 生成计划（按需现算：它要读提示词指纹与台账）。 */
+      const [plan, setPlan] = useState(null)
+      const [planOpen, setPlanOpen] = useState(false)
+      const [planBusy, setPlanBusy] = useState(false)
       const [browseTarget, setBrowseTarget] = useState(null)
       /** null = 自动（作品还是空的就显示首页）；true / false = 用户自己定的。 */
       const [homeMode, setHomeMode] = useState(null)
@@ -7475,6 +7918,11 @@ select.dd-input{
           adapter: draft.adapter,
           generationProvider: draft.generationProvider,
           generationModel: draft.generationModel,
+          imageChannel: draft.imageChannel,
+          imageModel: draft.imageModel,
+          videoChannel: draft.videoChannel,
+          videoModel: draft.videoModel,
+          channels: draft.channels,
           hostProvider: draft.hostProvider,
           hostModel: draft.hostModel,
           autoRefresh: draft.autoRefresh,
@@ -7515,6 +7963,34 @@ select.dd-input{
         apiGet('settings', { workspace: workspaceId, full: '1' })
           .then(setFullSettings)
           .catch(problem => say(problem instanceof Error ? problem.message : String(problem), 'err'))
+        // 通道探测单独问：它要读取宿主的模型目录与 PATH，只在打开设置时做一次。
+        apiGet('channels', { host: '1' })
+          .then(setChannels)
+          .catch(() => setChannels(null))
+      }, [workspaceId, say])
+
+      /**
+       * 生成计划：**现算**，因为它要读提示词产物与台账来判断幂等。
+       *
+       * 打开它不会提交任何东西——它只回答「下一批该提交谁、要花多少、
+       * 是不是已经提交过」。导演看完再让 agent 走幂等三步。
+       */
+      const openGenerationPlan = useCallback(async batchLimit => {
+        if (!workspaceId) return
+        setPlanBusy(true)
+        setPlanOpen(true)
+        try {
+          const result = await apiGet('generation-plan', {
+            workspace: workspaceId,
+            ...(batchLimit === undefined ? {} : { limit: String(batchLimit) }),
+          })
+          setPlan(result)
+        } catch (problem) {
+          setPlan(null)
+          say(problem instanceof Error ? problem.message : String(problem), 'err')
+        } finally {
+          setPlanBusy(false)
+        }
       }, [workspaceId, say])
 
       /**
@@ -8101,6 +8577,7 @@ select.dd-input{
                               selectedShot, onSelectShot: openShot,
                               onOpenImage: asset => setViewer(asset),
                               onSceneChange: setActiveScene,
+                              onGenerationPlan: openGenerationPlan,
                             })
                             : shownStage === 'verify'
                               ? h(VerifyView, { data: stageData, busy, actions, workspaceId, onOpenShot: openShot, onGoto: gotoStage })
@@ -8197,10 +8674,33 @@ select.dd-input{
         drawer
           ? h(SettingsDrawer, {
             settings,
+            channels,
             busy,
             onClose: () => { setDrawer(false); setBrowseTarget(null) },
             onSave: saveSettings,
             onPickFolder: pickFolder,
+            onRefreshChannels: () => apiGet('channels', { host: '1', refresh: '1' })
+              .then(setChannels)
+              .catch(problem => say(problem instanceof Error ? problem.message : String(problem), 'err')),
+          })
+          : null,
+        // ── 生成计划浮层 ───────────────────────────────────────────────────
+        // 与设置抽屉同一个位置。它只读：不提交、不写盘。
+        planOpen
+          ? h(GenerationPlanDrawer, {
+            plan,
+            busy: planBusy,
+            workspaceId,
+            onClose: () => setPlanOpen(false),
+            onRefresh: () => openGenerationPlan(),
+            onCopy: text => {
+              try {
+                navigator.clipboard.writeText(text)
+                say('已复制', 'ok')
+              } catch {
+                say('复制不了：浏览器没给剪贴板权限', 'err')
+              }
+            },
           })
           : null,
         browseTarget

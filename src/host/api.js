@@ -196,10 +196,21 @@ async function readResource(service, resource, query) {
       return await service.assets({ workspaceId: query.workspace })
     case 'ledger':
       return await service.ledger({ workspaceId: query.workspace })
+    case 'channels':
+      // 生成通道探测：设置抽屉打开时问一次（host=1 时才去问宿主的模型目录）。
+      return await service.channels({ refresh: query.refresh === '1', host: query.host !== '0' })
+    case 'generation-board':
+      return await service.generationBoard({ workspaceId: query.workspace })
+    case 'generation-plan':
+      return await service.generationPlan({
+        workspaceId: query.workspace,
+        shots: typeof query.shots === 'string' && query.shots !== '' ? query.shots.split(',') : undefined,
+        limit: query.limit === undefined ? undefined : Number(query.limit),
+      })
     case 'stages':
       return await service.stageState({ workspaceId: query.workspace })
     case 'settings':
-      return await service.settings({ workspaceId: query.workspace })
+      return await service.settings({ workspaceId: query.workspace, full: query.full === '1' })
     case 'check':
       if (query.shot === undefined) throw new Error('缺少 shot 参数')
       return await service.check({ workspaceId: query.workspace, shotId: query.shot })

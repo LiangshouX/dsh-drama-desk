@@ -7,7 +7,7 @@ export const PRODUCTION_STAGES = {
   characters: { label: '角色', skill: 'drama-characters', output: 'characters.json、已登记的角色参考图', task: '沿用场次中的角色 ID，完善角色卡、状态与参考图方案。' },
   script: { label: '剧本', skill: 'drama-script', output: 'scenes.json 的 beats[]', task: '逐场完成可表演的动作、台词、反应与语气，并检查表演层。' },
   storyboard: { label: '分镜', skill: 'drama-storyboard', output: 'shots.json', task: '将 beats 拆为连续镜头，补齐时长、机位、画幅、光与参考图绑定。' },
-  generate: { label: '生成', skill: 'drama-generate', output: '视频资产、提示词、ledger.json', task: '先检查提示词过期、参考图和台账，给出待生成镜头及预计费用；等待导演明确授权后再提交付费任务。' },
+  generate: { label: '生成', skill: 'drama-generate', output: '视频资产、提示词、ledger.json', task: '先用 drama_desk_generation_plan 拿到逐镜动作与预计费用（它按提示词指纹排除了重复提交），再核对提示词过期与参考图；把「要提交哪些镜、预计花多少」报给导演，得到明确授权后才走台账→提交→立刻回写。' },
   verify: { label: '验收', skill: 'drama-verify', output: 'verify/<shot-id>.report.json', task: '逐镜检查当前版本，记录技术与内容问题；辅助导演复核，不代替人作人工通过决定。' },
   assemble: { label: '装配', skill: 'drama-assemble', output: 'assembly/<任务>/job.json、finals/<任务>.mp4', task: '检查已验收镜头的当前版本与音轨，说明装配缺口；用本地装配工具输出顺切粗剪。' },
   deliver: { label: '交付', skill: 'drama-deliver', output: 'assets.json 的成片资产、state.json 的交付记录', task: '核对成片文件、源镜头版本、时长、画幅与声音，列出待复核项；导演回看认可后再确认交付。' },

@@ -29,6 +29,7 @@ import {
 import { buildStageView, readStagePrompt, shotSummary, STAGE_VIEWS } from './stageviews.js'
 import { resolvePoster, resolvePosterSource } from './posters.js'
 import { assemblyPlan, assemblyJob, startAssembly, finalCuts } from './assembly.js'
+import { probeChannels, forgetChannels, generationBoard, generationPlan } from './generation.js'
 import { currentVideo, videoVersion } from './media.js'
 import { productionTaskFor } from './production.js'
 import { addProductionRecord } from './authoring.js'
@@ -1003,7 +1004,63 @@ export class DramaDeskService {
         tasks: entries.length,
       },
       budget: data.state?.budget,
+      // 开销按模型 / 状态分组：导演问「钱花在哪」时要能一眼看出来。
+      byModel: groupByModel(entries),
+      byStatus: groupByStatus(entries),
     }
+  }
+
+  // ── generation control ───────────────────────────────────────────────────
+
+  /**
+   * 可用生成通道，以及「生图 / 生视频」现在各自落到哪条通道。
+   *
+   * 设置抽屉打开时才调（`host: true`）：它要问宿主的模型目录。结果在
+   * `generation.js` 里按 service 缓存 30 秒——探测不能变成每几秒一次的开销。
+   *
+   * @param {{refresh?: boolean, host?: boolean}} [options]
+   */
+  async channels(options = {}) {
+    return await probeChannels(this, {
+      refresh: options.refresh === true,
+      host: options.host !== false,
+    })
+  }
+
+  /**
+   * 生成进度与开销（逐场 + 在途 + 预算 + 预估）。
+   *
+   * @param {{workspaceId?: string}} [options]
+   */
+  async generationBoard(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const work = await loadWorkspace(workspace.dir)
+    return {
+      workspace: { id: workspace.id, title: workspace.title, dir: workspace.dir },
+      revision: await this.revisionOf(workspace.dir),
+      board: generationBoard(work),
+    }
+  }
+
+  /**
+   * 下一批提交的计划：逐镜动作 / 幂等判断 / 费用预估。
+   *
+   * **只读。** 提交仍由 agent 走幂等三步；这里负责让它不重发、不超支。
+   *
+   * @param {{workspaceId?: string, shots?: string[], limit?: number}} [options]
+   */
+  async generationPlan(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const work = await loadWorkspace(workspace.dir)
+    return await generationPlan(work, this, workspace.id, {
+      shots: Array.isArray(options.shots) ? options.shots : undefined,
+      limit: options.limit,
+    })
+  }
+
+  /** 让下一次 `channels()` 重新探测（设置里点了「重新探测」）。 */
+  forgetChannels() {
+    forgetChannels(this)
   }
 
   // ── stage machine ────────────────────────────────────────────────────────
@@ -1170,6 +1227,14 @@ export class DramaDeskService {
         provider: this.config.generationProvider ?? '',
         model: this.config.generationModel ?? '',
       },
+      // 生成通道：这里只是**配置值**（我选了哪条、模型叫什么）。
+      // 「这条通道现在能不能用、为什么不能」要通过 `/channels` 现探——
+      // 探测要问宿主与 PATH，不该塞进每几秒一次的设置读取里。
+      generationChannels: {
+        image: { channel: this.config.imageChannel ?? '', model: this.config.imageModel ?? '' },
+        video: { channel: this.config.videoChannel ?? '', model: this.config.videoModel ?? '' },
+        custom: Array.isArray(this.config.channels) ? this.config.channels : [],
+      },
       providers,
       picker,
       hostModel,
@@ -1259,12 +1324,20 @@ export class DramaDeskService {
     else if (options.model !== undefined) patch.model = String(options.model)
     if (options.generationProvider !== undefined) patch.generationProvider = String(options.generationProvider)
     if (options.generationModel !== undefined) patch.generationModel = String(options.generationModel)
+    // 生成通道（生图 / 生视频）：'' 或 'inherit' = 继承宿主的连接器。
+    if (options.imageChannel !== undefined) patch.imageChannel = String(options.imageChannel)
+    if (options.imageModel !== undefined) patch.imageModel = String(options.imageModel)
+    if (options.videoChannel !== undefined) patch.videoChannel = String(options.videoChannel)
+    if (options.videoModel !== undefined) patch.videoModel = String(options.videoModel)
+    if (Array.isArray(options.channels)) patch.channels = options.channels
     if (options.autoRefresh !== undefined) patch.autoRefresh = Number(options.autoRefresh) || 0
     if (Object.keys(patch).length > 0) {
       await editor.edit(entry, current => ({ ...current, ...patch }))
       // The editor restarts the plugin, which rebuilds the service with the new
       // config. The in-memory location cache is therefore stale on purpose.
       this.locationCache = undefined
+      // 通道探测也一样：配置改了，「这条通道可用吗」的缓存必须作废。
+      forgetChannels(this)
     }
     // 宿主模型走宿主自己的服务（与 DSH 其它地方的默认模型选择同一个真源）。
     let hostModel
@@ -2284,4 +2357,56 @@ export function splitPromptSections(text) {
     sections.push({ name: header, text: text.slice(from, end).trim() })
   }
   return sections
+}
+
+/**
+ * 台账按模型分组：条数、花费、平均单价与平均耗时。
+ *
+ * 「钱花在哪个模型上」是预算问题，不是明细问题——所以这里给的是合计，
+ * 明细仍由 `entries` 提供。
+ *
+ * @param {Array<{model?: string, costUsd?: number}>} entries
+ */
+function groupByModel(entries) {
+  const groups = new Map()
+  for (const entry of entries) {
+    const model = typeof entry?.model === 'string' && entry.model !== '' ? entry.model : '（未记录模型）'
+    const row = groups.get(model) ?? { model, tasks: 0, costUsd: 0, succeeded: 0, failed: 0 }
+    row.tasks += 1
+    if (typeof entry?.costUsd === 'number' && Number.isFinite(entry.costUsd)) row.costUsd += entry.costUsd
+    if (entry?.status === 'succeeded') row.succeeded += 1
+    if (entry?.status === 'failed') row.failed += 1
+    groups.set(model, row)
+  }
+  return [...groups.values()]
+    .map(row => ({
+      ...row,
+      costUsd: Math.round(row.costUsd * 100) / 100,
+      avgCostUsd: row.tasks === 0 ? undefined : Math.round((row.costUsd / row.tasks) * 100) / 100,
+    }))
+    .sort((a, b) => b.costUsd - a.costUsd)
+}
+
+/**
+ * 台账按状态分组（条数 + 花费）。
+ *
+ * @param {Array<{status?: string, costUsd?: number}>} entries
+ */
+function groupByStatus(entries) {
+  const order = ['succeeded', 'running', 'submitted', 'submitting', 'failed', 'other']
+  const groups = new Map()
+  for (const entry of entries) {
+    const raw = typeof entry?.status === 'string' && entry.status !== '' ? entry.status : 'other'
+    const status = order.includes(raw) ? raw : 'other'
+    const row = groups.get(status) ?? { status, tasks: 0, costUsd: 0 }
+    row.tasks += 1
+    if (typeof entry?.costUsd === 'number' && Number.isFinite(entry.costUsd)) row.costUsd += entry.costUsd
+    groups.set(status, row)
+  }
+  return order
+    .filter(status => groups.has(status))
+    .map(status => {
+      const row = groups.get(status)
+      return { ...row, costUsd: Math.round(row.costUsd * 100) / 100 }
+    })
 }

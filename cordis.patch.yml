@@ -18,6 +18,13 @@
 #   autoRefresh  读取磁盘文件的节流间隔（毫秒）；0 = 不自动刷新。
 #   generationProvider / generationModel
 #                提交生成时用哪个模型路由。留空 = 由 agent 自己决定。
+#                （0.2 的旧字段，等价于下面的 videoChannel/videoModel；留着不坏老 profile。）
+#   imageChannel / imageModel
+#   videoChannel / videoModel
+#                生成通道。留空或 'inherit' = **继承宿主**（用宿主已装好的连接器）；
+#                写具体通道 id = 本插件指定的通道。*Model 留空 = 用通道默认。
+#   channels     自定义通道：[{id, kind: image|video, label?, model?, tool?, cli?}]。
+#                **不存任何密钥**——密钥归宿主的凭据服务。
 - insert:
     - id: drama-desk
       name: 'dsh-drama-desk'
@@ -28,3 +35,8 @@
         autoRefresh: 4000
         generationProvider: ''
         generationModel: ''
+        imageChannel: ''
+        imageModel: ''
+        videoChannel: ''
+        videoModel: ''
+        channels: []

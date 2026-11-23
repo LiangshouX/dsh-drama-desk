@@ -65,6 +65,12 @@
       const chatControls = fullToggle(chatPanel, '会话')
       const [drawer, setDrawer] = useState(false)
       const [fullSettings, setFullSettings] = useState(null)
+      /** 生成通道探测结果（设置抽屉打开时才问；不进轮询）。 */
+      const [channels, setChannels] = useState(null)
+      /** 生成计划（按需现算：它要读提示词指纹与台账）。 */
+      const [plan, setPlan] = useState(null)
+      const [planOpen, setPlanOpen] = useState(false)
+      const [planBusy, setPlanBusy] = useState(false)
       const [browseTarget, setBrowseTarget] = useState(null)
       /** null = 自动（作品还是空的就显示首页）；true / false = 用户自己定的。 */
       const [homeMode, setHomeMode] = useState(null)
@@ -407,6 +413,11 @@
           adapter: draft.adapter,
           generationProvider: draft.generationProvider,
           generationModel: draft.generationModel,
+          imageChannel: draft.imageChannel,
+          imageModel: draft.imageModel,
+          videoChannel: draft.videoChannel,
+          videoModel: draft.videoModel,
+          channels: draft.channels,
           hostProvider: draft.hostProvider,
           hostModel: draft.hostModel,
           autoRefresh: draft.autoRefresh,
@@ -447,6 +458,34 @@
         apiGet('settings', { workspace: workspaceId, full: '1' })
           .then(setFullSettings)
           .catch(problem => say(problem instanceof Error ? problem.message : String(problem), 'err'))
+        // 通道探测单独问：它要读取宿主的模型目录与 PATH，只在打开设置时做一次。
+        apiGet('channels', { host: '1' })
+          .then(setChannels)
+          .catch(() => setChannels(null))
+      }, [workspaceId, say])
+
+      /**
+       * 生成计划：**现算**，因为它要读提示词产物与台账来判断幂等。
+       *
+       * 打开它不会提交任何东西——它只回答「下一批该提交谁、要花多少、
+       * 是不是已经提交过」。导演看完再让 agent 走幂等三步。
+       */
+      const openGenerationPlan = useCallback(async batchLimit => {
+        if (!workspaceId) return
+        setPlanBusy(true)
+        setPlanOpen(true)
+        try {
+          const result = await apiGet('generation-plan', {
+            workspace: workspaceId,
+            ...(batchLimit === undefined ? {} : { limit: String(batchLimit) }),
+          })
+          setPlan(result)
+        } catch (problem) {
+          setPlan(null)
+          say(problem instanceof Error ? problem.message : String(problem), 'err')
+        } finally {
+          setPlanBusy(false)
+        }
       }, [workspaceId, say])
 
       /**
@@ -1033,6 +1072,7 @@
                               selectedShot, onSelectShot: openShot,
                               onOpenImage: asset => setViewer(asset),
                               onSceneChange: setActiveScene,
+                              onGenerationPlan: openGenerationPlan,
                             })
                             : shownStage === 'verify'
                               ? h(VerifyView, { data: stageData, busy, actions, workspaceId, onOpenShot: openShot, onGoto: gotoStage })
@@ -1129,10 +1169,33 @@
         drawer
           ? h(SettingsDrawer, {
             settings,
+            channels,
             busy,
             onClose: () => { setDrawer(false); setBrowseTarget(null) },
             onSave: saveSettings,
             onPickFolder: pickFolder,
+            onRefreshChannels: () => apiGet('channels', { host: '1', refresh: '1' })
+              .then(setChannels)
+              .catch(problem => say(problem instanceof Error ? problem.message : String(problem), 'err')),
+          })
+          : null,
+        // ── 生成计划浮层 ───────────────────────────────────────────────────
+        // 与设置抽屉同一个位置。它只读：不提交、不写盘。
+        planOpen
+          ? h(GenerationPlanDrawer, {
+            plan,
+            busy: planBusy,
+            workspaceId,
+            onClose: () => setPlanOpen(false),
+            onRefresh: () => openGenerationPlan(),
+            onCopy: text => {
+              try {
+                navigator.clipboard.writeText(text)
+                say('已复制', 'ok')
+              } catch {
+                say('复制不了：浏览器没给剪贴板权限', 'err')
+              }
+            },
           })
           : null,
         browseTarget

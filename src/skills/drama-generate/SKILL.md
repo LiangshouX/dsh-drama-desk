@@ -5,7 +5,7 @@ description: AI 短剧/微电影的镜头生成阶段。把分镜写成 MiniMax-
 
 # drama-generate — 镜头生成
 
-**插件内入口（优先）**：先用 `drama_desk_production`（workspace 为当前作品 ID、stage 为 generate）与 `drama_desk_rules` 读取现状和本阶段规范。需要新增场次/角色/镜头时用 `drama_desk_add`，真源修改用 `drama_desk_edit` / `drama_desk_edit_beat` / `drama_desk_edit_shot`，文件落地后用 `drama_desk_register_asset` 登记。以下 `python tools/drama.py` 是外部 CLI 工作区的示例；只有确认当前工作区存在它时才运行。插件包本身不分发该外部 CLI，不得猜路径或因它缺失而重复失败。
+**插件内入口（优先）**：先用 `drama_desk_production`（workspace 为当前作品 ID、stage 为 generate）与 `drama_desk_rules` 读取现状和本阶段规范。再调 **`drama_desk_generation_plan`** 拿到逐镜计划——它已经排除了「同一份提示词已经提交过」的镜头（幂等判据是提示词 sha256），并给出这一批的预计费用；**不要自己逐镜判断该不该提交**。需要新增场次/角色/镜头时用 `drama_desk_add`，真源修改用 `drama_desk_edit` / `drama_desk_edit_beat` / `drama_desk_edit_shot`，文件落地后用 `drama_desk_register_asset` 登记。以下 `python tools/drama.py` 是外部 CLI 工作区的示例；只有确认当前工作区存在它时才运行。插件包本身不分发该外部 CLI，不得猜路径或因它缺失而重复失败。
 
 **本阶段产出**：每个镜头一条视频文件 + 提示词资产 + 台账条目。
 
@@ -33,10 +33,18 @@ python tools/drama.py constitution
 
 ## 1. 前置检查
 
-- `shots.json` 里每个镜头有 `duration` / `camera` / `characters` / `dialogue`
-- 参考图已登记：`python tools/drama.py asset list --type reference_image`
-- 预算够用：`python tools/drama.py budget --limit <N>`（**超支必须停下问人**，不得自行继续）
-  - 单价：H3 768P $0.08/秒，6 秒一条 ≈ $0.48
+- **先读计划**：`drama_desk_generation_plan(workspace="<work-id>", limit=10)`。
+  - `action = submit` 的才是这次要提交的；`skip` 是已经付过费的（**不许重发**）；
+  - `blocked` 会写清缺什么（提示词 / duration / camera）；
+  - `summary.channelReady = false` 时**先说清通道不可用**，不要硬提交；
+  - `summary.costUsd` 是这一批的预计费用，**报给导演等他明确授权**。
+- 再核对象源：计划里的 `prompt.stale` 为真的镜头，先重新编译（`drama_desk_compile`）。
+  `state.budget` 的预算与 `ledger` 的花费在 `drama_desk_generation_board` 里。
+- 外部 CLI 工作区（那边自带 `drama.py`）也可以这么读：
+
+```bash
+python tools/drama.py next --work <work-id>
+```
 
 ---
 

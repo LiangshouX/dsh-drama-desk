@@ -525,9 +525,16 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
         "rules": "build/spec/models/minimax/rules.md", "available": true }
     ],
     "generation": { "provider": "minimax", "model": "MiniMax-H3" },
+    "generationChannels": {
+      "image": { "channel": "", "model": "" },      // "" / "inherit" = 继承宿主
+      "video": { "channel": "connector-video", "model": "MiniMax-H3" },
+      "custom": [ { "id": "my-video", "kind": "video", "label": "自制通道" } ]
+    },
     "providers": [
-      { "id": "deepseek", "name": "DeepSeek", "configured": true,
-        "models": [ { "id": "deepseek-chat", "name": "DeepSeek Chat" } ] }
+      { "id": "deepseek", "name": "DeepSeek", "configured": true, "status": "active",
+        "models": [ { "id": "deepseek-chat", "name": "DeepSeek Chat" } ] },
+      { "id": "openai", "name": "openai", "configured": false, "status": "not-configured",
+        "models": [] }
     ],
     "hostModel": { "provider": "deepseek", "model": "deepseek-chat",
                    "reasoningEffort": undefined },
@@ -539,21 +546,33 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
 ```
 
 - `providers` 来自宿主的 `ctx.llm.listProviders()` / `listModels(provider)`，
-  **真实读取宿主已配置的模型**，不是插件自造的一份。
+  **真实读取宿主已配置的模型**，不是插件自造的一份。`status: "not-configured"`
+  的那些来自 `listConfigurableProviders()`：宿主声明过、但还没激活（没密钥 / 没启用）。
 - `hostModel` 来自 `ctx.get('agentDefaultModel').currentSelection()`。
 - `picker.kind` 来自 `ctx.get('directoryPicker').capability().kind`。
+- **模型目录只在 `?full=1` 时读取**（设置抽屉打开时）：`listModels` 可能要去问
+  provider，不能塞进每几秒一次的轮询。轮询拿到的是轻量版（只有 id / name）。
+- `generationChannels` 是**配置值**；「这条通道现在能不能用、为什么不能」由
+  `/channels` 现探——探测要读 PATH 与宿主模型目录，不属于设置读取。
 
 ### 5.2 写：`POST /update-settings`
 
 ```jsonc
 { "projectRoot": "…", "outputRoot": "…", "adapter": "minimax",
   "generationProvider": "minimax", "generationModel": "MiniMax-H3",
+  "imageChannel": "", "imageModel": "",
+  "videoChannel": "connector-video", "videoModel": "MiniMax-H3",
+  "channels": [ { "id": "my-video", "kind": "video", "label": "自制通道", "model": "…" } ],
   "hostProvider": "deepseek", "hostModel": "deepseek-chat",
   "hostReasoningEffort": "high",
   "autoRefresh": 4000 }
 ```
 
-- 路径 / adapter / generation / autoRefresh → 走 `configEditor.edit()` 写插件配置。
+- 路径 / adapter / 生成通道 / autoRefresh → 走 `configEditor.edit()` 写插件配置。
+- `imageChannel` / `videoChannel`：`""` 或 `"inherit"` = **继承宿主**（用宿主已装好的
+  连接器）；具体 id = 本插件指定的通道（自治）。`*Model` 留空 = 用通道自己的默认。
+- `channels` 是自定义通道数组；**不存任何密钥**——密钥归宿主的凭据服务。
+- 写完会作废通道探测缓存：配置改了，「这条通道可用吗」必须是新答案。
 - host 模型 → 走 `ctx.get('agentDefaultModel').saveSelection()`。
 - `hostReasoningEffort` → 同一个 `saveSelection()` 的 `reasoningEffort`。
   **没给就保持原样**（以前只写 provider/model，把用户在 DSH 里选好的推理等级
@@ -963,3 +982,102 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
 - deliver 阶段的成片新增 `exists / stale / manifest / width / height`。新成片以 `purpose: final` 标识；兼容历史路径含 final 的资产，作废资产不作交付物。播放器使用既有 `/drama-desk/video`。
 - `POST /api/confirm-delivery {workspaceId, assetId}` → `service.confirmDelivery()`；确认一条存在且来源未过期的成片，遵守原有逐阶段前置校验，记录 `state.json.delivery_asset_id` 并推进 deliver。重复确认同一成片幂等。
 - agent 对等工具：`drama_desk_production`（stage 可选）、`drama_desk_assemble`（profile 可选）、`drama_desk_deliver`（asset 必填）。
+
+# 生成控制面（0.3）
+
+三件事：**能出片的通道是哪条**、**做到哪儿花了多少**、**下一批该提交什么**。
+三者都只读：**插件不发起付费生成**，提交仍由 agent 走幂等三步。
+
+## 通道：`GET /api/channels?host=1&refresh=1`
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "host": { "providers": [ { "id": "deepseek-account", "models": 4 } ],
+              "reachable": true, "modelCount": 4 },
+    "connectors": [
+      { "id": "connector-image", "kind": "image", "label": "MiniMax H3 · 图片（连接器）",
+        "tool": "connector__matrix__generate_image", "installed": false,
+        "reason": "找不到 mcode-tools（连接器 CLI）：这条通道现在调不动" },
+      { "id": "connector-video", "kind": "video", "…": "…" }
+    ],
+    "custom": [ { "id": "my-video", "kind": "video", "label": "自制通道", "installed": true } ],
+    "selection": {
+      "image": { "mode": "inherit", "available": false, "reason": "…" },
+      "video": { "mode": "custom", "channel": "my-video", "available": true, "model": "…" }
+    }
+  }
+}
+```
+
+- `mode: "inherit"` = **继承宿主**（用宿主已装好的连接器）；`"custom"` = 本插件指定的通道。
+- `installed` 由宿主的 `subprocess.resolveExecutable("mcode-tools")` 判定；宿主没有
+  `subprocess` 服务时**不猜**——如实标为不可用并给出理由。
+- **`available` 与 `reason` 必须成对出现**：配置管理最怕「我配了但它其实调不动」。
+- 结果按 service 缓存 30 秒；`refresh=1` 强制重探。
+
+## 看板：`GET /api/generation-board?workspace=`
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "board": {
+      "counts": { "total": 72, "done": 3, "pending": 3, "inFlight": 0, "failed": 0, "todo": 66 },
+      "progress": 4,
+      "budget": { "limitUsd": 30, "spentUsd": 2.24, "remainingUsd": 27.76, "perShotUsd": 0.4 },
+      "forecast": { "shotsLeft": 66, "costUsd": 26.4, "seconds": 5544 },
+      "speed": { "completed": 5, "avgSecondsPerShot": 84, "avgCostUsd": 0.448 },
+      "images": { "references": 16, "keyframes": 6, "shotsWithKeyframe": 3 },
+      "scenes": [ { "id": "SC01", "done": 1, "pending": 0, "todo": 5, "costUsd": 0.32 } ],
+      "inFlight": [ { "shotId": "SC02-SH04", "status": "running", "elapsedSec": 120 } ],
+      "recent": [ { "shotId": "SC07-SH02", "status": "succeeded", "seconds": 120 } ]
+    }
+  }
+}
+```
+
+**口径（错了就是说谎）：**
+
+| 计数 | 含义 |
+|---|---|
+| `done` | 有**当前视频资产**（能回看）。任务成功不等于这一条 |
+| `pending` | 任务已成功 / 镜状态已生成，但还没下载登记成本地视频 |
+| `inFlight` | 台账 `submitting / submitted / running` |
+| `failed` | 台账 `failed`（且没有可用成片） |
+| `todo` | 其余 |
+
+- `progress = done / total`；`pending` 不算完成。
+- 耗时从台账 `trajectory` 的 `submitted → succeeded/failed` 算；台账没有
+  `succeeded_at` 时**不许**拿「现在」当完成时刻。
+- 看板同时挂在生成阶段的载荷里（`stage=generate` 的 `board`），不额外发请求。
+
+## 计划：`GET /api/generation-plan?workspace=&shots=&limit=`
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "channel": { "mode": "inherit", "available": false, "reason": "…" },
+    "rows": [
+      { "id": "SC01-SH01", "action": "skip",
+        "reasons": ["同一份提示词已经生成过"], 
+        "prompt": { "exists": true, "sha256": "f5f5…", "stale": false },
+        "ledger": { "status": "succeeded", "promptSha256": "f5f5…" },
+        "request": { "model": "MiniMax-H3", "duration": 4, "ratio": "16:9", "costUsd": 0.4 } }
+    ],
+    "summary": { "submit": 5, "skip": 1, "blocked": 0, "capped": true,
+                 "channelReady": false, "channelReason": "…", "costUsd": 2, "seconds": 38 }
+  }
+}
+```
+
+- `action`：`submit` 该提交 / `skip` 已在跑或已成功（**同一份提示词不许重发**）/
+  `blocked` 缺提示词、缺 `duration`、缺 `camera`。
+- **幂等判据是提示词 sha256**：当前产物（人工覆盖优先）的指纹 == 台账那条的
+  `prompt_sha256` ⇒ 同一个请求。指纹变了就是一次新的提交。
+- `limit` 只截断**这一批**（算够 N 镜要提交就停），`capped: true` 表示还有更多。
+- **通道不可用不逐镜阻塞**：计划内容仍成立，整批给一条 `channelReady / channelReason`。
+- agent 对等工具：`drama_desk_channels`、`drama_desk_generation_board`、
+  `drama_desk_generation_plan`。台账 `GET /api/ledger` 另增 `byModel` / `byStatus` 分组。

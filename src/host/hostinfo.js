@@ -16,7 +16,7 @@
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, parse, resolve, sep } from 'node:path'
-import { readJsonIfExists } from './fsx.js'
+import { readJsonIfExists, mapLimit } from './fsx.js'
 
 /** 单个 provider 的模型列表最多等多久（毫秒）。 */
 const MODEL_TIMEOUT_MS = 5000
@@ -51,17 +51,46 @@ export async function readHostInfo(service) {
       raw = []
     }
   }
-  for (const info of Array.isArray(raw) ? raw : []) {
-    const id = typeof info?.id === 'string' ? info.id : undefined
-    if (id === undefined) continue
-    const listed = await listModelsOf(llm, id)
-    providers.push({
-      id,
-      name: typeof info?.name === 'string' && info.name !== '' ? info.name : id,
+  const listed = (Array.isArray(raw) ? raw : [])
+    .map(info => ({ id: typeof info?.id === 'string' ? info.id : undefined, name: info?.name }))
+    .filter(info => info.id !== undefined)
+  // **并行**读每个 provider 的模型目录：串行时 6 个 provider × 5 秒超时
+  // 会让设置面板一次转 30 秒。并发上限 4，总时长仍是「最慢那一个」。
+  const rows = await mapLimit(listed, 4, async info => {
+    const models = await listModelsOf(llm, info.id)
+    return {
+      id: info.id,
+      name: typeof info.name === 'string' && info.name !== '' ? info.name : info.id,
       // 读得到模型目录就算配好了；读不到就是没配好——如实说，不猜。
-      configured: listed.ok,
-      models: listed.models,
-    })
+      configured: models.ok,
+      status: 'active',
+      models: models.models,
+    }
+  })
+  providers.push(...rows)
+  // 宿主**声明过但没激活**的 provider（没有密钥 / 没启用）：列出来，
+  // 导演才知道「可以配哪些」，而不是对着一份只有活着的那些的短名单。
+  if (llm !== undefined && typeof llm.listConfigurableProviders === 'function') {
+    let declared = []
+    try {
+      declared = await llm.listConfigurableProviders()
+    } catch {
+      declared = []
+    }
+    const known = new Set(providers.map(row => row.id))
+    for (const entry of Array.isArray(declared) ? declared : []) {
+      const id = typeof entry?.provider === 'string' ? entry.provider : undefined
+      if (id === undefined || known.has(id)) continue
+      known.add(id)
+      providers.push({
+        id,
+        name: typeof entry?.displayName === 'string' && entry.displayName !== '' ? entry.displayName : id,
+        configured: false,
+        status: 'not-configured',
+        models: [],
+        ...(typeof entry?.error === 'string' && entry.error !== '' ? { note: entry.error } : {}),
+      })
+    }
   }
   return {
     providers,

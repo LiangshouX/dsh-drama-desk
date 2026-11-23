@@ -303,6 +303,9 @@ node scripts/render-probe.mjs --base http://127.0.0.1:<宿主端口> # 渲染开
 3. **不要用 PowerShell 改作品 JSON**（无 BOM UTF-8 会被当 ANSI 读，中文落到盘上是乱码，
    还会带上 BOM）。用 Node，或走 service 方法。
 4. `.ps1` 带中文就必须带 **UTF-8 BOM**，否则 `ParserError: UnexpectedToken`。
+5. **也不要用 PowerShell 管道改写源码**（`Get-Content -replace | Set-Content`）：
+   中文会被写成「路 绾?」这种双重编码，git diff 一片红，而且**不会报错**。
+   改源码用编辑工具（`edit`），或 Node 脚本按 `utf8` 读写。
 
 细节见 `docs/dev/windows.md`。
 
