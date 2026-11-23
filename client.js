@@ -1038,6 +1038,10 @@ select.dd-input{
   .dd-grid2,.dd-grid3{grid-template-columns:1fr}
 }
 .dd-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+/* .dd-input 的 flex:1 1 180px 是给「横向排一排控件」用的。放进**竖向**的
+   .dd-field 里，那条件就成了高度——实测「规范模型适配」的原生下拉被撑成 180px 高，
+   看起来像一个空的大盒子。字段里的控件一律不参与拉伸。 */
+.dd-field>.dd-input,.dd-field>input,.dd-field>select{flex:0 0 auto;width:100%;max-width:100%}
 .dd-field.wide{grid-column:1 / -1}
 .dd-field label{
   font-family:var(--f-gauge);font-size:10px;color:var(--ink3);letter-spacing:.1em;text-transform:uppercase;
@@ -3634,7 +3638,17 @@ select.dd-input{
           ),
           h('div', { className: 'dd-board-bar', role: 'img', 'aria-label': '生成进度 ' + board.progress + '%' },
             h('i', { style: { width: Math.max(0, Math.min(100, donePct)) + '%' } }),
-            pendingPct > 0 ? h('i', { className: 'pending', style: { width: Math.min(100, pendingPct) + '%' } }) : null,
+            pendingPct > 0
+              ? h('i', {
+                className: 'pending',
+                // 待登记那一段**紧跟在已生成后面**（不是贴在进度条最右端）：
+                // 贴右端会被读成「快完成了」，而它其实是「任务成功了、文件还没落地」。
+                style: {
+                  left: Math.min(100, donePct) + '%',
+                  width: Math.min(Math.max(0, 100 - donePct), pendingPct) + '%',
+                },
+              })
+              : null,
           ),
         ),
         h('div', { className: 'dd-board-money' },
@@ -3758,7 +3772,7 @@ select.dd-input{
 .dd-board-rest{font-size:11px;color:var(--ink3);font-family:var(--f-mono)}
 .dd-board-bar{position:relative;height:6px;border-radius:3px;background:var(--sunken);box-shadow:var(--e-well);margin-top:7px;overflow:hidden}
 .dd-board-bar i{position:absolute;inset:0 auto 0 0;background:var(--hot);border-radius:3px;transition:width var(--t-mid) var(--ease)}
-.dd-board-bar i.pending{background:color-mix(in srgb,var(--sig-fly) 70%,transparent);left:auto;right:0}
+.dd-board-bar i.pending{background:color-mix(in srgb,var(--sig-fly) 70%,transparent)}
 .dd-board-money{flex:0 1 300px;min-width:200px;font-size:11.5px;color:var(--ink2);font-family:var(--f-mono);display:flex;flex-direction:column;gap:3px;justify-content:center}
 .dd-board-money b{color:var(--ink);font-weight:600}
 .dd-board-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto}
@@ -3768,6 +3782,9 @@ select.dd-input{
 .dd-plan-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
 .dd-plan-table{overflow-x:auto;max-width:100%}
 .dd-plan-table table{min-width:520px}
+/* 动作那一列的徽标必须整块读：折成「该提 / 交」就认不出来了。 */
+.dd-plan-table .dd-badge{white-space:nowrap}
+.dd-plan-table td:nth-child(2){white-space:nowrap}
 .dd-plan-why{color:var(--ink2);font-size:11.5px;line-height:1.5}
 @container dd-root (max-width:760px){
   .dd-board{padding:9px 14px;gap:9px}
@@ -7317,7 +7334,8 @@ select.dd-input{
       )
 
       const adapterOptions = adapters.map(adapter => h('option', { value: adapter.id, key: adapter.id },
-        (adapter.label || adapter.id) + (adapter.title && adapter.title !== adapter.id ? ' · ' + adapter.title : '')))
+        // `label` 已经含「id · 标题」；再拼一次标题会变成「… · 硬规则 R1–R20 · 硬规则 R1–R20」。
+        adapter.label || adapter.id))
 
       const modelSection = h('div', null,
         h('h4', null, t('settings.model', '模型')),
@@ -7377,25 +7395,52 @@ select.dd-input{
       // 「继承宿主」= 用宿主已经装好的连接器；「自治」= 本插件指定或自定义一条。
       // 这里同时给出**可用性**与**为什么不可用**：通道配置最怕的就是
       // 「我配了但它其实调不动」这种沉默失败。
+      // 通道列表 = 宿主探测到的 + **这次刚加进草稿的自定义通道**。
+      // 只在保存后才出现在下拉里会让人以为「加了没用」。
+      const probedCustom = channels ? (channels.custom || []) : []
+      const draftCustom = Array.isArray(draft.channels) ? draft.channels : []
+      const mergedChannels = [
+        ...(channels ? (channels.connectors || []) : []),
+        ...probedCustom,
+        ...draftCustom
+          .filter(row => !probedCustom.some(known => known.id === row.id))
+          .map(row => ({ ...row, custom: true, installed: true })),
+      ]
       const selection = channels ? (channels.selection || {}) : {}
+      // 本地选择要**立刻**给出可用性：探测结果是「保存前的配置」的答案，
+      // 拿它去标刚选的通道会显示成「不可用」——那是假的。
+      const resolveLocal = (kind, channelId, modelId, hostResolved) => {
+        if (channelId === '' || channelId === undefined) return hostResolved
+        const hit = mergedChannels.find(row => row.id === channelId && row.kind === kind)
+        if (hit === undefined) return { mode: 'custom', available: false, reason: '配置指定的通道不在可用列表里' }
+        return {
+          mode: 'custom',
+          channel: hit.id,
+          label: hit.label,
+          tool: hit.tool,
+          model: modelId !== '' ? modelId : hit.model,
+          available: hit.installed !== false,
+          reason: hit.installed === false ? (hit.reason || '这条通道现在调不动') : '本插件指定的通道（保存后生效）',
+        }
+      }
       const channelSection = h('div', null,
         h('h4', null, '生成通道'),
         h('div', { style: { marginTop: '9px', display: 'flex', flexDirection: 'column', gap: '12px' } },
           h(ChannelRow, {
             kind: 'image', label: '生图通道',
-            channels: channels ? [...(channels.connectors || []), ...(channels.custom || [])] : [],
+            channels: mergedChannels,
             channelId: draft.imageChannel, modelId: draft.imageModel, disabled: busy,
             onChannel: value => set('imageChannel', value),
             onModel: value => set('imageModel', value),
-            resolved: selection.image,
+            resolved: resolveLocal('image', draft.imageChannel, draft.imageModel, selection.image),
           }),
           h(ChannelRow, {
             kind: 'video', label: '生视频通道',
-            channels: channels ? [...(channels.connectors || []), ...(channels.custom || [])] : [],
+            channels: mergedChannels,
             channelId: draft.videoChannel, modelId: draft.videoModel, disabled: busy,
             onChannel: value => set('videoChannel', value),
             onModel: value => set('videoModel', value),
-            resolved: selection.video,
+            resolved: resolveLocal('video', draft.videoChannel, draft.videoModel, selection.video),
           }),
           h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
             h('button', {
@@ -8064,6 +8109,14 @@ select.dd-input{
         setAssets(null)
         setLedger(null)
         setHomeMode(null)
+        // **换作品要清掉「上一部作品的场景」。** 生成台的右栏在没有选中镜头时
+        // 画的是 `activeScene`——它是 GenerateView 报上来的，不是按作品存的。
+        // 不清就会在 B 作品的生成台上看到 A 作品的场次（实测：切到 72 镜作品，
+        // 右栏还写着上一部验证样片的场次与两镜列表）。
+        setActiveScene(null)
+        // 阶段载荷同理：它属于上一部作品，等新作品的那一份回来再画。
+        setStagePayload(null)
+        setStageError(null)
         stageRevision.current = null
         if (typeof stage === 'string' && stage !== '') {
           setViewStage(stage)

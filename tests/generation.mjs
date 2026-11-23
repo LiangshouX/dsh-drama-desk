@@ -168,6 +168,42 @@ test('the plan can be capped to a batch size', async () => {
   }
 })
 
+test('the settings HTTP action forwards the generation channel fields', async () => {
+  // 传输层是薄包装——但它有一张**白名单**。漏一个字段的后果是「界面上改了、
+  // 保存也返回成功、配置里却没有」这种沉默失败。这条测试就守这一层。
+  const { createServer } = await import('node:http')
+  const { registerApi } = await import('../src/host/api.js')
+  let handler
+  let received
+  registerApi({ effect: run => run(), webServer: { register: entry => { handler = entry.handler; return () => {} } } }, {
+    updateSettings: async patch => { received = patch; return { ok: true, saved: true } },
+  })
+  const server = createServer((req, res) => handler(req, res))
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+    const url = `http://127.0.0.1:${server.address().port}/drama-desk/api/update-settings`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        imageChannel: 'connector-image', imageModel: 'img-1',
+        videoChannel: 'my-video', videoModel: 'vid-1',
+        channels: [{ id: 'my-video', kind: 'video', label: '自制' }],
+      }),
+    })
+    assert.equal(response.status, 200)
+    await response.json()
+    assert.equal(received.imageChannel, 'connector-image')
+    assert.equal(received.imageModel, 'img-1')
+    assert.equal(received.videoChannel, 'my-video')
+    assert.equal(received.videoModel, 'vid-1')
+    assert.deepEqual(received.channels, [{ id: 'my-video', kind: 'video', label: '自制' }])
+  } finally {
+    server.closeAllConnections()
+    await new Promise(resolve => server.close(resolve))
+  }
+})
+
 test('channel probing inherits the host, explains a missing connector, and honours a custom channel', async () => {
   const inherited = await probeChannels(bareService(), { refresh: true })
   assert.equal(inherited.selection.video.mode, 'inherit')

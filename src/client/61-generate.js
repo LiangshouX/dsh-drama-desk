@@ -217,7 +217,17 @@
           ),
           h('div', { className: 'dd-board-bar', role: 'img', 'aria-label': '生成进度 ' + board.progress + '%' },
             h('i', { style: { width: Math.max(0, Math.min(100, donePct)) + '%' } }),
-            pendingPct > 0 ? h('i', { className: 'pending', style: { width: Math.min(100, pendingPct) + '%' } }) : null,
+            pendingPct > 0
+              ? h('i', {
+                className: 'pending',
+                // 待登记那一段**紧跟在已生成后面**（不是贴在进度条最右端）：
+                // 贴右端会被读成「快完成了」，而它其实是「任务成功了、文件还没落地」。
+                style: {
+                  left: Math.min(100, donePct) + '%',
+                  width: Math.min(Math.max(0, 100 - donePct), pendingPct) + '%',
+                },
+              })
+              : null,
           ),
         ),
         h('div', { className: 'dd-board-money' },
@@ -341,7 +351,7 @@
 .dd-board-rest{font-size:11px;color:var(--ink3);font-family:var(--f-mono)}
 .dd-board-bar{position:relative;height:6px;border-radius:3px;background:var(--sunken);box-shadow:var(--e-well);margin-top:7px;overflow:hidden}
 .dd-board-bar i{position:absolute;inset:0 auto 0 0;background:var(--hot);border-radius:3px;transition:width var(--t-mid) var(--ease)}
-.dd-board-bar i.pending{background:color-mix(in srgb,var(--sig-fly) 70%,transparent);left:auto;right:0}
+.dd-board-bar i.pending{background:color-mix(in srgb,var(--sig-fly) 70%,transparent)}
 .dd-board-money{flex:0 1 300px;min-width:200px;font-size:11.5px;color:var(--ink2);font-family:var(--f-mono);display:flex;flex-direction:column;gap:3px;justify-content:center}
 .dd-board-money b{color:var(--ink);font-weight:600}
 .dd-board-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto}
@@ -351,6 +361,9 @@
 .dd-plan-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
 .dd-plan-table{overflow-x:auto;max-width:100%}
 .dd-plan-table table{min-width:520px}
+/* 动作那一列的徽标必须整块读：折成「该提 / 交」就认不出来了。 */
+.dd-plan-table .dd-badge{white-space:nowrap}
+.dd-plan-table td:nth-child(2){white-space:nowrap}
 .dd-plan-why{color:var(--ink2);font-size:11.5px;line-height:1.5}
 @container dd-root (max-width:760px){
   .dd-board{padding:9px 14px;gap:9px}

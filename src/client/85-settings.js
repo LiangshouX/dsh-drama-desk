@@ -259,7 +259,8 @@
       )
 
       const adapterOptions = adapters.map(adapter => h('option', { value: adapter.id, key: adapter.id },
-        (adapter.label || adapter.id) + (adapter.title && adapter.title !== adapter.id ? ' · ' + adapter.title : '')))
+        // `label` 已经含「id · 标题」；再拼一次标题会变成「… · 硬规则 R1–R20 · 硬规则 R1–R20」。
+        adapter.label || adapter.id))
 
       const modelSection = h('div', null,
         h('h4', null, t('settings.model', '模型')),
@@ -319,25 +320,52 @@
       // 「继承宿主」= 用宿主已经装好的连接器；「自治」= 本插件指定或自定义一条。
       // 这里同时给出**可用性**与**为什么不可用**：通道配置最怕的就是
       // 「我配了但它其实调不动」这种沉默失败。
+      // 通道列表 = 宿主探测到的 + **这次刚加进草稿的自定义通道**。
+      // 只在保存后才出现在下拉里会让人以为「加了没用」。
+      const probedCustom = channels ? (channels.custom || []) : []
+      const draftCustom = Array.isArray(draft.channels) ? draft.channels : []
+      const mergedChannels = [
+        ...(channels ? (channels.connectors || []) : []),
+        ...probedCustom,
+        ...draftCustom
+          .filter(row => !probedCustom.some(known => known.id === row.id))
+          .map(row => ({ ...row, custom: true, installed: true })),
+      ]
       const selection = channels ? (channels.selection || {}) : {}
+      // 本地选择要**立刻**给出可用性：探测结果是「保存前的配置」的答案，
+      // 拿它去标刚选的通道会显示成「不可用」——那是假的。
+      const resolveLocal = (kind, channelId, modelId, hostResolved) => {
+        if (channelId === '' || channelId === undefined) return hostResolved
+        const hit = mergedChannels.find(row => row.id === channelId && row.kind === kind)
+        if (hit === undefined) return { mode: 'custom', available: false, reason: '配置指定的通道不在可用列表里' }
+        return {
+          mode: 'custom',
+          channel: hit.id,
+          label: hit.label,
+          tool: hit.tool,
+          model: modelId !== '' ? modelId : hit.model,
+          available: hit.installed !== false,
+          reason: hit.installed === false ? (hit.reason || '这条通道现在调不动') : '本插件指定的通道（保存后生效）',
+        }
+      }
       const channelSection = h('div', null,
         h('h4', null, '生成通道'),
         h('div', { style: { marginTop: '9px', display: 'flex', flexDirection: 'column', gap: '12px' } },
           h(ChannelRow, {
             kind: 'image', label: '生图通道',
-            channels: channels ? [...(channels.connectors || []), ...(channels.custom || [])] : [],
+            channels: mergedChannels,
             channelId: draft.imageChannel, modelId: draft.imageModel, disabled: busy,
             onChannel: value => set('imageChannel', value),
             onModel: value => set('imageModel', value),
-            resolved: selection.image,
+            resolved: resolveLocal('image', draft.imageChannel, draft.imageModel, selection.image),
           }),
           h(ChannelRow, {
             kind: 'video', label: '生视频通道',
-            channels: channels ? [...(channels.connectors || []), ...(channels.custom || [])] : [],
+            channels: mergedChannels,
             channelId: draft.videoChannel, modelId: draft.videoModel, disabled: busy,
             onChannel: value => set('videoChannel', value),
             onModel: value => set('videoModel', value),
-            resolved: selection.video,
+            resolved: resolveLocal('video', draft.videoChannel, draft.videoModel, selection.video),
           }),
           h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
             h('button', {

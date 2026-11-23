@@ -559,6 +559,14 @@
         setAssets(null)
         setLedger(null)
         setHomeMode(null)
+        // **换作品要清掉「上一部作品的场景」。** 生成台的右栏在没有选中镜头时
+        // 画的是 `activeScene`——它是 GenerateView 报上来的，不是按作品存的。
+        // 不清就会在 B 作品的生成台上看到 A 作品的场次（实测：切到 72 镜作品，
+        // 右栏还写着上一部验证样片的场次与两镜列表）。
+        setActiveScene(null)
+        // 阶段载荷同理：它属于上一部作品，等新作品的那一份回来再画。
+        setStagePayload(null)
+        setStageError(null)
         stageRevision.current = null
         if (typeof stage === 'string' && stage !== '') {
           setViewStage(stage)

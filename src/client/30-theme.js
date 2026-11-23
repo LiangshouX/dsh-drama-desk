@@ -787,6 +787,10 @@ select.dd-input{
   .dd-grid2,.dd-grid3{grid-template-columns:1fr}
 }
 .dd-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+/* .dd-input 的 flex:1 1 180px 是给「横向排一排控件」用的。放进**竖向**的
+   .dd-field 里，那条件就成了高度——实测「规范模型适配」的原生下拉被撑成 180px 高，
+   看起来像一个空的大盒子。字段里的控件一律不参与拉伸。 */
+.dd-field>.dd-input,.dd-field>input,.dd-field>select{flex:0 0 auto;width:100%;max-width:100%}
 .dd-field.wide{grid-column:1 / -1}
 .dd-field label{
   font-family:var(--f-gauge);font-size:10px;color:var(--ink3);letter-spacing:.1em;text-transform:uppercase;
