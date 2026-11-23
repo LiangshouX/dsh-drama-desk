@@ -52,9 +52,9 @@
     }
 
     CSS_PARTS.push(`
-.dd-add-record{padding:10px 14px;background:var(--raised);border:1px solid var(--line);border-radius:var(--rx-sm);box-shadow:inset 0 1px var(--hl);margin-bottom:12px;font-size:12px}
+.dd-add-record{padding:10px 14px;background:var(--raised);border:1px solid var(--line);border-radius:var(--rx-2);box-shadow:inset 0 1px var(--hl);margin-bottom:12px;font-size:12px}
 .dd-add-record summary{cursor:pointer;color:var(--ink2);min-height:24px;line-height:24px}
-.dd-add-record input{min-width:100px;max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-sm);padding:8px}
+.dd-add-record input{min-width:100px;max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-2);padding:8px}
 `)
 
     /**

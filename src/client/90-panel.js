@@ -1198,6 +1198,7 @@
     if (typeof globalThis !== 'undefined' && globalThis.__DRAMA_DESK_SELF_CHECK__ === true) {
       globalThis.__DRAMA_DESK_INTERNALS__ = {
         Editable, LedgerView, AssetsView, ImageViewer, ConceiveChat, MarkdownLite,
+        OutlineView, CharactersView, StoryboardView, VerifyView, AssembleView, DeliverView,
       }
     }
 

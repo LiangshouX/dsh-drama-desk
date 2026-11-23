@@ -67,6 +67,7 @@ test('empty works can acquire numbered scenes, stable roles, shots and registere
     const record = { workspaceId: 'sample', id: 'brief', type: 'doc', path: 'brief.md' }
     const saved = await service.registerAsset(record)
     assert.equal(saved.asset.sha256.length, 64)
+    await assert.rejects(service.registerAsset({ ...record, workspaceId: 'missing-work' }), /没有可用/)
     await assert.rejects(service.registerAsset(record), /已登记/)
     await assert.rejects(service.registerAsset({ ...record, id: 'escape', path: '../../outside.md' }))
   } finally { await rm(root, { recursive: true, force: true }) }

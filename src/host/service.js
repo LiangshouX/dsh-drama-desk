@@ -264,7 +264,8 @@ export class DramaDeskService {
       const remembered = rows.find(row => row.id === this.selectedWorkspaceId)
       return remembered ?? rows[0]
     }
-    return rows.find(row => row.id === workspaceId) ?? rows[0]
+    // An explicit but stale id must never redirect a write into another work.
+    return rows.find(row => row.id === workspaceId)
   }
 
   // ── overview ─────────────────────────────────────────────────────────────

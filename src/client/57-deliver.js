@@ -45,7 +45,7 @@
     }
 
     CSS_PARTS.push(`
-.dd-final-player{display:block;width:100%;max-height:52vh;background:#080a0d;border-radius:var(--rx-sm);margin-bottom:12px}
+.dd-final-player{display:block;width:100%;max-height:52vh;background:#080a0d;border-radius:var(--rx-2);margin-bottom:12px}
 .dd-final-history{display:flex;flex-wrap:wrap;gap:8px}
 .dd-final-history .dd-btn{max-width:100%;overflow-wrap:anywhere;white-space:normal}
 `)

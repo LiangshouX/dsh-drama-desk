@@ -56,7 +56,7 @@
     CSS_PARTS.push(`
 .dd-cut-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}
 .dd-cut-controls label{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:12px}
-.dd-cut-controls select{max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-sm);padding:8px}
+.dd-cut-controls select{max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-2);padding:8px}
 .dd-cut-progress{border-top:1px solid var(--line);padding-top:12px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
 .dd-cut-progress progress{width:100%;height:8px;accent-color:var(--hot);margin:10px 0}
 .dd-cut-table{overflow-x:auto;max-width:100%}

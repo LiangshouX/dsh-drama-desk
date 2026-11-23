@@ -2618,9 +2618,9 @@ select.dd-input{
     }
 
     CSS_PARTS.push(`
-.dd-add-record{padding:10px 14px;background:var(--raised);border:1px solid var(--line);border-radius:var(--rx-sm);box-shadow:inset 0 1px var(--hl);margin-bottom:12px;font-size:12px}
+.dd-add-record{padding:10px 14px;background:var(--raised);border:1px solid var(--line);border-radius:var(--rx-2);box-shadow:inset 0 1px var(--hl);margin-bottom:12px;font-size:12px}
 .dd-add-record summary{cursor:pointer;color:var(--ink2);min-height:24px;line-height:24px}
-.dd-add-record input{min-width:100px;max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-sm);padding:8px}
+.dd-add-record input{min-width:100px;max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-2);padding:8px}
 `)
 
     /**
@@ -3222,7 +3222,7 @@ select.dd-input{
     CSS_PARTS.push(`
 .dd-cut-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}
 .dd-cut-controls label{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:12px}
-.dd-cut-controls select{max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-sm);padding:8px}
+.dd-cut-controls select{max-width:100%;background:var(--raised);color:var(--ink);border:1px solid var(--line);border-radius:var(--rx-2);padding:8px}
 .dd-cut-progress{border-top:1px solid var(--line);padding-top:12px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
 .dd-cut-progress progress{width:100%;height:8px;accent-color:var(--hot);margin:10px 0}
 .dd-cut-table{overflow-x:auto;max-width:100%}
@@ -3277,7 +3277,7 @@ select.dd-input{
     }
 
     CSS_PARTS.push(`
-.dd-final-player{display:block;width:100%;max-height:52vh;background:#080a0d;border-radius:var(--rx-sm);margin-bottom:12px}
+.dd-final-player{display:block;width:100%;max-height:52vh;background:#080a0d;border-radius:var(--rx-2);margin-bottom:12px}
 .dd-final-history{display:flex;flex-wrap:wrap;gap:8px}
 .dd-final-history .dd-btn{max-width:100%;overflow-wrap:anywhere;white-space:normal}
 `)
@@ -8213,6 +8213,7 @@ select.dd-input{
     if (typeof globalThis !== 'undefined' && globalThis.__DRAMA_DESK_SELF_CHECK__ === true) {
       globalThis.__DRAMA_DESK_INTERNALS__ = {
         Editable, LedgerView, AssetsView, ImageViewer, ConceiveChat, MarkdownLite,
+        OutlineView, CharactersView, StoryboardView, VerifyView, AssembleView, DeliverView,
       }
     }
 

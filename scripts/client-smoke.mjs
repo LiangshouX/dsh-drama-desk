@@ -199,7 +199,23 @@ async function main() {
   })
   if (!editableHtml.includes('md-root')) throw new Error('文本字段没有按 markdown 渲染')
 
-  console.log(`✓ 客户端冒烟测试通过：首屏 ${html.length} 字符 + 台账/资产/文本字段三个分支渲染正常`)
+  const stageProps = { busy: false, actions: {}, workspaceId: 'w', onOpenShot: () => {}, onGoto: () => {} }
+  const stageCases = [
+    ['OutlineView', { scenes: [] }, '新增场次'],
+    ['CharactersView', { characters: [], props: [] }, '新增角色'],
+    ['StoryboardView', { shots: [], scenes: [{ id: 'SC01', title: '测试' }] }, '创建镜头'],
+    ['VerifyView', { shots: [{ id: 'SC01-SH01', currentVersion: 1, videoAssetId: 'v1' }] }, '确认本镜验收通过'],
+    ['AssembleView', { shots: [], ready: false, gaps: ['缺素材'] }, '导出本地粗剪'],
+    ['AssembleView', { shots: [], ready: true, job: { status: 'running', total: 2, completed: 1, message: '正在处理' } }, 'progress'],
+    ['DeliverView', { finals: [], ready: false }, '前往装配'],
+    ['DeliverView', { finals: [{ assetId: 'cut', path: 'finals/cut.mp4', exists: true }], ready: true }, '确认这一版交付'],
+  ]
+  for (const [name, data, expected] of stageCases) {
+    const markup = render(server, React, internals[name], { ...stageProps, data })
+    if (!markup.includes(expected)) throw new Error(`${name} 缺少 ${expected}`)
+  }
+
+  console.log(`✓ 客户端冒烟测试通过：首屏 ${html.length} 字符 + 台账/资产/文本字段 + 8 个制作阶段分支`)
 }
 
 main().catch(error => {
