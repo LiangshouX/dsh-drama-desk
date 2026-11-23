@@ -1,6 +1,6 @@
 {
   "name": "dsh-drama-desk",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "AI 短剧生产流水线的工作台：流水线网格、镜详情、规范契约、资产与台账",
   "type": "module",
   "main": "index.js",

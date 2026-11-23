@@ -200,6 +200,12 @@ async function main() {
   if (!editableHtml.includes('md-root')) throw new Error('文本字段没有按 markdown 渲染')
 
   const stageProps = { busy: false, actions: {}, workspaceId: 'w', onOpenShot: () => {}, onGoto: () => {} }
+  const menuHtml = render(server, React, internals.ConceiveSessionMenu, {
+    workspaceId: 'w', sessions: [{ id: 'foreign', workspaceId: 'other', title: '别的作品' }], titles: {}, onPick: () => {},
+  })
+  if (!/<option(?=[^>]*value="")(?=[^>]*selected="")[^>]*>还没有本作品的对话/.test(menuHtml)) {
+    throw new Error('没有会话的新作品错误地默认显示了其他作品的对话')
+  }
   const stageCases = [
     ['OutlineView', { scenes: [] }, '新增场次'],
     ['CharactersView', { characters: [], props: [] }, '新增角色'],

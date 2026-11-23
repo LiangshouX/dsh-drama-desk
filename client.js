@@ -4210,7 +4210,8 @@ select.dd-input{
     function ConceiveSessionMenu(props) {
       const { sessions, current, onPick, titles, workspaceId } = props
       const list = Array.isArray(sessions) ? sessions : []
-      const known = current === undefined ? false : list.some(item => item && item.id === current)
+      const hasCurrent = typeof current === 'string' && current !== ''
+      const known = hasCurrent && list.some(item => item && item.id === current)
       const currentTitle = current !== undefined && titles !== undefined ? titles[current] : undefined
       const ownerName = item => (typeof item.workspaceTitle === 'string' && item.workspaceTitle !== ''
         ? item.workspaceTitle
@@ -4219,21 +4220,22 @@ select.dd-input{
         && item.workspaceId !== '' && item.workspaceId !== workspaceId
       return h('select', {
         className: 'dd-chat-session',
-        value: current === undefined ? '' : current,
-        disabled: list.length === 0 && !known,
+        value: hasCurrent ? current : '',
+        disabled: !hasCurrent && !list.some(item => !isForeign(item)),
         title: '这个工作区里的对话（含你在宿主的侧栏里自己开的）；别的作品的对话不能在这里选',
         onChange: event => {
           const id = event.target.value
           if (id !== '' && typeof onPick === 'function') onPick(id)
         },
       }, [
+        !hasCurrent ? h('option', { key: '__unbound', value: '', disabled: true }, '还没有本作品的对话') : null,
         // 当前这段不在清单里（清单还没刷出来）时也要有个选项，否则 select 会空值。
-        current !== undefined && !known
+        hasCurrent && !known
           ? h('option', { key: '__current', value: current }, typeof currentTitle === 'string' && currentTitle !== ''
             ? currentTitle
             : '当前对话 ' + current.replace(/^session-/, '').slice(0, 8))
           : null,
-        list.length === 0
+        hasCurrent && list.length === 0
           ? h('option', { key: '__empty', value: '' }, '（这个工作区里只有这一段）')
           : null,
         list.map(item => h('option', {
@@ -8247,6 +8249,7 @@ select.dd-input{
       globalThis.__DRAMA_DESK_INTERNALS__ = {
         Editable, LedgerView, AssetsView, ImageViewer, ConceiveChat, MarkdownLite,
         OutlineView, CharactersView, StoryboardView, VerifyView, AssembleView, DeliverView,
+        ConceiveSessionMenu,
       }
     }
 

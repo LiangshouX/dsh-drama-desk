@@ -1206,6 +1206,7 @@
       globalThis.__DRAMA_DESK_INTERNALS__ = {
         Editable, LedgerView, AssetsView, ImageViewer, ConceiveChat, MarkdownLite,
         OutlineView, CharactersView, StoryboardView, VerifyView, AssembleView, DeliverView,
+        ConceiveSessionMenu,
       }
     }
 
