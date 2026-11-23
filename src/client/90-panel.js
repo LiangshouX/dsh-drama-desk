@@ -319,7 +319,12 @@
           await refreshDetail()
           const stage = result && result.stage
           if (stage && stage.advanced === false) {
-            const gaps = stage.gaps && stage.gaps.length > 0 ? '（' + stage.gaps.join('；') + '）' : ''
+            // **一句话，不是一堵墙。** 缺口可能上百条（72 镜里 71 镜没验收），
+            // Host 已经给了收好的 `gapsSummary`；只有旧载荷没有它时才退回去自己拼。
+            const gaps = stage.gapsSummary
+              ? '（' + stage.gapsSummary + '）'
+              : (stage.gaps && stage.gaps.length > 0 ? '（' + stage.gaps.slice(0, 3).join('；')
+                + (stage.gaps.length > 3 ? '；……另有 ' + (stage.gaps.length - 3) + ' 处' : '') + '）' : '')
             say(label + ' · 已保存，但进度未推进：' + (stage.reason || '前置条件不满足') + gaps, 'err')
           } else if (stage && stage.advanced === true) {
             // 已经在这一阶段时说「推进到 X」是在说假话：什么都没往前。

@@ -7,12 +7,35 @@ import { spawnSync } from 'node:child_process'
 import { DramaDeskService } from '../src/host/service.js'
 import { currentVideo } from '../src/host/media.js'
 import { assemblyPlan, assemblyJob } from '../src/host/assembly.js'
+import { summarizeGaps } from '../src/host/stages.js'
 import { loadWorkspace } from '../src/host/workspace.js'
 import { scopePrompt } from '../src/host/conceive.js'
 import { writeJsonAtomic } from '../src/host/fsx.js'
 import { addProductionRecord } from '../src/host/authoring.js'
 import { createServer } from 'node:http'
 import { registerApi } from '../src/host/api.js'
+
+// 72 镜的作品里，装配前置一次能产出上百条缺口。原样串进 toast 会盖住整个面板，
+// 读起来也没有重点 —— 所以 Host 侧只给一句话：去重、留前三条、说清还有多少。
+test('a wall of stage gaps collapses into one readable line', () => {
+  assert.equal(summarizeGaps([]), '')
+  assert.equal(summarizeGaps(['只有一个缺口']), '只有一个缺口')
+  const few = ['镜头 SC01-SH01 的 status 是 pending，不是 verified', '镜头 SC01-SH02 的 status 是 pending，不是 verified']
+  assert.equal(summarizeGaps(few), few.join('；'), 'short lists stay verbatim')
+  const many = []
+  for (let index = 1; index <= 71; index++) {
+    const id = 'SC01-SH' + String(index).padStart(2, '0')
+    many.push(`镜头 ${id} 的 status 是 pending，不是 verified`)
+    many.push(`镜头 ${id} 的当前版本 v1 没有唯一有效的视频资产`)
+  }
+  many.push(many[0]) // 重复项要并掉
+  const summary = summarizeGaps(many)
+  assert.ok(summary.length < 400, 'summary is one line, not a wall: ' + summary.length)
+  assert.match(summary, /^镜头 SC01-SH01 /, 'keeps the first few as examples')
+  assert.match(summary, /另有 139 处/)
+  assert.match(summary, /涉及 71 个镜头/)
+  assert.doesNotMatch(summary, /SC01-SH70/, 'does not enumerate the rest')
+})
 
 test('final media route streams byte ranges with the correct MIME and keeps the origin fence', async () => {
   const root = await mkdtemp(join(tmpdir(), 'drama-stream-'))

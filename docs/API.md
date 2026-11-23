@@ -376,12 +376,17 @@ GET /drama-desk/api/stage?workspace=<id>&stage=<stage>
     "stage": { "from": "generate", "to": "outline",
                "advanced": false,
                "reason": "前置条件不满足，不能推进到 outline",
-               "gaps": ["creative/brief.md 是空的"] }
+               "gaps": ["creative/brief.md 是空的"],
+               "gapsSummary": "creative/brief.md 是空的" }
   }
 }
 ```
 
 > 保存与推进**分离**：内容永远不因为状态机被挡而丢失。
+>
+> `gaps` 是**全量**清单（agent 与阶段页要它）；`gapsSummary` 是同一批缺口的
+> **一句话摘要**（去重，留前三条，末尾说清还有多少、涉及几个镜头 / 场次）。
+> 72 镜的作品里缺口能上百条，toast 只该显示摘要——完整清单在阶段页里。
 
 ### 2.3 阶段条
 

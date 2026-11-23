@@ -30,7 +30,7 @@ import {
   countWords,
   BEAT_EDITABLE_FIELDS,
 } from './workspace.js'
-import { decideMove } from './stages.js'
+import { decideMove, summarizeGaps } from './stages.js'
 
 /**
  * Ids that end up in a file name must look like this.
@@ -62,7 +62,7 @@ const DIALOGUE_MODES = ['dialogue', 'voiceover']
  *   spec  — the parsed spec (for decideMove)
  *   stage — the target stage id
  * @returns {Promise<{from: string, to: string, advanced: boolean,
- *   reason: string, gaps: string[]}>}
+ *   reason: string, gaps: string[], gapsSummary: string}>}
  */
 export async function commitStage(input) {
   const dir = input?.dir
@@ -77,12 +77,15 @@ export async function commitStage(input) {
   // **已经在这一阶段**：内容保存了，进度也没变——那不是「没推进」，
   // 那就是「还在这里」。说成「没推进」会让人以为白干了。
   if (from === to) {
-    return { from, to, advanced: true, reason: `已经在 ${to} 阶段（内容已保存）`, gaps: [] }
+    return { from, to, advanced: true, reason: `已经在 ${to} 阶段（内容已保存）`, gaps: [], gapsSummary: '' }
   }
   const decision = decideMove(from, to, work, spec)
   if (!decision.allowed) {
     // 不推进，也不改 state.json —— 内容照旧保存，缺口说清楚。
-    return { from, to, advanced: false, reason: decision.reason, gaps: decision.gaps ?? [] }
+    // `gaps` 是全量（agent 与阶段页要它）；`gapsSummary` 是给 toast 的一句话，
+    // 上百条缺口逐条串出来会把界面盖住（见 stages.js 的 summarizeGaps）。
+    const gaps = decision.gaps ?? []
+    return { from, to, advanced: false, reason: decision.reason, gaps, gapsSummary: summarizeGaps(gaps) }
   }
   const next = {
     ...state,
@@ -93,7 +96,8 @@ export async function commitStage(input) {
     next.work_id = input.work.id
   }
   await writeJsonAtomic(join(dir, 'state.json'), next)
-  return { from, to, advanced: true, reason: decision.reason, gaps: decision.gaps ?? [] }
+  const advancedGaps = decision.gaps ?? []
+  return { from, to, advanced: true, reason: decision.reason, gaps: advancedGaps, gapsSummary: summarizeGaps(advancedGaps) }
 }
 
 // ── 字段编辑器（docs/API.md §8）─────────────────────────────────────────

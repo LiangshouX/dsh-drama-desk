@@ -1060,6 +1060,9 @@ select.dd-input{
   position:absolute;left:50%;bottom:24px;transform:translateX(-50%);z-index:25;
   background:var(--raised);border-radius:var(--rx-2);padding:10px 16px;font-size:12.5px;color:var(--ink);
   box-shadow:var(--e-pop);animation:dd-toast var(--t-mid) var(--ease-out) both;max-width:82%;
+  /* 一屏话会盖住整个面板：给一个高度上限，超出就滚。消息本身该短——
+     这是兜底，不是让人读长文的入口。 */
+  max-height:38vh;overflow:auto;overflow-wrap:anywhere;line-height:1.55;
 }
 @keyframes dd-toast{from{opacity:0;transform:translate(-50%,14px) scale(.96)}}
 .dd-toast.err{box-shadow:var(--e-pop),inset 0 0 0 1px var(--sig-fail);color:var(--sig-fail)}
@@ -1139,6 +1142,19 @@ select.dd-input{
 @container dd-root (max-width: 620px){
   .dd-tally{display:none}
   .dd-inspector{width:clamp(300px,58%,400px)}
+}
+/* 窄台面（手机 / 竖屏 Pocket）：顶栏先让出品牌文字。
+   390 CSS px 实测：品牌名 + 分隔线 + 作品牌 + 右侧按钮合计 468px，容器只有 388px ——
+   「制作助手 / 刷新 / 设置」被挤出可视区，而那三个按钮没有第二个入口。
+   这里把品牌收成标记、让作品牌可缩，并允许换行兜底（再窄也不会被裁掉）。 */
+@container dd-root (max-width: 520px){
+  .dd-mast{gap:10px;padding:6px 12px;min-height:54px;height:auto;flex-wrap:wrap;row-gap:6px}
+  .dd-brand{gap:0}
+  .dd-brand-name,.dd-brand-sub,.dd-mast-sep{display:none}
+  .dd-work{min-width:0;flex:1 1 auto}
+  .dd-work-label{display:none}
+  .dd-work-title{max-width:110px}
+  .dd-mast-right{gap:6px}
 }
 
 @media (prefers-reduced-motion: reduce){

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { readJsonIfExists, writeJsonAtomic, resolveWithin, isFile } from './fsx.js'
 import { loadWorkspace } from './workspace.js'
 import { currentVideo, isFinalVideo } from './media.js'
-import { checkPrerequisite } from './stages.js'
+import { checkPrerequisite, summarizeGaps } from './stages.js'
 import { TOOLS_DIR } from './paths.js'
 import { appendRegisteredAsset } from './registration.js'
 
@@ -78,7 +78,7 @@ export async function startAssembly(service, workspace, profile = 'landscape') {
     }
     const work = await loadWorkspace(workspace.dir)
     const plan = await assemblyPlan(work)
-    if (!plan.ready) throw new Error('暂不能装配：' + plan.gaps.join('；'))
+    if (!plan.ready) throw new Error('暂不能装配：' + summarizeGaps(plan.gaps))
     const id = 'cut-' + Date.now().toString(36) + '-' + randomUUID().slice(0, 8)
     const job = { id, owner: assemblyOwner, status: 'running', profile, ...CUT_PROFILES[profile],
       createdAt: new Date().toISOString(), completed: 0, total: plan.shots.length,

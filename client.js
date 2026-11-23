@@ -1311,6 +1311,9 @@ select.dd-input{
   position:absolute;left:50%;bottom:24px;transform:translateX(-50%);z-index:25;
   background:var(--raised);border-radius:var(--rx-2);padding:10px 16px;font-size:12.5px;color:var(--ink);
   box-shadow:var(--e-pop);animation:dd-toast var(--t-mid) var(--ease-out) both;max-width:82%;
+  /* 一屏话会盖住整个面板：给一个高度上限，超出就滚。消息本身该短——
+     这是兜底，不是让人读长文的入口。 */
+  max-height:38vh;overflow:auto;overflow-wrap:anywhere;line-height:1.55;
 }
 @keyframes dd-toast{from{opacity:0;transform:translate(-50%,14px) scale(.96)}}
 .dd-toast.err{box-shadow:var(--e-pop),inset 0 0 0 1px var(--sig-fail);color:var(--sig-fail)}
@@ -1390,6 +1393,19 @@ select.dd-input{
 @container dd-root (max-width: 620px){
   .dd-tally{display:none}
   .dd-inspector{width:clamp(300px,58%,400px)}
+}
+/* 窄台面（手机 / 竖屏 Pocket）：顶栏先让出品牌文字。
+   390 CSS px 实测：品牌名 + 分隔线 + 作品牌 + 右侧按钮合计 468px，容器只有 388px ——
+   「制作助手 / 刷新 / 设置」被挤出可视区，而那三个按钮没有第二个入口。
+   这里把品牌收成标记、让作品牌可缩，并允许换行兜底（再窄也不会被裁掉）。 */
+@container dd-root (max-width: 520px){
+  .dd-mast{gap:10px;padding:6px 12px;min-height:54px;height:auto;flex-wrap:wrap;row-gap:6px}
+  .dd-brand{gap:0}
+  .dd-brand-name,.dd-brand-sub,.dd-mast-sep{display:none}
+  .dd-work{min-width:0;flex:1 1 auto}
+  .dd-work-label{display:none}
+  .dd-work-title{max-width:110px}
+  .dd-mast-right{gap:6px}
 }
 
 @media (prefers-reduced-motion: reduce){
@@ -2004,7 +2020,11 @@ select.dd-input{
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
-          if (draft !== current) { setWarned(true); return }
+          // **单行字段 Esc 直接取消。** 它只有一行字，丢不了什么；而那颗 ✕ 的
+          // tooltip 已经承诺了「取消（Esc）」——实测按 Esc 什么都不发生，
+          // 因为 `warned` 只在多行那套编辑面里画得出来（单行没有它的位置）。
+          // 多行是长稿：先警示一次，再让人选「放弃修改」或「保存」。
+          if (multiline && draft !== current) { setWarned(true); return }
           cancel()
         } else if (event.key === 'Enter' && (!multiline || event.ctrlKey || event.metaKey)) {
           // 键盘上的「显式保存」：单行 Enter、多行 Ctrl+Enter。
@@ -3216,6 +3236,11 @@ select.dd-input{
                   h('option', { value: 'portrait' }, '竖屏 9:16 · 720×1280'),
                   h('option', { value: 'square' }, '方形 1:1 · 1080×1080'))),
                 h('button', { className: 'dd-btn primary', disabled: busy || running || !data.ready,
+                  // 禁用的按钮要说清为什么——否则用户只看到一颗按不动的键。
+                  title: !data.ready && data.gaps && data.gaps.length
+                    ? '还不能导出：' + data.gaps.slice(0, 2).join('；')
+                      + (data.gaps.length > 2 ? '；……另有 ' + (data.gaps.length - 2) + ' 项（见下面缺口清单）' : '')
+                    : '按分镜顺序导出本地粗剪',
                   onClick: () => actions.assemble(profile) }, running ? '正在本地装配…' : '导出本地粗剪'),
                 h('button', { className: 'dd-btn', onClick: () => onGoto('deliver') }, '查看成片')),
               job ? h('div', { className: 'dd-cut-progress', role: 'status', 'aria-live': 'polite' },
@@ -7362,7 +7387,12 @@ select.dd-input{
           await refreshDetail()
           const stage = result && result.stage
           if (stage && stage.advanced === false) {
-            const gaps = stage.gaps && stage.gaps.length > 0 ? '（' + stage.gaps.join('；') + '）' : ''
+            // **一句话，不是一堵墙。** 缺口可能上百条（72 镜里 71 镜没验收），
+            // Host 已经给了收好的 `gapsSummary`；只有旧载荷没有它时才退回去自己拼。
+            const gaps = stage.gapsSummary
+              ? '（' + stage.gapsSummary + '）'
+              : (stage.gaps && stage.gaps.length > 0 ? '（' + stage.gaps.slice(0, 3).join('；')
+                + (stage.gaps.length > 3 ? '；……另有 ' + (stage.gaps.length - 3) + ' 处' : '') + '）' : '')
             say(label + ' · 已保存，但进度未推进：' + (stage.reason || '前置条件不满足') + gaps, 'err')
           } else if (stage && stage.advanced === true) {
             // 已经在这一阶段时说「推进到 X」是在说假话：什么都没往前。

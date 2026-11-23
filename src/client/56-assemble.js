@@ -24,6 +24,11 @@
                   h('option', { value: 'portrait' }, '竖屏 9:16 · 720×1280'),
                   h('option', { value: 'square' }, '方形 1:1 · 1080×1080'))),
                 h('button', { className: 'dd-btn primary', disabled: busy || running || !data.ready,
+                  // 禁用的按钮要说清为什么——否则用户只看到一颗按不动的键。
+                  title: !data.ready && data.gaps && data.gaps.length
+                    ? '还不能导出：' + data.gaps.slice(0, 2).join('；')
+                      + (data.gaps.length > 2 ? '；……另有 ' + (data.gaps.length - 2) + ' 项（见下面缺口清单）' : '')
+                    : '按分镜顺序导出本地粗剪',
                   onClick: () => actions.assemble(profile) }, running ? '正在本地装配…' : '导出本地粗剪'),
                 h('button', { className: 'dd-btn', onClick: () => onGoto('deliver') }, '查看成片')),
               job ? h('div', { className: 'dd-cut-progress', role: 'status', 'aria-live': 'polite' },

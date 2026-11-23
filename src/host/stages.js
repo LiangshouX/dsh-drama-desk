@@ -130,6 +130,37 @@ export function checkPrerequisite(stage, work) {
 }
 
 /**
+ * 把一长串缺口收成**一句能读的话**。
+ *
+ * 72 镜的作品里，装配前置一次能产出上百条缺口：71 镜 ×（「status 不是 verified」
+ * + 「没有唯一有效的视频资产」）。原样塞进 toast 或一句错误里，用户读到的是一堵
+ * 没有重点的墙 —— 实测串出来 4000 多字符，toast 直接盖住整个面板。
+ *
+ * 所以：**去重 → 留前几条当例子 → 说清还有多少、涉及多少个镜头 / 场次**。
+ * 完整清单仍然留在阶段页里（那里是列表，读得下）。
+ *
+ * @param {string[]} gaps
+ * @param {{limit?: number}} [options]
+ * @returns {string} 空数组返回空字符串
+ */
+export function summarizeGaps(gaps, options = {}) {
+  const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : 3
+  const unique = [...new Set((Array.isArray(gaps) ? gaps : []).map(String).filter(text => text.trim() !== ''))]
+  if (unique.length === 0) return ''
+  if (unique.length <= limit) return unique.join('；')
+  const named = new Set()
+  for (const gap of unique) {
+    const match = /(?:镜头|场次)\s+([^\s，,。；;]+)/.exec(gap)
+    if (match !== null) named.add(match[1])
+  }
+  const more = unique.length - limit
+  const tail = named.size > 0
+    ? `；……另有 ${more} 处（涉及 ${named.size} 个镜头 / 场次，完整清单在阶段页）`
+    : `；……另有 ${more} 处`
+  return unique.slice(0, limit).join('；') + tail
+}
+
+/**
  * Describe the whole stage machine for one work.
  *
  * @param {any} work

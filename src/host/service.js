@@ -21,7 +21,7 @@ import { runCompile } from './compile.js'
 import { judgeRule } from './applicability.js'
 import { resolveConfig, SPEC_DIR } from './paths.js'
 import { resolveOutputRoot, resolveProjectRoot } from './locations.js'
-import { describeStages, decideMove, stageOrder } from './stages.js'
+import { describeStages, decideMove, stageOrder, summarizeGaps } from './stages.js'
 import {
   attachDeskSession, deskSessionState, ensureDeskSession, installScope, watchAgentBirth,
   SESSION_FIELD, SESSION_LIST_FIELD,
@@ -1693,9 +1693,9 @@ export class DramaDeskService {
     if (final.stale) throw new Error('成片引用的镜头版本已变化，请重新装配')
     const spec = await this.getSpec()
     const decision = decideMove(work.state?.stage ?? 'conceive', 'deliver', work, spec)
-    if (work.state?.stage !== 'deliver' && !decision.allowed) throw new Error(decision.reason + '：' + decision.gaps.join('；'))
+    if (work.state?.stage !== 'deliver' && !decision.allowed) throw new Error(decision.reason + '：' + summarizeGaps(decision.gaps))
     const plan = await assemblyPlan(work)
-    if (!plan.ready) throw new Error('当前镜头还未就绪：' + plan.gaps.join('；'))
+    if (!plan.ready) throw new Error('当前镜头还未就绪：' + summarizeGaps(plan.gaps))
     if (work.state?.stage === 'deliver' && work.state?.delivery_asset_id === final.assetId) return { ok: true, saved: true }
     await writeJsonAtomic(join(workspace.dir, 'state.json'), { ...work.state, stage: 'deliver',
       delivery_asset_id: final.assetId, delivered_at: new Date().toISOString() })

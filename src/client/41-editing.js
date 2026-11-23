@@ -173,7 +173,11 @@
         if (event.key === 'Escape') {
           event.preventDefault()
           event.stopPropagation()
-          if (draft !== current) { setWarned(true); return }
+          // **单行字段 Esc 直接取消。** 它只有一行字，丢不了什么；而那颗 ✕ 的
+          // tooltip 已经承诺了「取消（Esc）」——实测按 Esc 什么都不发生，
+          // 因为 `warned` 只在多行那套编辑面里画得出来（单行没有它的位置）。
+          // 多行是长稿：先警示一次，再让人选「放弃修改」或「保存」。
+          if (multiline && draft !== current) { setWarned(true); return }
           cancel()
         } else if (event.key === 'Enter' && (!multiline || event.ctrlKey || event.metaKey)) {
           // 键盘上的「显式保存」：单行 Enter、多行 Ctrl+Enter。
