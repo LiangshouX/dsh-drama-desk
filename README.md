@@ -263,3 +263,22 @@ brief  场次   角色卡  beats   分镜  视频+提示词 验收报告 版本 
   `drama_desk_generation_plan`；`drama-generate` 技能改为**先读计划再提交**。
 - 宿主模型目录改为**并行读取**，并且列出「声明过但还没激活」的 provider；
   设置抽屉现在真的会去读模型目录（`?full=1`）。
+
+### v0.4.0 真驱动（MiniMax mcode-tools）
+
+- **插件里真的能生图 / 生视频了**：`src/host/transport/cli.js`（传输）+ `src/host/drivers/`
+  （适配 + 注册表）+ `src/host/generation-exec.js`（执行与轮询）。
+- **驱动可插拔**（「插件里的插件」的落点）：`registerDriver({id, build})` 注册一家供应商，
+  通道配置用 `driver` 字段绑定。编排层只认归一化请求/结果，不认识任何供应商参数名。
+- **自动发现连接器**：配置 `mcodePath` → 宿主 PATH → `~/.minimax/bin/` →
+  `~/.minimax/bin/hosts/*`（取最新）；再用 `auth status` 判「真能用」。
+  0.3.x 只查 PATH，把本机可用的通道误报成不可用。
+- **生成计划分两段**（生图 / 生视频），带 **full-v2 幂等指纹**（提示词 + 模型 + 分辨率
+  + 画幅 + 时长 + 参考图），老台账按 prompt-v1 兼容比对；计划附 `digest`。
+- **执行必须点名**：`drama_desk_execute_generation` 要 `digest` + `approve: true`，
+  插件现算计划核对摘要；不自动重试付费提交；`paidExecution: off` 可一键关掉执行。
+- **幂等三步真落地**：先落台账（`submitting`）→ 提交 → 立刻回写 `task_id`；
+  轮询成功即流式下载、登记资产、把这一版设为当前视频（H3 成片只保留 7 天）。
+- 生图来源是作品里的 `image-requests.json`；实测一张 2K 图 15 秒落地 1.55 MB。
+- 新增工具：`drama_desk_execute_generation` / `drama_desk_poll_generation`；
+  `drama-generate` 技能改为「先读计划 → 报批 → 执行 → 轮询」。

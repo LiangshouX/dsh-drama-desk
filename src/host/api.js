@@ -206,6 +206,7 @@ async function readResource(service, resource, query) {
         workspaceId: query.workspace,
         shots: typeof query.shots === 'string' && query.shots !== '' ? query.shots.split(',') : undefined,
         limit: query.limit === undefined ? undefined : Number(query.limit),
+        includePrompts: query.prompts === '1',
       })
     case 'stages':
       return await service.stageState({ workspaceId: query.workspace })
@@ -370,11 +371,25 @@ async function runAction(service, action, body) {
         videoChannel: body.videoChannel,
         videoModel: body.videoModel,
         channels: body.channels,
+        mcodePath: body.mcodePath,
+        paidExecution: body.paidExecution,
         hostProvider: body.hostProvider,
         hostModel: body.hostModel,
         hostReasoningEffort: body.hostReasoningEffort,
         autoRefresh: body.autoRefresh,
       })
+    case 'execute-generation':
+      // **会花钱**：必须带计划摘要与 approve。传输层不替它做决定。
+      return await service.executeGeneration({
+        workspaceId: body.workspaceId,
+        digest: body.digest,
+        approve: body.approve === true,
+        kinds: Array.isArray(body.kinds) ? body.kinds : undefined,
+        shots: Array.isArray(body.shots) ? body.shots : undefined,
+        limit: body.limit,
+      })
+    case 'poll-generation':
+      return await service.pollGeneration({ workspaceId: body.workspaceId })
     case 'compile':
       return await service.compile({
         workspaceId: body.workspaceId,

@@ -41,3 +41,12 @@
 - 生产看板：进度分「已生成（有当前视频）/ 待登记（任务成功未下载）/ 在途 / 失败 / 未开工」，预算余量与剩余费用时长预估；台账页按模型分组并画预算燃烧。
 - 生成计划：逐镜 `submit / skip / blocked`，幂等判据是提示词 sha256；`limit` 分批；通道不可用时整批警告而不是逐镜阻塞。对应工具 `drama_desk_channels / drama_desk_generation_board / drama_desk_generation_plan`，`drama-generate` 技能改为先读计划。
 - 仍未做的：真实通道的**调用**（插件不发起付费生成）、失败自动重试、供应商适配层（等第二个模型接入再抽）。
+
+# v0.4.0 真驱动
+
+- 传输层 `transport/cli.js`：自动发现 `mcode-tools`（配置 → 宿主 PATH → `~/.minimax/bin` → `hosts/*`）、`auth status` 判可用、stdin 传参（无 BOM/引号/空格问题）、三层判成败、流式下载。
+- 驱动注册表 `drivers/index.js` + MiniMax 适配 `drivers/mcode.js`：生图（同步、批量 ≤10）与生视频（两段式、三款模型）；`registerDriver()` 就是外部供应商插件未来的入口。
+- 编排：计划拆生图/生视频、full-v2 指纹（老台账 prompt-v1 兼容）、计划摘要 digest。
+- 执行 `generation-exec.js`：三道闸（approve / digest / paidExecution）→ 落账 → 提交 → 回写 task_id；轮询成功即下载、登记、设当前视频；**不自动重试付费提交**。
+- 实测：一张 2K 图 15 秒落地；一条 Hailuo-2.3 6s 768P 视频走通「提交 → 轮询 → 下载 → 登记」。
+- 仍未做：多供应商并行、首尾帧与参考集合的完整矩阵、图片单价的真实回写（G8）、提示词校验挂钩（G9）。

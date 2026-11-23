@@ -66,6 +66,8 @@
         videoChannel: video.channel || '',
         videoModel: video.model || '',
         channels: Array.isArray(channels.custom) ? channels.custom : [],
+        mcodePath: channels.mcodePath || '',
+        paidExecution: channels.paidExecution || 'receipt',
       }
     }
 
@@ -374,6 +376,41 @@
             }, '重新探测'),
             h('span', { className: 'dd-note' },
               channels ? '探测结果缓存 30 秒；连接器在不在由宿主的 subprocess 服务判定。' : '打开设置时探测一次。'),
+          ),
+          // 连接器 CLI：路径 + 认证 + 付费执行开关。
+          // 「CLI 在」只是必要条件，`auth status` 才是充分条件——两件事分开显示。
+          h('div', { className: 'dd-channel' },
+            h('div', { className: 'dd-channel-head' },
+              h('span', { className: 'dd-channel-lb' }, '连接器 CLI'),
+              channels && channels.cli && channels.cli.path
+                ? h('span', { className: 'dd-badge pass' }, '已找到')
+                : h('span', { className: 'dd-badge fail' }, '未找到'),
+              channels && channels.auth && channels.auth.status === 'authenticated'
+                ? h('span', { className: 'dd-badge pass' }, '已认证')
+                : h('span', { className: 'dd-badge fail' }, '未认证'),
+            ),
+            h('div', { className: 'dd-channel-row' },
+              h('input', {
+                className: 'dd-input', value: draft.mcodePath, disabled: busy,
+                placeholder: 'mcode-tools 路径（留空 = 自动发现；填 off = 禁用）',
+                onChange: event => set('mcodePath', event.target.value),
+              }),
+              h('select', {
+                className: 'dd-input', value: draft.paidExecution, disabled: busy,
+                onChange: event => set('paidExecution', event.target.value),
+                title: 'off = 只出计划，任何执行工具都会拒绝',
+              },
+                h('option', { value: 'receipt' }, '允许执行（必须带计划摘要）'),
+                h('option', { value: 'off' }, '只出计划（不提交）'),
+              ),
+            ),
+            h('div', { className: 'dd-note' },
+              channels && channels.cli && channels.cli.path
+                ? '当前使用：' + channels.cli.path + (channels.cli.source ? '（' + channels.cli.source + '）' : '')
+                : '没找到 mcode-tools：可以手填路径，或把它装到 PATH 上。'),
+            channels && channels.auth && channels.auth.error
+              ? h('div', { className: 'dd-note' }, '认证检查失败：' + channels.auth.error)
+              : null,
           ),
           h(CustomChannelEditor, {
             channels: draft.channels, disabled: busy,

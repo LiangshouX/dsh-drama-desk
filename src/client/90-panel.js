@@ -418,6 +418,8 @@
           videoChannel: draft.videoChannel,
           videoModel: draft.videoModel,
           channels: draft.channels,
+          mcodePath: draft.mcodePath,
+          paidExecution: draft.paidExecution,
           hostProvider: draft.hostProvider,
           hostModel: draft.hostModel,
           autoRefresh: draft.autoRefresh,

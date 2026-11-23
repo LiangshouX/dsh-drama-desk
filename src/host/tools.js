@@ -198,17 +198,43 @@ export function registerTools(ctx, service) {
     ),
     tool(
       'drama_desk_generation_plan',
-      '生成计划：逐镜给出「该提交 / 已在跑别重发 / 缺什么」、幂等判据（提示词 sha256）、预计费用与请求参数。只读，不发起付费生成；提交仍由 agent 走幂等三步。',
+      '生成计划：分「生图 / 生视频」两段，逐条给出「该提交 / 已在跑别重发 / 缺什么」、幂等指纹（full-v2）、预计费用、请求参数，以及一个计划摘要 digest。只读；执行要靠 drama_desk_execute_generation 并带上这个 digest。',
       {
         workspace: workspaceProperty,
         shots: { type: 'array', items: { type: 'string' }, description: '只算这些镜；省略 = 全片。' },
-        limit: { type: 'number', description: '最多算几镜要提交（分批提交时用）。' },
+        limit: { type: 'number', description: '最多算几镜视频要提交（分批提交时用）。' },
       },
       async args => await service.generationPlan({
         workspaceId: args.workspace,
         shots: Array.isArray(args.shots) ? args.shots : undefined,
         limit: args.limit,
       }),
+    ),
+    tool(
+      'drama_desk_execute_generation',
+      '执行一份生成计划（**会花钱**）。必须带 drama_desk_generation_plan 返回的 digest 与 approve=true；插件会现算计划并核对摘要，对不上就拒。不自动重试付费提交。提交前必须已向导演重述模型 / 分辨率 / 时长并取得明确确认。',
+      {
+        workspace: workspaceProperty,
+        digest: { type: 'string', description: '生成计划返回的 digest（必填）。', required: true },
+        approve: { type: 'boolean', description: '必须显式为 true。', required: true },
+        kinds: { type: 'array', items: { type: 'string', enum: ['image', 'video'] }, description: '只执行哪几段；省略 = 两段都执行。' },
+        shots: { type: 'array', items: { type: 'string' }, description: '只执行这些镜（视频）。' },
+        limit: { type: 'number', description: '最多提交几镜视频。' },
+      },
+      async args => await service.executeGeneration({
+        workspaceId: args.workspace,
+        digest: args.digest,
+        approve: args.approve === true,
+        kinds: Array.isArray(args.kinds) ? args.kinds : undefined,
+        shots: Array.isArray(args.shots) ? args.shots : undefined,
+        limit: args.limit,
+      }),
+    ),
+    tool(
+      'drama_desk_poll_generation',
+      '轮询在途的视频任务：查状态，成功即下载落盘并登记为资产、把这一版设为当前视频。只读 + 落地，**不重新提交**。',
+      { workspace: workspaceProperty },
+      async args => await service.pollGeneration({ workspaceId: args.workspace }),
     ),
     tool(
       'drama_desk_generation_board',
@@ -240,9 +266,11 @@ export function registerTools(ctx, service) {
         imageModel: { type: 'string', description: '生图模型 id；空 = 用通道自己的默认。' },
         videoChannel: { type: 'string', description: "生视频通道 id；'' 或 'inherit' = 继承宿主的连接器。" },
         videoModel: { type: 'string', description: '生视频模型 id；空 = 用通道自己的默认。' },
+        mcodePath: { type: 'string', description: 'mcode-tools 的路径；留空 = 自动发现。' },
+        paidExecution: { type: 'string', enum: ['receipt', 'off'], description: "receipt（默认）= 带计划摘要可执行；off = 只出计划。" },
       },
       async args => {
-        const writes = ['projectRoot', 'outputRoot', 'model', 'imageChannel', 'imageModel', 'videoChannel', 'videoModel']
+        const writes = ['projectRoot', 'outputRoot', 'model', 'imageChannel', 'imageModel', 'videoChannel', 'videoModel', 'mcodePath', 'paidExecution']
         if (!writes.some(key => args[key] !== undefined)) {
           return await service.settings({ workspaceId: args.workspace })
         }

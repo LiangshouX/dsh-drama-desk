@@ -22,7 +22,9 @@ const sha256 = text => createHash('sha256').update(text, 'utf8').digest('hex')
 /** 宿主什么都不提供的 service：用来量「继承不到通道」时的行为。 */
 function bareService(config = {}) {
   return {
-    config: resolveConfig(config),
+    // `mcodePath: 'off'` 让探测完全不碰外部程序：这些用例量的是计划与看板，
+    // 不是传输层（传输层有自己的用例）。
+    config: resolveConfig({ mcodePath: 'off', ...config }),
     ctx: { get: () => undefined },
     check: async () => ({ staleShots: [] }),
   }
@@ -208,7 +210,8 @@ test('channel probing inherits the host, explains a missing connector, and honou
   const inherited = await probeChannels(bareService(), { refresh: true })
   assert.equal(inherited.selection.video.mode, 'inherit')
   assert.equal(inherited.selection.video.available, false)
-  assert.match(inherited.selection.video.reason, /mcode-tools/)
+  // 测试里显式禁用 CLI；不可用必须**说清为什么**（而不是一句「不可用」）。
+  assert.match(inherited.selection.video.reason, /禁用|mcode-tools|通道/)
   assert.equal(inherited.connectors.length, 2)
   assert.ok(inherited.connectors.every(channel => channel.installed === false))
 

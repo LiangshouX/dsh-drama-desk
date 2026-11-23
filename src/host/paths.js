@@ -84,8 +84,12 @@ export function resolveConfig(raw) {
     imageModel: text(config.imageModel) ?? '',
     videoChannel: text(config.videoChannel) ?? '',
     videoModel: text(config.videoModel) ?? '',
-    // 自定义通道（自治）：[{id, kind, label, model?, tool?, cli?, note?}]。
+    // 自定义通道（自治）：[{id, kind, label, driver?, model?, tool?, cli?, note?}]。
     // 只存「用什么」，不存任何密钥——密钥归宿主凭据服务。
     channels: Array.isArray(config.channels) ? config.channels : [],
+    // 连接器 CLI 的路径。留空 = 自动发现（配置 → 宿主 PATH → ~/.minimax/bin → hosts/*）。
+    mcodePath: text(config.mcodePath) ?? '',
+    // 付费执行开关：'receipt'（默认，必须带计划摘要点名才执行）或 'off'（只出计划）。
+    paidExecution: text(config.paidExecution) === 'off' ? 'off' : 'receipt',
   }
 }

@@ -259,82 +259,120 @@
     }
 
     /**
-     * 生成计划浮层：逐镜「该提交 / 已在跑别重发 / 缺什么」。
+     * 生成计划浮层：**生图与生视频两段**，逐条「该提交 / 已在跑别重发 / 缺什么」。
      *
-     * **它不提交任何东西。** 导演看完，要么把提交清单复制给 agent 走幂等三步，
-     * 要么自己回去改提示词。幂等判据是提示词 sha256——台账里同一条指纹意味着
-     * 同一个请求，重发就是重复付费。
+     * **它不提交任何东西。** 导演看完，把提交清单复制给制作助手去执行；
+     * 执行时必须带上这里显示的「计划摘要」——摘要对不上，执行会拒。
+     * 幂等判据是 full-v2 指纹（提示词 + 模型 + 分辨率 + 时长 + 参考图）。
      */
     function GenerationPlanDrawer(props) {
       const { plan, busy, onClose, onRefresh, onCopy } = props
-      const summary = plan ? (plan.summary || {}) : null
-      const rows = plan && Array.isArray(plan.rows) ? plan.rows : []
       const actionLabel = { submit: '该提交', skip: '已在跑', blocked: '缺东西' }
       const actionTone = { submit: 'pass', skip: 'warn', blocked: 'fail' }
-      const submits = rows.filter(row => row.action === 'submit')
+      // `skip` 有两种：已经成功（不许重发）与正在跑。分开说，
+      // 否则「已经出过图」的条目会写着「已在跑」。
+      const labelOf = row => row.action === 'skip'
+        ? (row.ledger && row.ledger.status === 'succeeded' ? '已完成' : '在途')
+        : (actionLabel[row.action] || row.action)
+      const toneOf = row => row.action === 'skip'
+        ? (row.ledger && row.ledger.status === 'succeeded' ? 'pass' : 'warn')
+        : (actionTone[row.action] || '')
+      const video = plan ? (plan.video || { rows: [], summary: {} }) : null
+      const image = plan ? (plan.image || { rows: [], summary: {} }) : null
+      const countOf = section => (section && section.summary ? section.summary.submit : 0)
       const copyList = () => {
-        const lines = [
-          '生成计划 · ' + (plan.workspace ? plan.workspace.id : ''),
-          '通道：' + (plan.channel ? (plan.channel.label || plan.channel.channel || '未选') : '未选')
-            + (plan.channel && plan.channel.model ? ' · ' + plan.channel.model : ''),
-          '该提交 ' + submits.length + ' 镜，预计 ' + (summary && summary.costUsd !== undefined ? formatUsd(summary.costUsd) : '未定价')
-            + '，素材时长合计 ' + formatSeconds(summary ? summary.seconds : undefined),
-          ...submits.map((row, index) => [
-            (index + 1) + '. ' + row.id + ' ' + (row.title || ''),
-            '   时长 ' + (row.request.duration ?? '?') + 's · 画幅 ' + (row.request.ratio ?? '?')
-              + ' · 参考图 ' + row.request.referenceCount + ' · 提示词 sha ' + (row.prompt.sha256 || '').slice(0, 12),
-          ].join('\n')),
-          '',
-          '提交前先用 drama_desk_generation_plan 复核；提交后按幂等三步回写台账。',
-        ]
+        const lines = ['生成计划 · ' + (plan.workspace ? plan.workspace.id : '')]
+        if (plan.digest) lines.push('计划摘要（执行时要带上）：' + plan.digest)
+        if (image && countOf(image) > 0) {
+          lines.push('', '【生图】' + countOf(image) + ' 条 · 预计 '
+            + (image.summary.costUsd !== undefined ? formatUsd(image.summary.costUsd) : '未定价'))
+          for (const row of image.rows.filter(entry => entry.action === 'submit')) {
+            lines.push('  ' + row.id + ' · ' + (row.request.area || '?') + ' · '
+              + (row.request.aspectRatio || 'auto') + ' · 参考图 ' + (row.request.referenceAssetIds || []).length)
+          }
+        }
+        if (video && countOf(video) > 0) {
+          lines.push('', '【生视频】' + countOf(video) + ' 镜 · 预计 '
+            + (video.summary.costUsd !== undefined ? formatUsd(video.summary.costUsd) : '未定价')
+            + ' · 素材 ' + formatSeconds(video.summary.seconds))
+          for (const row of video.rows.filter(entry => entry.action === 'submit')) {
+            lines.push('  ' + row.id + ' ' + (row.title || '') + ' · ' + (row.request.duration ?? '?') + 's · '
+              + (row.request.ratio ?? '?') + ' · ' + (row.request.resolution ?? '?')
+              + ' · 参考图 ' + row.request.referenceCount)
+          }
+        }
+        lines.push('', '执行：drama_desk_execute_generation(workspace, digest, approve=true)')
         onCopy(lines.join('\n'))
+      }
+      const sectionBlock = (title, kind, section, columns) => {
+        if (section === null) return null
+        const rows = Array.isArray(section.rows) ? section.rows : []
+        const summary = section.summary || {}
+        return h('div', { className: 'dd-plan-sec' },
+          h('div', { className: 'dd-plan-sec-head' },
+            h('span', { className: 'dd-plan-sec-title' }, title),
+            h('span', { className: 'dd-badge ' + (summary.channelReady ? 'pass' : 'fail') },
+              summary.channelReady ? '通道可用' : '通道不可用'),
+            h('span', { className: 'dd-spacer' }),
+            h('span', { className: 'dd-note' },
+              '该提交 ' + (summary.submit ?? 0) + ' / 已办 ' + (summary.skip ?? 0)
+              + ' / 缺东西 ' + (summary.blocked ?? 0)
+              + (summary.costUsd !== undefined ? ' · 预计 ' + formatUsd(summary.costUsd) : ' · 未定价')),
+          ),
+          summary.channelReady === false
+            ? h('div', { className: 'dd-warnbox' }, h('b', null, '这条通道现在调不动：'), summary.channelReason || '未知原因')
+            : null,
+          rows.length === 0
+            ? h('div', { className: 'dd-note' }, kind === 'image'
+              ? '（没有生图请求：作品里还没有 image-requests.json）'
+              : '（没有镜头）')
+            : h('div', { className: 'dd-plan-table' },
+              h('table', { className: 'dd-table' },
+                h('thead', null, h('tr', null, columns.map(label => h('th', { key: label }, label)),
+                  h('th', { className: 'n' }, '费用'))),
+                h('tbody', null, rows.map(row => h('tr', { key: row.id },
+                  h('td', { className: 'n' }, row.id),
+                  h('td', null, h('span', { className: 'dd-badge ' + toneOf(row) },
+                    labelOf(row))),
+                  h('td', { className: 'dd-plan-why' },
+                    (row.reasons || []).join('；') || '可以直接提交',
+                    row.prompt && row.prompt.stale ? h('span', { className: 'dd-badge warn' }, '过期') : null),
+                  h('td', { className: 'n' }, row.request && row.request.costUsd !== undefined
+                    ? formatUsd(row.request.costUsd) : '—'),
+                ))),
+              ),
+            ),
+        )
       }
       return h('div', { className: 'dd-drawer dd-plan' },
         h('div', { className: 'dd-drawer-head' },
           h(Icon, { name: 'note', size: 14 }),
           h('span', { style: { fontWeight: '600' } }, '生成计划'),
           h('span', { className: 'dd-spacer' }),
-          h('button', { className: 'dd-btn sm', disabled: busy, onClick: onRefresh, title: '重新计算（提示词或台账可能刚变）' }, busy ? '计算中…' : '重新计算'),
+          h('button', { className: 'dd-btn sm', disabled: busy, onClick: onRefresh, title: '重新计算（提示词、台账或通道可能刚变）' }, busy ? '计算中…' : '重新计算'),
           h('button', { className: 'dd-icon-btn', onClick: onClose, title: '关闭' }, h(Icon, { name: 'close', size: 13 })),
         ),
         h('div', { className: 'dd-drawer-body' },
           !plan
             ? h('div', { className: 'dd-note' }, busy ? '正在计算…' : '还没有计划')
             : h('div', null,
-              summary && summary.channelReady === false
-                ? h('div', { className: 'dd-warnbox' },
-                  h('b', null, '这条通道现在调不动：'),
-                  summary.channelReason || '没有可用的生视频通道',
-                  h('div', { className: 'dd-note' }, '计划本身仍然有效：该提交哪些镜、要花多少都算好了。设置 → 生成通道里可以换成自定义通道。'))
+              h('div', { className: 'dd-plan-digest' },
+                h('span', { className: 'dd-note' }, '计划摘要'),
+                h('code', null, plan.digest ? plan.digest.slice(0, 24) + '…' : '—'),
+                h('span', { className: 'dd-note' }, '执行时必须带它；摘要对不上会被拒。'),
+              ),
+              sectionBlock('生图', 'image', image, ['请求', '动作', '为什么']),
+              sectionBlock('生视频', 'video', video, ['镜号', '动作', '为什么']),
+              plan.image && plan.image.source
+                ? h('div', { className: 'dd-note' }, '生图来源：' + plan.image.source)
                 : null,
-              h('div', { className: 'dd-plan-sum' },
-                h('span', { className: 'dd-badge pass' }, '该提交 ' + (summary ? summary.submit : 0)),
-                h('span', { className: 'dd-badge warn' }, '已在跑 ' + (summary ? summary.skip : 0)),
-                h('span', { className: 'dd-badge fail' }, '缺东西 ' + (summary ? summary.blocked : 0)),
-                h('span', { className: 'dd-spacer' }),
-                h('span', { className: 'num' },
-                  '预计 ' + (summary && summary.costUsd !== undefined ? formatUsd(summary.costUsd) : '未定价')
-                  + ' · 素材 ' + formatSeconds(summary ? summary.seconds : undefined)),
-              ),
-              h('div', { className: 'dd-note' }, summary ? summary.note : ''),
               h('div', { className: 'dd-plan-actions' },
-                h('button', { className: 'dd-btn sm primary', disabled: submits.length === 0, onClick: copyList }, '复制提交清单'),
-                h('button', { className: 'dd-btn sm', disabled: !plan, onClick: () => onCopy(JSON.stringify({ channel: plan.channel, summary, submits }, null, 2)) }, '复制 JSON'),
-                h('span', { className: 'dd-note' }, '复制给制作助手，由它按幂等三步提交；插件自己不发起付费生成。'),
-              ),
-              h('div', { className: 'dd-plan-table' },
-                h('table', { className: 'dd-table' },
-                  h('thead', null, h('tr', null,
-                    h('th', null, '镜号'), h('th', null, '动作'), h('th', null, '为什么'), h('th', { className: 'n' }, '费用'))),
-                  h('tbody', null, rows.map(row => h('tr', { key: row.id },
-                    h('td', { className: 'n' }, row.id),
-                    h('td', null, h('span', { className: 'dd-badge ' + (actionTone[row.action] || '') }, actionLabel[row.action] || row.action)),
-                    h('td', { className: 'dd-plan-why' },
-                      (row.reasons || []).join('；') || '可以直接提交',
-                      row.prompt && row.prompt.stale ? h('span', { className: 'dd-badge warn' }, '过期') : null),
-                    h('td', { className: 'n' }, row.request && row.request.costUsd !== undefined ? formatUsd(row.request.costUsd) : '—'),
-                  ))),
-                ),
+                h('button', { className: 'dd-btn sm primary', onClick: copyList }, '复制提交清单'),
+                h('button', {
+                  className: 'dd-btn sm', disabled: !plan,
+                  onClick: () => onCopy(JSON.stringify({ digest: plan.digest, image, video }, null, 2)),
+                }, '复制 JSON'),
+                h('span', { className: 'dd-note' }, '复制给制作助手执行；插件自己不主动发起付费生成。'),
               ),
             ),
         ),
@@ -356,7 +394,12 @@
 .dd-board-money b{color:var(--ink);font-weight:600}
 .dd-board-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .dd-board-fly{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--sig-fly);font-family:var(--f-mono);white-space:nowrap}
-.dd-plan{width:min(720px,94%)}
+.dd-plan{width:min(760px,94%)}
+.dd-plan-digest{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 12px;font-size:11px}
+.dd-plan-digest code{font-family:var(--f-mono);background:var(--sunken);border-radius:var(--rx-1);padding:2px 7px;color:var(--ink2)}
+.dd-plan-sec{margin:14px 0;display:flex;flex-direction:column;gap:6px}
+.dd-plan-sec-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dd-plan-sec-title{font-weight:600;font-size:13px}
 .dd-plan-sum{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 6px}
 .dd-plan-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
 .dd-plan-table{overflow-x:auto;max-width:100%}

@@ -23,8 +23,12 @@
 #   videoChannel / videoModel
 #                生成通道。留空或 'inherit' = **继承宿主**（用宿主已装好的连接器）；
 #                写具体通道 id = 本插件指定的通道。*Model 留空 = 用通道默认。
-#   channels     自定义通道：[{id, kind: image|video, label?, model?, tool?, cli?}]。
+#   channels     自定义通道：[{id, kind: image|video, label?, driver?, model?, tool?, cli?}]。
+#                driver 绑定执行驱动（内置 'mcode'）；不绑定的只能当标注。
 #                **不存任何密钥**——密钥归宿主的凭据服务。
+#   mcodePath    mcode-tools 的路径。留空 = 自动发现（配置 → 宿主 PATH →
+#                ~/.minimax/bin → ~/.minimax/bin/hosts/*，取最新）。填 'off' = 禁用。
+#   paidExecution 'receipt'（默认）= 执行工具必须带计划摘要点名；'off' = 只出计划。
 - insert:
     - id: drama-desk
       name: 'dsh-drama-desk'
@@ -40,3 +44,5 @@
         videoChannel: ''
         videoModel: ''
         channels: []
+        mcodePath: ''
+        paidExecution: 'receipt'

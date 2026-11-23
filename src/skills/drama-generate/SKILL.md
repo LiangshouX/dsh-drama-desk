@@ -37,7 +37,13 @@ python tools/drama.py constitution
   - `action = submit` 的才是这次要提交的；`skip` 是已经付过费的（**不许重发**）；
   - `blocked` 会写清缺什么（提示词 / duration / camera）；
   - `summary.channelReady = false` 时**先说清通道不可用**，不要硬提交；
-  - `summary.costUsd` 是这一批的预计费用，**报给导演等他明确授权**。
+  - `summary.costUsd` 是这一批的预计费用，**报给导演等他明确授权**；
+  - 返回值里有一个 **`digest`**：执行时必须带上它。
+- **执行走插件工具**：`drama_desk_execute_generation(workspace, digest, approve=true, kinds=["image","video"])`。
+  插件会现算计划、核对摘要，对不上就拒——所以**计划变了要重新算、重新报**。
+  提交前必须已把「模型 + 分辨率 + 时长」重述给导演并拿到确认；确认只覆盖被点名的那一批。
+- **轮询**：`drama_desk_poll_generation(workspace)`。成功会自动下载、登记、设成当前视频。
+  **不要在轮询前重提**；失败不自动重试（先看台账的失败原因）。
 - 再核对象源：计划里的 `prompt.stale` 为真的镜头，先重新编译（`drama_desk_compile`）。
   `state.budget` 的预算与 `ledger` 的花费在 `drama_desk_generation_board` 里。
 - 外部 CLI 工作区（那边自带 `drama.py`）也可以这么读：

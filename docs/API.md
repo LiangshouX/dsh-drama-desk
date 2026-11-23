@@ -997,23 +997,28 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
     "host": { "providers": [ { "id": "deepseek-account", "models": 4 } ],
               "reachable": true, "modelCount": 4 },
     "connectors": [
-      { "id": "connector-image", "kind": "image", "label": "MiniMax H3 · 图片（连接器）",
-        "tool": "connector__matrix__generate_image", "installed": false,
-        "reason": "找不到 mcode-tools（连接器 CLI）：这条通道现在调不动" },
-      { "id": "connector-video", "kind": "video", "…": "…" }
+      { "id": "mcode-image", "kind": "image", "label": "MiniMax H3 · 图片（mcode-tools）",
+        "driver": "mcode", "tool": "connector__matrix__generate_image",
+        "installed": true, "available": true,
+        "capabilities": { "maxRequestsPerCall": 10, "area": ["1K", "2K", "4K"] } },
+      { "id": "mcode-video", "kind": "video", "…": "…" }
     ],
-    "custom": [ { "id": "my-video", "kind": "video", "label": "自制通道", "installed": true } ],
+    "custom": [ { "id": "my-video", "kind": "video", "label": "自制通道", "driver": "mcode", "available": true } ],
     "selection": {
-      "image": { "mode": "inherit", "available": false, "reason": "…" },
+      "image": { "mode": "inherit", "channel": "mcode-image", "driver": "mcode",
+                 "available": true, "executable": true, "reason": "…" },
       "video": { "mode": "custom", "channel": "my-video", "available": true, "model": "…" }
-    }
+    },
+    "cli": { "path": "C:\\Users\\…\\.minimax\\bin\\mcode-tools.cmd", "source": "minimax-bin", "tried": [] },
+    "auth": { "status": "authenticated", "auth_mode": "shared-broker" }
   }
 }
 ```
 
-- `mode: "inherit"` = **继承宿主**（用宿主已装好的连接器）；`"custom"` = 本插件指定的通道。
-- `installed` 由宿主的 `subprocess.resolveExecutable("mcode-tools")` 判定；宿主没有
-  `subprocess` 服务时**不猜**——如实标为不可用并给出理由。
+- `mode: "inherit"` = **继承宿主**（用宿主已认证的 mcode-tools）；`"custom"` = 本插件指定的通道。
+- `installed`：CLI 找没找到；`available`：认证 + 工具 schema 都过得去；`executable`：有驱动绑定。
+- `driver`：执行驱动 id（内置 `mcode`）。自定义通道没有 `driver` 时 `executable: false`——
+  能选中、能显示，但**不会真的出片**。
 - **`available` 与 `reason` 必须成对出现**：配置管理最怕「我配了但它其实调不动」。
 - 结果按 service 缓存 30 秒；`refresh=1` 强制重探。
 
@@ -1053,31 +1058,83 @@ B 模型只给 medium），所以档位不能写死在插件里——问适配�
   `succeeded_at` 时**不许**拿「现在」当完成时刻。
 - 看板同时挂在生成阶段的载荷里（`stage=generate` 的 `board`），不额外发请求。
 
-## 计划：`GET /api/generation-plan?workspace=&shots=&limit=`
+## 计划：`GET /api/generation-plan?workspace=&shots=&limit=&prompts=`
+
+**生图与生视频两段**，外加一个计划摘要 `digest`。
 
 ```jsonc
 {
   "ok": true,
   "data": {
-    "channel": { "mode": "inherit", "available": false, "reason": "…" },
-    "rows": [
-      { "id": "SC01-SH01", "action": "skip",
-        "reasons": ["同一份提示词已经生成过"], 
-        "prompt": { "exists": true, "sha256": "f5f5…", "stale": false },
-        "ledger": { "status": "succeeded", "promptSha256": "f5f5…" },
-        "request": { "model": "MiniMax-H3", "duration": 4, "ratio": "16:9", "costUsd": 0.4 } }
-    ],
-    "summary": { "submit": 5, "skip": 1, "blocked": 0, "capped": true,
-                 "channelReady": false, "channelReason": "…", "costUsd": 2, "seconds": 38 }
+    "digest": "7f2ca0ae…",                       // 执行时必须带上它
+    "channels": { "image": { "available": true, … }, "video": { … } },
+    "image": {
+      "source": "image-requests.json",
+      "rows": [ { "id": "img-1", "action": "submit",
+                  "request": { "area": "2K", "aspectRatio": "16:9", "referenceAssetIds": ["…"] },
+                  "fingerprint": "…" } ],
+      "summary": { "submit": 1, "skip": 0, "blocked": 0, "images": 1, "channelReady": true }
+    },
+    "video": {
+      "rows": [ { "id": "SC01-SH01", "action": "skip",
+                  "reasons": ["同一份请求已经生成过（提示词 + 模型 + 时长 + 参考图一致）"],
+                  "prompt": { "exists": true, "sha256": "f5f5…", "stale": false },
+                  "request": { "model": "MiniMax-H3", "duration": 4, "ratio": "16:9", "resolution": "768P" },
+                  "fingerprint": "…" } ],
+      "summary": { "submit": 5, "skip": 1, "blocked": 0, "capped": true,
+                   "channelReady": true, "costUsd": 2, "seconds": 38 }
+    },
+    // 兼容别名：rows / summary = video 段
+    "rows": [], "summary": {}
   }
 }
 ```
 
-- `action`：`submit` 该提交 / `skip` 已在跑或已成功（**同一份提示词不许重发**）/
-  `blocked` 缺提示词、缺 `duration`、缺 `camera`。
-- **幂等判据是提示词 sha256**：当前产物（人工覆盖优先）的指纹 == 台账那条的
-  `prompt_sha256` ⇒ 同一个请求。指纹变了就是一次新的提交。
-- `limit` 只截断**这一批**（算够 N 镜要提交就停），`capped: true` 表示还有更多。
-- **通道不可用不逐镜阻塞**：计划内容仍成立，整批给一条 `channelReady / channelReason`。
-- agent 对等工具：`drama_desk_channels`、`drama_desk_generation_board`、
-  `drama_desk_generation_plan`。台账 `GET /api/ledger` 另增 `byModel` / `byStatus` 分组。
+- `action`：`submit` 该提交 / `skip` 已在跑或已成功（**同一份请求不许重发**）/
+  `blocked` 缺提示词、缺 `duration`、缺 `camera`、参考资产不存在。
+- **幂等判据是 full-v2 指纹**：`sha256(canonicalJson({kind, prompt, model, resolution,
+  ratio, duration, references, area, n, aspectRatio}))`。台账条目带
+  `fingerprint_algo`：`full-v2` 按指纹比对，**缺这个字段的老条目按 prompt sha256 比对**
+  ——换算法不会让历史作品全部变成「要重做」。
+- 生图来源是作品里的 `image-requests.json`（导演/规划用例的真源）；没有它就为空。
+- `prompts=1` 时返回提示词正文（执行器内部用；默认不回，72 镜会撑爆上下文）。
+- `digest` = 两段计划（含提示词正文与指纹）的稳定哈希；**任何参数、提示词、通道变化都会变**。
+
+## 执行：`POST /api/execute-generation`（**会花钱**）
+
+```jsonc
+{ "workspaceId": "…", "digest": "<plan 的 digest>", "approve": true,
+  "kinds": ["image", "video"], "shots": ["SC01-SH02"], "limit": 5 }
+```
+
+三道闸，任何一道不过就拒：
+
+1. `approve: true`；
+2. `digest` 必须与**现算**的计划一致（计划变了说明参数/台账已经不同——绝不拿旧计划花钱）；
+3. 配置 `paidExecution !== 'off'`。
+
+执行顺序就是幂等三步：**先落台账（`submitting` + 指纹）→ 提交 → 立刻回写 `task_id`**。
+生图是同步的：提交返回即下载、登记成资产、台账改 `succeeded`。
+生视频只提交并回写 `task_id`；下载与登记在轮询里做。
+**提交失败不自动重试**（可能已经到达服务端），只落一条 `failed` 台账。
+
+## 轮询：`POST /api/poll-generation`
+
+```jsonc
+{ "workspaceId": "…" }
+```
+
+单轮询器：查所有在途视频任务 → 成功就 `get_asset_url` 流式下载到
+`videos/<shot>_v<NN>.mp4`、登记资产、把这一版设成当前视频；状态写回台账。
+**只读 + 落地，绝不重新提交。** 查询失败只记一笔，不判任务失败。
+
+## 通道里新增的字段
+
+- `channels[].driver`：绑定的执行驱动（内置 `mcode`）。没有绑定 = 只能标注。
+- `channels.connectors[].capabilities`：从工具 schema 读到的上限（批量条数、模型枚举…）。
+- `channels.cli`：`{ path, source, tried }`——CLI 从哪条路找到的（或试过哪些地方）。
+- `channels.auth`：`auth status` 的结果；`status === 'authenticated'` 才算真能用。
+
+> **CLI 在不等于能用。** 现有发现顺序：配置 `mcodePath` → 宿主 `subprocess.resolveExecutable`
+> （只查 PATH）→ `~/.minimax/bin/mcode-tools.cmd` → `~/.minimax/bin/hosts/*/`（取最新）。
+> 0.3.x 曾因只查 PATH 把本机可用的通道误报成不可用。

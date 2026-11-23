@@ -1,203 +1,73 @@
 /**
- * The **generation control surface**: which channels can make pictures, how far
- * the work has got, what it has cost, and what the next submission would be.
+ * 生成控制面：**通道、进度与开销、下一批计划**。
  *
- * 这份模块回答三个导演真会问的问题：
+ * 这一层是**编排层**：它不认识 MiniMax，也不认识第二家供应商。
+ * 供应商差异全部在 `drivers/` 里，传输在 `transport/` 里。
  *
- *  1. **现在能用什么出片？**（`probeChannels`）宿主已经配好的连接器 / 本插件
- *     自定义的通道；以及「为什么现在不能出」的那一句实话。
- *  2. **做到哪儿了、花了多少？**（`generationBoard`）逐场进度、在途任务、
- *     预算余量、剩余预估。
- *  3. **下一次提交是什么？**（`generationPlan`）逐镜：
- *     该提交 / 已经在跑别重发 / 缺什么；以及这一批的预计花费。
+ * 它回答三个导演真会问的问题：
+ *  1. 现在能用什么出片？（`probeChannels` —— 驱动在不在、认证过没有、工具 schema 读不读得到）
+ *  2. 做到哪儿了、花了多少？（`generationBoard` —— 全部从磁盘派生）
+ *  3. 下一次提交是什么？（`generationPlan` —— 生图与生视频**两段**：
+ *     该提交 / 已在跑别重发 / 缺什么，以及这一批的预计费用）
  *
- * 硬边界照旧：**本模块绝不提交付费生成。** 它只把「要提交什么、要花多少、
- * 是不是已经提交过」算清楚，交给 agent（走幂等三步）或导演决定。
- *
- * 三个函数都只读磁盘 + 只读宿主能力，不写任何作品文件。
+ * 硬边界：**本模块不提交任何付费生成。** 执行在 `generation-exec.js`，
+ * 而且必须由调用方带计划摘要点名（见那里的注释）。
  */
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { listDirIfExists, readJsonIfExists, readTextIfExists } from './fsx.js'
 import { currentVideo } from './media.js'
+import { canonicalJson, entryMatches, fingerprintOf, promptSha, FINGERPRINT_ALGO } from './ledger.js'
+import { forgetDrivers, probeDrivers } from './drivers/index.js'
 
-/**
- * 随包的**内置通道**。
- *
- * 工具名不是拍的：它们就写在随包技能里（`imagecraft/references/接口速查.md`
- * 的 `connector__matrix__generate_image`、`drama-generate` 的
- * `connector__matrix__submit_video_generation`）。插件不复制调用参数，
- * 只负责「这条通道在不在」和「选的是哪条」。
- */
-const BUILTIN_CHANNELS = [
-  {
-    id: 'connector-image',
-    kind: 'image',
-    label: 'MiniMax H3 · 图片（连接器）',
-    tool: 'connector__matrix__generate_image',
-    cli: 'mcode-tools',
-    note: '文生图 / 图片编辑；2K 单张约 ¥0.153。随包技能 imagecraft 写的是这条通道。',
-  },
-  {
-    id: 'connector-video',
-    kind: 'video',
-    label: 'MiniMax H3 · 视频（连接器）',
-    tool: 'connector__matrix__submit_video_generation',
-    cli: 'mcode-tools',
-    note: '按秒计费（768P 约 $0.08/秒，6 秒一条约 $0.48）。随包技能 drama-generate 写的是这条通道。',
-  },
-]
-
-/** 通道探测的缓存时长：探测要问宿主，不能每几秒问一遍。 */
+/** 通道探测的缓存时长：探测要问宿主与 CLI，不能每几秒问一遍。 */
 const PROBE_TTL_MS = 30_000
 
-/** 探测结果按 service 分开存（同一个进程可能有多个插件实例）。 */
-const probeCache = new WeakMap()
+/** 宿主模型目录的缓存（只在设置抽屉打开时用）。 */
+const hostCache = new WeakMap()
 
 const LABEL = { image: '生图', video: '生视频' }
 
 /**
  * 探测可用通道，并解析「生图 / 生视频」各自被配成了什么。
  *
- * 「继承宿主」= 用宿主已经装好的连接器（`mcode-tools`）与宿主已配的模型路由；
- * 「自治」= 插件自己的 `imageChannel` / `videoChannel` 指定一条通道。
- *
- * @param {any} service DramaDeskService
- * @param {{refresh?: boolean, host?: boolean}} [options]
- *   host=false（默认）时不问宿主的模型目录——设置面板打开时才需要它。
- * @returns {Promise<{
- *   host: {providers: Array<{id:string,name:string,models:number}>, reachable: boolean},
- *   connectors: Array<{id:string,kind:string,label:string,tool:string,installed:boolean,path?:string,reason?:string}>,
- *   custom: Array<{id:string,kind:string,label:string,model?:string,tool?:string,note?:string,installed:boolean,reason?:string}>,
- *   selection: {image: object, video: object},
- * }>}
- */
-export async function probeChannels(service, options = {}) {
-  const cached = probeCache.get(service)
-  const fresh = cached !== undefined && !options.refresh && Date.now() - cached.at < PROBE_TTL_MS
-  // 已经问过宿主的那份缓存，对 light 与 host 两种请求都够用；
-  // 只问过 light 的那份，遇到要宿主的请求必须重算。
-  if (fresh && (options.host !== true || cached.hostLoaded === true)) return cached.value
-  const config = service?.config ?? {}
-  const cliPath = await resolveCli(service)
-  const connectors = BUILTIN_CHANNELS.map(channel => {
-    const installed = cliPath !== undefined
-    const row = {
-      id: channel.id,
-      kind: channel.kind,
-      label: channel.label,
-      tool: channel.tool,
-      installed,
-    }
-    if (installed) row.path = cliPath
-    else row.reason = '找不到 mcode-tools（连接器 CLI）：这条通道现在调不动'
-    return row
-  })
-  const custom = readCustomChannels(config).map(channel => {
-    // 自定义通道：写了 cli 就按 CLI 是否存在判可用；没写就是「导演自己确认」。
-    const wanted = typeof channel.cli === 'string' && channel.cli !== '' ? channel.cli : undefined
-    const installed = wanted === undefined ? true : wanted === 'mcode-tools' ? cliPath !== undefined : true
-    const row = { ...channel, installed }
-    if (!installed) row.reason = `找不到 ${wanted}：这条通道现在调不动`
-    return row
-  })
-  const all = [...connectors, ...custom]
-  const host = options.host === true
-    ? await readHostCatalogue(service)
-    : { providers: [], reachable: false, note: '未探测：设置面板打开时才问宿主的模型目录' }
-  const value = {
-    host,
-    connectors,
-    custom,
-    selection: {
-      image: resolveSelection('image', all, host, config),
-      video: resolveSelection('video', all, host, config),
-    },
-  }
-  probeCache.set(service, { at: Date.now(), value, hostLoaded: options.host === true, hostTried: options.host === true })
-  return value
-}
-
-/**
- * 丢掉通道探测缓存（配置改了、或导演点了「重新探测」）。
+ * 「继承宿主」= 用宿主已认证的 mcode-tools 连接器；「自治」= 插件配置指定一条。
  *
  * @param {any} service
+ * @param {{refresh?: boolean, host?: boolean}} [options]
  */
-export function forgetChannels(service) {
-  probeCache.delete(service)
-}
-
-/**
- * 解析某一类生成最终会落到哪条通道。
- *
- * 返回里**永远带 `available` 与 `reason`**：不能出片时要能一句话说清为什么
- * （没装连接器 / 选的通道不存在 / 宿主没有模型），而不是让界面干瞪眼。
- *
- * @param {'image'|'video'} kind
- * @param {Array<any>} channels
- * @param {{providers: Array<any>}} host
- * @param {any} config
- */
-function resolveSelection(kind, channels, host, config) {
-  const wanted = kind === 'image' ? config.imageChannel : config.videoChannel
-  const model = kind === 'image' ? config.imageModel : config.videoModel
-  const usable = channels.filter(channel => channel.kind === kind)
-  const inherit = wanted === '' || wanted === undefined || wanted === 'inherit'
-  const hostModels = Array.isArray(host?.providers) ? host.providers.reduce((sum, row) => sum + (row.models || 0), 0) : 0
-  if (inherit) {
-    const candidate = usable.find(channel => channel.installed)
-    if (candidate !== undefined) {
-      return {
-        mode: 'inherit',
-        channel: candidate.id,
-        label: candidate.label,
-        tool: candidate.tool,
-        model: model !== undefined && model !== '' ? model : undefined,
-        available: true,
-        reason: '继承宿主：用宿主已装好的连接器',
-      }
-    }
-    return {
-      mode: 'inherit',
-      channel: undefined,
-      model: model !== undefined && model !== '' ? model : undefined,
-      available: false,
-      hostModels,
-      reason: usable.length === 0
-        ? `没有可用的${LABEL[kind]}通道`
-        : `继承宿主，但宿主没有装连接器 CLI（mcode-tools）——${LABEL[kind]}暂时调不动。可以装它，或在「生成通道」里自定义一条。`,
-    }
-  }
-  const picked = usable.find(channel => channel.id === wanted)
-  if (picked === undefined) {
-    return {
-      mode: 'custom',
-      channel: wanted,
-      model: model !== undefined && model !== '' ? model : undefined,
-      available: false,
-      reason: `配置指定的通道「${wanted}」不在可用通道里（可能被删了）`,
-    }
+export async function probeChannels(service, options = {}) {
+  const probed = await probeDrivers(service, { refresh: options.refresh === true })
+  const host = options.host === true ? await readHostCatalogue(service) : {
+    providers: [],
+    reachable: false,
+    note: '未探测：设置面板打开时才问宿主的模型目录',
   }
   return {
-    mode: 'custom',
-    channel: picked.id,
-    label: picked.label,
-    tool: picked.tool,
-    model: model !== undefined && model !== '' ? model : picked.model,
-    available: picked.installed === true,
-    reason: picked.installed === true ? '本插件指定的通道' : (picked.reason || '通道不可用'),
+    host,
+    connectors: probed.builtins,
+    custom: probed.custom,
+    selection: probed.selection,
+    cli: probed.cli,
+    auth: probed.auth,
+    notes: probed.notes,
   }
+}
+
+/** 丢掉通道探测缓存（配置改了、或点了「重新探测」）。 */
+export function forgetChannels(service) {
+  forgetDrivers(service)
+  hostCache.delete(service)
 }
 
 /**
  * 读宿主的模型目录（设置面板打开时才问）。
  *
- * 走 `service.providerList(true)`：它已经是「宿主自己的注册表」而不是插件
- * 自造的一份清单。这里只保留计数与 id，不把几十个模型塞进每次设置读取。
- *
- * @param {any} service
+ * 走 `service.providerList(true)`：宿主自己的注册表，不是插件自造的一份。
  */
 async function readHostCatalogue(service) {
+  const cached = hostCache.get(service)
+  if (cached !== undefined && Date.now() - cached.at < PROBE_TTL_MS) return cached.value
   let providers = []
   try {
     providers = await service.providerList(true)
@@ -210,81 +80,29 @@ async function readHostCatalogue(service) {
     models: Array.isArray(row?.models) ? row.models.length : 0,
     configured: row?.configured === true,
   })).filter(row => row.id !== '')
-  return {
+  const value = {
     providers: rows,
     reachable: rows.length > 0,
     modelCount: rows.reduce((sum, row) => sum + row.models, 0),
-    note: rows.length === 0
-      ? '宿主没有公布模型目录：模型 id 可以手填'
-      : undefined,
+    note: rows.length === 0 ? '宿主没有公布模型目录：模型 id 可以手填' : undefined,
   }
-}
-
-/** 配置里的自定义通道（形状不合法的一律丢掉，不猜）。 */
-function readCustomChannels(config) {
-  const raw = Array.isArray(config?.channels) ? config.channels : []
-  const out = []
-  for (const entry of raw) {
-    if (entry === null || typeof entry !== 'object') continue
-    const id = typeof entry.id === 'string' ? entry.id.trim() : ''
-    const kind = entry.kind === 'image' || entry.kind === 'video' ? entry.kind : undefined
-    if (id === '' || kind === undefined) continue
-    const row = {
-      id,
-      kind,
-      label: typeof entry.label === 'string' && entry.label !== '' ? entry.label : id,
-      custom: true,
-    }
-    if (typeof entry.model === 'string' && entry.model !== '') row.model = entry.model
-    if (typeof entry.tool === 'string' && entry.tool !== '') row.tool = entry.tool
-    if (typeof entry.cli === 'string' && entry.cli !== '') row.cli = entry.cli
-    if (typeof entry.note === 'string' && entry.note !== '') row.note = entry.note
-    out.push(row)
-  }
-  return out
-}
-
-/**
- * 连接器 CLI 在不在。
- *
- * 用宿主自己的 `subprocess.resolveExecutable`：它知道 PATH、也知道宿主自己的
- * 终端环境。宿主没有这个服务时**不猜**（返回 undefined ⇒ 通道标为不可用，
- * 理由写「找不到」——宁可说不能，也不要让导演以为能。
- *
- * @param {any} service
- * @returns {Promise<string|undefined>}
- */
-async function resolveCli(service) {
-  const subprocess = service?.ctx?.get?.('subprocess')
-  if (subprocess === undefined || typeof subprocess?.resolveExecutable !== 'function') return undefined
-  try {
-    const path = await subprocess.resolveExecutable('mcode-tools')
-    return typeof path === 'string' && path !== '' ? path : undefined
-  } catch {
-    return undefined
-  }
+  hostCache.set(service, { at: Date.now(), value })
+  return value
 }
 
 // ── 生产看板 ────────────────────────────────────────────────────────────────
 
 /**
- * 一个作品的生成进度与开销。
+ * 一个作品的生成进度与开销。**全部从磁盘派生**，不缓存业务状态。
  *
- * **全部从磁盘派生**（shots / assets / ledger / state.budget），不缓存业务状态：
- * agent 在别的会话里提交了任务、写回台账，这里下一轮就该看见。
+ * 口径（错了就是说谎）：
+ *  - `done`    有**当前视频**（能回看）——任务 succeeded 不等于这一条；
+ *  - `pending` 任务已成功 / 镜状态已生成，但还没下载登记成本地视频；
+ *  - `inFlight` 台账 submitting/submitted/running；
+ *  - `failed`  台账 failed；
+ *  - `todo`    其余。
  *
- * @param {any} work the loaded work（dir/shots/assets/ledger/state）
- * @returns {{
- *   counts: {total:number, done:number, pending:number, inFlight:number, failed:number, todo:number},
- *   progress: number,
- *   budget: {limitUsd?:number, spentUsd:number, remainingUsd?:number, perShotUsd?:number, perShotSource?:string},
- *   forecast: {shotsLeft:number, costUsd?:number, seconds?:number, basis:string},
- *   speed: {completed:number, avgSecondsPerShot?:number, avgCostUsd?:number},
- *   images: {references:number, keyframes:number, shotsWithKeyframe:number},
- *   scenes: Array<any>,
- *   inFlight: Array<any>,
- *   recent: Array<any>,
- * }}
+ * @param {any} work
  */
 export function generationBoard(work) {
   const shots = Array.isArray(work?.shots) ? work.shots : []
@@ -296,11 +114,6 @@ export function generationBoard(work) {
   const perShot = new Map()
   for (const shot of shots) {
     const entry = ledgerOf.get(shot?.id)
-    // 「做完了」的判据是**有一版能看的当前视频**，不是任务状态。
-    // 任务 succeeded 只说明服务端出片了；文件还没下载登记到资产索引时，
-    // 导演在网格里仍然看不到画面。所以这两件事分开数：
-    //   done    = 有当前视频（能回看）
-    //   pending = 任务已成功 / 镜状态已生成，但还没有登记成本地视频
     const take = hasCurrentVideo(work, shot)
     const inFlight = entry !== undefined && isInFlight(entry.status)
     const generated = entry?.status === 'succeeded' || shot?.status === 'succeeded' || shot?.status === 'generated'
@@ -319,22 +132,24 @@ export function generationBoard(work) {
       costUsd: numberOrUndefined(entry?.cost_usd),
     })
   }
-  // 没有镜头的作品：不该显示 0% 进度，显示 0 且明确「还没有分镜」。
   const progress = counts.total === 0 ? 0 : Math.round((counts.done / counts.total) * 100)
 
   const spentUsd = round2(entries.reduce((sum, entry) => sum + (numberOrUndefined(entry?.cost_usd) ?? 0), 0))
   const limitUsd = numberOrUndefined(work?.state?.budget?.limit_usd)
   const declaredPerShot = numberOrUndefined(work?.state?.budget?.cost_per_shot_usd)
-  const completedEntries = entries.filter(entry => entry?.status === 'succeeded')
-  const ledgerPerShot = completedEntries.length === 0
+  // 均价与速度只算**视频**：一张图 15 秒、一条视频 2 分钟，混在一起算出来的
+  // 「每镜均价 / 每镜耗时」两头都不对。
+  const completedVideo = entries.filter(entry => entry?.status === 'succeeded' && entry?.kind !== 'image')
+  const completedImages = entries.filter(entry => entry?.status === 'succeeded' && entry?.kind === 'image')
+  const ledgerPerShot = completedVideo.length === 0
     ? undefined
-    : round4(completedEntries.reduce((sum, entry) => sum + (numberOrUndefined(entry?.cost_usd) ?? 0), 0) / completedEntries.length)
+    : round4(completedVideo.reduce((sum, entry) => sum + (numberOrUndefined(entry?.cost_usd) ?? 0), 0) / completedVideo.length)
   const perShotUsd = declaredPerShot ?? ledgerPerShot
-  const perShotSource = declaredPerShot !== undefined ? 'state.json 的预算单价' : (ledgerPerShot !== undefined ? '台账里已完成任务的平均价' : undefined)
+  const perShotSource = declaredPerShot !== undefined ? 'state.json 的预算单价' : (ledgerPerShot !== undefined ? '台账里已完成视频任务的平均价' : undefined)
 
   const shotsLeft = counts.todo + counts.failed
   const forecastCost = perShotUsd === undefined ? undefined : round2(perShotUsd * (counts.todo + counts.failed))
-  const avgSeconds = averageSeconds(completedEntries)
+  const avgSeconds = averageSeconds(completedVideo)
   const forecastSeconds = avgSeconds === undefined ? undefined : Math.round(avgSeconds * (counts.todo + counts.failed))
 
   const scenes = (Array.isArray(work?.scenes) ? work.scenes : []).map(scene => {
@@ -369,6 +184,8 @@ export function generationBoard(work) {
     .filter(entry => isInFlight(entry?.status))
     .map(entry => ({
       shotId: entry.shot_id,
+      requestId: entry.request_id,
+      kind: entry.kind ?? 'video',
       taskId: entry.task_id ?? null,
       status: entry.status,
       model: entry.model,
@@ -386,6 +203,8 @@ export function generationBoard(work) {
     .slice(0, 5)
     .map(entry => ({
       shotId: entry.shot_id,
+      requestId: entry.request_id,
+      kind: entry.kind ?? 'video',
       taskId: entry.task_id ?? null,
       status: entry.status,
       model: entry.model,
@@ -417,7 +236,7 @@ export function generationBoard(work) {
         : '按 ' + perShotSource + ' 推算',
     },
     speed: {
-      completed: completedEntries.length,
+      completed: completedVideo.length,
       avgSecondsPerShot: avgSeconds,
       avgCostUsd: ledgerPerShot,
     },
@@ -425,6 +244,7 @@ export function generationBoard(work) {
       references,
       keyframes: keyframes.length,
       shotsWithKeyframe: shotsWithKeyframe.size,
+      completedImages: completedImages.length,
     },
     scenes,
     inFlight,
@@ -435,27 +255,47 @@ export function generationBoard(work) {
 // ── 生成计划 ────────────────────────────────────────────────────────────────
 
 /**
- * 下一批提交的计划。
+ * 下一批提交的计划，**生图与生视频两段**。
  *
- * 逐镜给出**动作**：
- *  - `submit`  该提交（提示词齐、还没提交过）
- *  - `skip`    已经在跑/已经成功（同一份提示词）——**这一步就是为了不重复扣费**
- *  - `blocked` 缺提示词 / 缺时长 / 缺运镜 / 没选通道
+ * 幂等判据：当前请求的 **full-v2 指纹**与台账里那条一样 ⇒ 同一个请求。
+ * 老台账（只有 prompt_sha256）按提示词比对——向后兼容，不让历史作品「全部重做」。
  *
- * 幂等的判据是**提示词 sha256**：台账记的是提交时那份提示词的指纹，
- * 现在这份指纹一样 ⇒ 同一个请求，重发就是重复付费。
- *
- * @param {any} work the loaded work
- * @param {any} service DramaDeskService（用它的 `check()` 拿过期的镜号清单）
+ * @param {any} work
+ * @param {any} service
  * @param {string} workspaceId
- * @param {{shots?: string[], limit?: number}} [options]
- * @returns {Promise<object>}
+ * @param {{shots?: string[], limit?: number, includePrompts?: boolean}} [options]
  */
 export async function generationPlan(work, service, workspaceId, options = {}) {
-  const channels = await probeChannels(service)
-  const channel = channels.selection.video
+  const channels = await probeChannels(service, { host: false })
+  const video = await buildVideoSection(work, service, workspaceId, channels.selection.video, options)
+  const image = await buildImageSection(work, service, channels.selection.image)
+  const digest = sha256(canonicalJson({
+    channel: { image: channels.selection.image?.channel ?? null, video: channels.selection.video?.channel ?? null },
+    image: image.rows.map(row => ({ id: row.id, action: row.action, request: row.request, fingerprint: row.fingerprint })),
+    video: video.rows.map(row => ({ id: row.id, action: row.action, request: row.request, fingerprint: row.fingerprint })),
+  }))
+  // 提示词正文默认不回给 UI / agent（72 镜会撑爆上下文）；执行时用 includePrompts 重算。
+  if (options.includePrompts !== true) {
+    for (const row of [...image.rows, ...video.rows]) {
+      if (row.request !== undefined) delete row.request.promptText
+    }
+  }
+  return {
+    workspace: { id: workspaceId, dir: work?.dir },
+    channels: { image: channels.selection.image, video: channels.selection.video },
+    image,
+    video,
+    digest,
+    // 兼容：旧调用方把 rows/summary 当视频段读。
+    rows: video.rows,
+    summary: video.summary,
+  }
+}
+
+async function buildVideoSection(work, service, workspaceId, channel, options) {
   const prompts = await readPromptArtifacts(work?.dir)
-  const ledgerOf = latestByShot(Array.isArray(work?.ledger) ? work.ledger : [])
+  const ledger = Array.isArray(work?.ledger) ? work.ledger : []
+  const ledgerOf = latestByShot(ledger)
   let staleShots = new Set()
   if (typeof service?.check === 'function' && workspaceId !== undefined) {
     try {
@@ -489,56 +329,67 @@ export async function generationPlan(work, service, workspaceId, options = {}) {
       action = 'blocked'
       reasons.push('镜头缺 camera（运镜）')
     }
-    // 通道不可用**不逐镜标阻塞**：计划的内容（该提交谁、花多少、有没有重复）
-    // 仍然成立，agent 也可能走别的合法通道。它作为整批的一条警告挂在 summary 上，
-    // 由界面与 agent 在「真正提交前」解决。
-    if (action !== 'blocked' && prompt !== undefined && entry !== undefined) {
-      const sameRequest = typeof entry.prompt_sha256 === 'string' && entry.prompt_sha256 === prompt.sha256
-      if (sameRequest && (isInFlight(entry.status) || entry.status === 'succeeded')) {
+    const model = channel.model ?? shot?.model
+    const resolution = shot?.resolution ?? work?.state?.budget?.resolution
+    const ratio = shot?.ratio ?? work?.state?.ratio
+    const duration = numberOrUndefined(shot?.duration)
+    const referenceAssetIds = (Array.isArray(shot?.references) ? shot.references : []).map(String)
+    const promptText = prompt?.text ?? ''
+    const fingerprint = fingerprintOf({
+      kind: 'video', prompt: promptText, model, resolution, ratio, duration, references: referenceAssetIds,
+    })
+    const candidate = { fingerprint, promptSha: prompt === undefined ? '' : prompt.sha256 }
+    if (action !== 'blocked' && entry !== undefined && sameShot(entry)) {
+      const matched = entryMatches(entry, candidate)
+      if (matched && (isInFlight(entry.status) || entry.status === 'succeeded')) {
         action = 'skip'
         reasons.push(entry.status === 'succeeded'
-          ? `同一份提示词已经生成过（${entry.shot_id} 版本已在台账）`
-          : `同一份提示词已在途（任务 ${entry.task_id ?? '未知'}，状态 ${entry.status}）`)
-      } else if (sameRequest && entry.status === 'failed') {
-        reasons.push('上一次同一份提示词失败了：先看失败原因，再决定是否重发')
-      } else if (!sameRequest && entry !== undefined) {
-        reasons.push('提示词或版本变了：这是一次新的提交')
+          ? '同一份请求已经生成过（提示词 + 模型 + 时长 + 参考图一致）'
+          : `同一份请求已在途（任务 ${entry.task_id ?? '未知'}，状态 ${entry.status}）`)
+      } else if (matched && entry.status === 'failed') {
+        reasons.push('上一次同一份请求失败了：先看失败原因，再决定是否重发')
+      } else if (!matched) {
+        reasons.push('请求参数变了（提示词 / 模型 / 分辨率 / 时长 / 参考图）：这是一次新的提交')
       }
     }
-    // 提示词过期不是阻塞：产物在那儿就能提交，只是它和真源不一致。
     const stale = staleShots.has(shot?.id)
     if (stale) reasons.push('提示词已过期（真源改过）：建议先重新编译')
-    const cost = perShotUsd === undefined ? undefined : perShotUsd
-    const seconds = numberOrUndefined(shot?.duration)
+    const cost = perShotUsd
     rows.push({
+      kind: 'video',
       id: shot?.id,
       scene: shot?.scene,
       title: shot?.title ?? '',
       action,
       reasons,
+      fingerprint,
+      fingerprintAlgo: FINGERPRINT_ALGO,
       prompt: prompt === undefined
         ? { exists: false }
         : { exists: true, source: prompt.source, sha256: prompt.sha256, bytes: prompt.bytes, stale, words: prompt.words },
       ledger: entry === undefined ? null : {
         status: entry.status,
         taskId: entry.task_id ?? null,
+        fingerprint: entry.fingerprint ?? null,
         promptSha256: entry.prompt_sha256 ?? null,
         costUsd: numberOrUndefined(entry?.cost_usd),
         submittedAt: entry.submitted_at,
       },
       request: {
-        model: channel.model ?? shot?.model,
-        resolution: shot?.resolution ?? work?.state?.budget?.resolution,
-        duration: seconds,
-        ratio: shot?.ratio ?? work?.state?.ratio,
-        referenceCount: Array.isArray(shot?.references) ? shot.references.length : 0,
+        model,
+        resolution,
+        duration,
+        ratio,
+        referenceCount: referenceAssetIds.length,
+        referenceAssetIds,
         costUsd: cost,
+        promptText,
       },
     })
     if (action === 'submit') {
       projection.submit += 1
       projection.costUsd += cost ?? 0
-      projection.seconds += seconds ?? 0
+      projection.seconds += duration ?? 0
     } else if (action === 'skip') projection.skip += 1
     else projection.blocked += 1
     if (limit !== undefined && projection.submit >= limit) {
@@ -547,9 +398,7 @@ export async function generationPlan(work, service, workspaceId, options = {}) {
     }
   }
 
-  projection.costUsd = round2(projection.costUsd)
   return {
-    workspace: { id: workspaceId, dir: work?.dir },
     channel,
     rows,
     summary: {
@@ -557,26 +406,187 @@ export async function generationPlan(work, service, workspaceId, options = {}) {
       skip: projection.skip,
       blocked: projection.blocked,
       capped: projection.capped,
-      // 通道能不能真把事办成，是**整批**的前提；不可用时界面要顶一条横幅，
-      // 而不是把 72 行都标成阻塞（那样反而看不出「哪些镜该提交」）。
-      channelReady: channel.available === true,
-      channelReason: channel.available === true ? undefined : (channel.reason || '没有可用的生视频通道'),
-      costUsd: perShotUsd === undefined && projection.submit > 0 ? undefined : projection.costUsd,
+      channelReady: channel.available === true && channel.executable !== false,
+      channelReason: channel.available === true && channel.executable !== false
+        ? undefined
+        : (channel.reason || '没有可用的生视频通道'),
+      costUsd: perShotUsd === undefined && projection.submit > 0 ? undefined : round2(projection.costUsd),
       seconds: projection.seconds,
       perShotUsd,
       note: perShotUsd === undefined
         ? '还没有预算单价（state.json 的 budget.cost_per_shot_usd）：费用只能按模型单价自己算'
-        : '按 state.json 的预算单价估算；实际以台账回写的 cost_usd 为准',
+        : '按 state.json 的预算单价估算；实际以服务计费为准，台账回写的是这个估算值',
     },
   }
 }
 
+/**
+ * 生图段：读作品里的 `image-requests.json`（导演 / 规划用例的真源）。
+ *
+ * 形状：
+ * ```json
+ * { "requests": [ { "id": "SC01-SH01-keyframe", "prompt": "…", "aspectRatio": "16:9",
+ *                   "area": "2K", "count": 1, "referenceAssetIds": ["char_face"],
+ *                   "targetShotId": "SC01-SH01", "role": "keyframe" } ] }
+ * ```
+ */
+async function buildImageSection(work, service, channel) {
+  const doc = await readJsonIfExists(join(work?.dir ?? '', 'image-requests.json'))
+  const requests = Array.isArray(doc?.requests) ? doc.requests : []
+  const ledger = Array.isArray(work?.ledger) ? work.ledger : []
+  const perImageUsd = numberOrUndefined(work?.state?.budget?.cost_per_image_usd)
+  const used = new Set()
+  const rows = []
+  const projection = { submit: 0, skip: 0, blocked: 0, costUsd: 0, images: 0 }
+  for (let index = 0; index < requests.length; index += 1) {
+    const request = requests[index] ?? {}
+    const id = typeof request.id === 'string' && request.id.trim() !== '' ? request.id.trim() : 'img-' + (index + 1)
+    const promptText = typeof request.prompt === 'string' ? request.prompt : ''
+    const reasons = []
+    let action = 'submit'
+    if (promptText.trim() === '') {
+      action = 'blocked'
+      reasons.push('这一条没有 prompt')
+    }
+    const referenceAssetIds = Array.isArray(request.referenceAssetIds) ? request.referenceAssetIds.map(String) : []
+    for (const assetId of referenceAssetIds) {
+      if (!(work?.assets ?? []).some(asset => asset.id === assetId)) {
+        action = 'blocked'
+        reasons.push('参考资产不存在：' + assetId)
+      }
+    }
+    if (request.targetShotId !== undefined && !(work?.shots ?? []).some(shot => shot.id === request.targetShotId)) {
+      action = 'blocked'
+      reasons.push('目标镜头不存在：' + request.targetShotId)
+    }
+    const fingerprint = fingerprintOf({
+      kind: 'image', prompt: promptText, area: request.area, n: request.count ?? 1,
+      aspectRatio: request.aspectRatio, references: referenceAssetIds,
+    })
+    const entry = ledger.find(row => row?.kind === 'image'
+      && (row?.request_id === id || row?.fingerprint === fingerprint))
+    if (action !== 'blocked' && entry !== undefined) {
+      const matched = entry.fingerprint_algo === FINGERPRINT_ALGO
+        ? entry.fingerprint === fingerprint
+        : entry.prompt_sha256 === promptSha(promptText)
+      if (matched && (entry.status === 'succeeded' || entry.status === 'submitting')) {
+        action = 'skip'
+        reasons.push(entry.status === 'succeeded' ? '这一条已经出过图（同一参数）' : '这一条正在提交中')
+      } else if (matched && entry.status === 'failed') {
+        reasons.push('上一次失败了：先看原因再决定是否重试')
+      } else if (!matched) {
+        reasons.push('参数变了：这是一次新的出图')
+      }
+    }
+    const count = Number.isInteger(request.count) && request.count > 0 ? request.count : 1
+    const cost = perImageUsd === undefined ? undefined : round2(perImageUsd * count)
+    rows.push({
+      kind: 'image',
+      id,
+      action,
+      reasons,
+      fingerprint,
+      fingerprintAlgo: FINGERPRINT_ALGO,
+      request: {
+        promptText,
+        aspectRatio: request.aspectRatio,
+        area: request.area,
+        count,
+        referenceAssetIds,
+        targetShotId: request.targetShotId,
+        role: request.role,
+        outputFile: id,
+        costUsd: cost,
+      },
+      ledger: entry === undefined ? null : {
+        status: entry.status,
+        nodeId: entry.node_id ?? null,
+        file: entry.output_path ?? null,
+        costUsd: numberOrUndefined(entry?.cost_usd),
+      },
+    })
+    if (action === 'submit') {
+      projection.submit += 1
+      projection.images += count
+      projection.costUsd += cost ?? 0
+    } else if (action === 'skip') projection.skip += 1
+    else projection.blocked += 1
+    used.add(id)
+  }
+  return {
+    channel,
+    source: requests.length === 0 ? '作品里没有 image-requests.json（生图计划为空）' : 'image-requests.json',
+    rows,
+    summary: {
+      submit: projection.submit,
+      skip: projection.skip,
+      blocked: projection.blocked,
+      images: projection.images,
+      channelReady: channel.available === true && channel.executable !== false,
+      channelReason: channel.available === true && channel.executable !== false
+        ? undefined
+        : (channel.reason || '没有可用的生图通道'),
+      costUsd: perImageUsd === undefined && projection.images > 0 ? undefined : round2(projection.costUsd),
+      perImageUsd,
+      note: perImageUsd === undefined
+        ? '还没有图片单价（state.json 的 budget.cost_per_image_usd）：费用只能按模型单价自己算'
+        : '按 state.json 的单价估算；实际以服务计费为准',
+    },
+  }
+}
+
+// ── 提示词产物 ──────────────────────────────────────────────────────────────
+
+/**
+ * 读全片的提示词产物（人工覆盖优先）。
+ *
+ * 两个目录各列一次，再只读真正存在的那一份——不是逐镜两次「失败探测」。
+ *
+ * @param {string} dir
+ * @returns {Promise<Map<string, {source:'override'|'slim', text:string, sha256:string, bytes:number, words:number}>>}
+ */
+export async function readPromptArtifacts(dir) {
+  const map = new Map()
+  if (typeof dir !== 'string' || dir === '') return map
+  const slim = await listDirIfExists(join(dir, 'prompts', 'slim'))
+  const overrides = await listDirIfExists(join(dir, 'prompts', 'overrides'))
+  const collect = (names, folder) => {
+    const out = new Map()
+    for (const name of names) {
+      if (!name.endsWith('.prompt.txt')) continue
+      out.set(name.slice(0, -'.prompt.txt'.length), join(dir, 'prompts', folder, name))
+    }
+    return out
+  }
+  const slimFiles = collect(slim, 'slim')
+  const overrideFiles = collect(overrides, 'overrides')
+  for (const id of new Set([...slimFiles.keys(), ...overrideFiles.keys()])) {
+    const override = overrideFiles.get(id)
+    const path = override ?? slimFiles.get(id)
+    const text = await readTextIfExists(path)
+    if (text === undefined) continue
+    map.set(id, {
+      source: override === undefined ? 'slim' : 'override',
+      text,
+      sha256: promptSha(text),
+      bytes: Buffer.byteLength(text, 'utf8'),
+      words: text.trim() === '' ? 0 : text.trim().split(/\s+/).length,
+    })
+  }
+  return map
+}
+
 // ── 小工具 ──────────────────────────────────────────────────────────────────
 
-/** 台账里同一镜可能有多条：取「最近提交」的那条。 */
+function sameShot(entry) {
+  return entry !== undefined
+}
+
+/** 台账里同一镜可能有多条：取「最近提交」的那条（只看视频条目）。 */
 function latestByShot(entries) {
   const map = new Map()
   for (const entry of entries) {
+    if (entry?.kind === 'image') continue
     const id = entry?.shot_id
     if (typeof id !== 'string' || id === '') continue
     const current = map.get(id)
@@ -585,7 +595,6 @@ function latestByShot(entries) {
   return map
 }
 
-/** 一条台账的「最近活动」时间戳（毫秒）；读不出来就是 0。 */
 function stampOf(entry) {
   const explicit = entry?.succeeded_at ?? entry?.failed_at ?? entry?.last_query_at ?? entry?.submitted_at
   const explicitAt = typeof explicit === 'string' ? Date.parse(explicit) : Number.NaN
@@ -594,13 +603,6 @@ function stampOf(entry) {
   return events.length === 0 ? 0 : events[events.length - 1].at
 }
 
-/**
- * 任务的完成时刻（毫秒）。
- *
- * 台账**不一定有** `succeeded_at`：随包技能写的是 `trajectory`（每次状态变化
- * 一行）。只认 `succeeded_at` 会把「7 天前提交、当天完成」算成「跑了 7 天」。
- * 所以终态先从轨迹里找。
- */
 function completedAtOf(entry) {
   for (const status of ['succeeded', 'failed']) {
     const explicit = status === 'succeeded' ? entry?.succeeded_at : entry?.failed_at
@@ -612,7 +614,6 @@ function completedAtOf(entry) {
   return undefined
 }
 
-/** 台账轨迹里能解析出时间的事件。 */
 function trajectoryOf(entry) {
   const rows = Array.isArray(entry?.trajectory) ? entry.trajectory : []
   const events = []
@@ -623,7 +624,6 @@ function trajectoryOf(entry) {
   return events
 }
 
-/** 任务跑了多久（秒）：从提交到完成；还没完成就到现在。 */
 function elapsedSeconds(entry, now) {
   const events = trajectoryOf(entry)
   const submitted = events.find(event => event.status === 'submitted')
@@ -634,7 +634,6 @@ function elapsedSeconds(entry, now) {
   return Math.max(0, Math.round((stop - start) / 1000))
 }
 
-/** 已完成任务的平均耗时（秒）。 */
 function averageSeconds(entries) {
   const values = []
   for (const entry of entries) {
@@ -653,10 +652,6 @@ function isInFlight(status) {
   return status === 'submitting' || status === 'submitted' || status === 'running'
 }
 
-function isFinishedStatus(status) {
-  return status === 'pass' || status === 'warn' || status === 'fail' || status === 'verified' || status === 'succeeded'
-}
-
 function hasCurrentVideo(work, shot) {
   try {
     return currentVideo(work, shot) !== undefined
@@ -670,6 +665,10 @@ function numberOrUndefined(value) {
   return Number.isFinite(number) ? number : undefined
 }
 
+function sha256(text) {
+  return createHash('sha256').update(String(text), 'utf8').digest('hex')
+}
+
 function round2(value) {
   return Math.round(value * 100) / 100
 }
@@ -677,45 +676,3 @@ function round2(value) {
 function round4(value) {
   return Math.round(value * 10000) / 10000
 }
-
-/**
- * 读全片的提示词产物（人工覆盖优先）。
- *
- * 两个目录各列一次，再只读真正存在的那一份——不是逐镜两次「失败探测」
- * （见 `docs/dev/performance.md` P7）。
- *
- * @param {string} dir work directory
- * @returns {Promise<Map<string, {source:'override'|'slim', text:string, sha256:string, bytes:number, words:number}>>}
- */
-async function readPromptArtifacts(dir) {
-  const map = new Map()
-  if (typeof dir !== 'string' || dir === '') return map
-  const slim = await listDirIfExists(join(dir, 'prompts', 'slim'))
-  const overrides = await listDirIfExists(join(dir, 'prompts', 'overrides'))
-  const slimFiles = new Map()
-  for (const name of slim) {
-    if (!name.endsWith('.prompt.txt')) continue
-    slimFiles.set(name.slice(0, -'.prompt.txt'.length), join(dir, 'prompts', 'slim', name))
-  }
-  const overrideFiles = new Map()
-  for (const name of overrides) {
-    if (!name.endsWith('.prompt.txt')) continue
-    overrideFiles.set(name.slice(0, -'.prompt.txt'.length), join(dir, 'prompts', 'overrides', name))
-  }
-  for (const id of new Set([...slimFiles.keys(), ...overrideFiles.keys()])) {
-    const override = overrideFiles.get(id)
-    const path = override ?? slimFiles.get(id)
-    const text = await readTextIfExists(path)
-    if (text === undefined) continue
-    map.set(id, {
-      source: override === undefined ? 'slim' : 'override',
-      text,
-      sha256: createHash('sha256').update(text, 'utf8').digest('hex'),
-      bytes: Buffer.byteLength(text, 'utf8'),
-      words: text.trim() === '' ? 0 : text.trim().split(/\s+/).length,
-    })
-  }
-  return map
-}
-
-export { readPromptArtifacts, BUILTIN_CHANNELS }

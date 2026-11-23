@@ -30,6 +30,7 @@ import { buildStageView, readStagePrompt, shotSummary, STAGE_VIEWS } from './sta
 import { resolvePoster, resolvePosterSource } from './posters.js'
 import { assemblyPlan, assemblyJob, startAssembly, finalCuts } from './assembly.js'
 import { probeChannels, forgetChannels, generationBoard, generationPlan } from './generation.js'
+import { executeGenerationPlan, pollGenerationTasks } from './generation-exec.js'
 import { currentVideo, videoVersion } from './media.js'
 import { productionTaskFor } from './production.js'
 import { addProductionRecord } from './authoring.js'
@@ -1055,7 +1056,40 @@ export class DramaDeskService {
     return await generationPlan(work, this, workspace.id, {
       shots: Array.isArray(options.shots) ? options.shots : undefined,
       limit: options.limit,
+      includePrompts: options.includePrompts === true,
     })
+  }
+
+  /**
+   * 执行一份生成计划（**会花钱**）。
+   *
+   * 三道闸：`approve: true`、计划摘要 `digest`、以及现算的计划必须与摘要一致。
+   * 任何一道不过就拒——绝不拿「可能已经过期的计划」去提交。
+   *
+   * @param {{workspaceId?: string, digest?: string, approve?: boolean,
+   *   kinds?: Array<'image'|'video'>, shots?: string[], limit?: number}} [options]
+   */
+  async executeGeneration(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const work = await loadWorkspace(workspace.dir)
+    return await executeGenerationPlan(this, workspace, work, {
+      digest: options.digest,
+      approve: options.approve === true,
+      kinds: Array.isArray(options.kinds) ? options.kinds : undefined,
+      shots: Array.isArray(options.shots) ? options.shots : undefined,
+      limit: options.limit,
+    })
+  }
+
+  /**
+   * 轮询在途任务：查状态、成功即下载并登记。**只读 + 落地，不重提。**
+   *
+   * @param {{workspaceId?: string}} [options]
+   */
+  async pollGeneration(options = {}) {
+    const workspace = await this.requireWorkspace(options)
+    const work = await loadWorkspace(workspace.dir)
+    return await pollGenerationTasks(this, workspace, work)
   }
 
   /** 让下一次 `channels()` 重新探测（设置里点了「重新探测」）。 */
@@ -1234,6 +1268,8 @@ export class DramaDeskService {
         image: { channel: this.config.imageChannel ?? '', model: this.config.imageModel ?? '' },
         video: { channel: this.config.videoChannel ?? '', model: this.config.videoModel ?? '' },
         custom: Array.isArray(this.config.channels) ? this.config.channels : [],
+        mcodePath: this.config.mcodePath ?? '',
+        paidExecution: this.config.paidExecution ?? 'receipt',
       },
       providers,
       picker,
@@ -1330,6 +1366,10 @@ export class DramaDeskService {
     if (options.videoChannel !== undefined) patch.videoChannel = String(options.videoChannel)
     if (options.videoModel !== undefined) patch.videoModel = String(options.videoModel)
     if (Array.isArray(options.channels)) patch.channels = options.channels
+    if (options.mcodePath !== undefined) patch.mcodePath = String(options.mcodePath)
+    if (options.paidExecution !== undefined) {
+      patch.paidExecution = String(options.paidExecution) === 'off' ? 'off' : 'receipt'
+    }
     if (options.autoRefresh !== undefined) patch.autoRefresh = Number(options.autoRefresh) || 0
     if (Object.keys(patch).length > 0) {
       await editor.edit(entry, current => ({ ...current, ...patch }))
